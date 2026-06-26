@@ -1,0 +1,8 @@
+# Normalize line endings: store and check out text as LF (correct for web + bash scripts)
+* text=auto eol=lf
+*.sh   text eol=lf
+*.py   text eol=lf
+
+# Treat fonts/images as binary (never line-ending-converted)
+*.woff2 binary
+*.png   binary

