@@ -119,13 +119,12 @@ const NAV = [
 ];
 
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
+/* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
-  { label:'Recon — Web Recon Guide',     route:'recon/guide', date:'Jun 2026' },
-  { label:'XSS — Testing Guide',         route:'xss/guide',   date:'Jun 2026' },
-  { label:'CSRF — Testing Guide',        route:'csrf/guide',  date:'Jun 2026' },
-  { label:'Recon — Zero to Expert (Q&A)',route:'recon/qa',    date:'Jun 2026' },
-  { label:'XSS — Zero to Expert (Q&A)',  route:'xss/qa',      date:'Jun 2026' },
-  { label:'CSRF — Zero to Expert (Q&A)', route:'csrf/qa',     date:'Jun 2026' },
+  { label:'Recon', route:'recon/guide', date:'Jun 2026' },
+  { label:'XSS',   route:'xss/guide',   date:'Jun 2026' },
+  { label:'CSRF',  route:'csrf/guide',  date:'Jun 2026' },
+  { label:'JWT',   route:'jwt/guide',   date:'Jun 2026' },
 ];
 function renderRecent(){
   const ul = document.getElementById('recent'); if(!ul) return;
@@ -210,6 +209,48 @@ function assignHeadingIds(root){
   root.querySelectorAll('h1,h2,h3,h4,h5,h6').forEach(h=>{ h.id = slug(h.textContent); });
 }
 
+/* ---- Notion-style on-page Table of Contents (right floating minimap → expands on hover) ---- */
+let _tocScrollHandler = null;
+function buildPageToc(root){
+  const toc = document.getElementById('pageToc');
+  if(!toc) return;
+  if(_tocScrollHandler){ window.removeEventListener('scroll', _tocScrollHandler); _tocScrollHandler = null; }
+  toc.innerHTML = ''; toc.classList.remove('show'); document.body.classList.remove('has-toc');
+  const heads = root ? Array.from(root.querySelectorAll('h1,h2,h3')).filter(h=> h.id && h.textContent.trim()) : [];
+  if(heads.length < 3) return;                         // too short to be worth a TOC
+
+  const inner = el('div','toc-inner');
+  inner.appendChild(elText('div','toc-title','On this page'));
+  const listEl = el('div','toc-list');
+  const items = [];
+  heads.forEach(h=>{
+    const lvl = +h.tagName[1];
+    const a = el('a','toc-item lvl-'+lvl);
+    a.href = '#'+h.id; a.dataset.target = h.id; a.title = h.textContent;
+    a.appendChild(elText('span','toc-text', h.textContent));
+    a.appendChild(el('span','toc-dash'));
+    a.addEventListener('click',(e)=>{ e.preventDefault(); scrollToAnchor(h.id); });
+    listEl.appendChild(a);
+    items.push({ a, h });
+  });
+  inner.appendChild(listEl);
+  toc.appendChild(inner);
+  toc.classList.add('show'); document.body.classList.add('has-toc');
+
+  // scroll-spy: the last heading scrolled past 130px from the top is the active one
+  const spy = ()=>{
+    let active = items[0];
+    for(const it of items){ if(it.h.getBoundingClientRect().top <= 130) active = it; else break; }
+    items.forEach(it=> it.a.classList.toggle('active', it === active));
+    if(inner.scrollHeight > inner.clientHeight){       // keep the active marker visible in a tall list
+      inner.scrollTop = Math.max(0, active.a.offsetTop - inner.clientHeight / 2);
+    }
+  };
+  _tocScrollHandler = ()=> requestAnimationFrame(spy);
+  window.addEventListener('scroll', _tocScrollHandler, { passive:true });
+  spy();
+}
+
 /* ---- markdown rendering (HTML sanitised — these guides contain live payloads) ---- */
 function renderMarkdown(md){
   marked.setOptions({ gfm:true, breaks:false });
@@ -267,6 +308,7 @@ async function route(){
       pre.appendChild(code);
       md.appendChild(pre);
       try{ hljs.highlightElement(code); }catch(e){}
+      buildPageToc(null);                       // code pages have no outline
       document.title = meta.title + ' · x8bitranjit';
       window.scrollTo(0,0);
       document.querySelector('.sidebar').classList.remove('open');
@@ -283,6 +325,7 @@ async function route(){
       `<div class="site-foot">x8bitranjit · security knowledge base · authorized testing only.</div>`;
     const mdRoot = content.querySelector('.md');
     assignHeadingIds(mdRoot);
+    buildPageToc(mdRoot);
     mdRoot.querySelectorAll('pre code').forEach(b=>{ try{hljs.highlightElement(b);}catch(e){} });
     document.title = meta.title + ' · x8bitranjit';
     window.scrollTo(0,0);
@@ -292,6 +335,7 @@ async function route(){
       <blockquote>If you opened this with <code>file://</code>, run a local server instead:
       <br><code>cd site &amp;&amp; python -m http.server 8080</code> then open
       <a href="http://localhost:8080">http://localhost:8080</a>. On GitHub Pages it loads directly.</blockquote></div>`;
+    buildPageToc(null);
   }
   document.querySelector('.sidebar').classList.remove('open');
   document.querySelector('.overlay')?.classList.remove('show');
