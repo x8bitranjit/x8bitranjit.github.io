@@ -82,6 +82,12 @@ const DOCS = {
   'jsfiles/poc':      { doc:'content/jsfiles-poc.md',       title:'JavaScript Files — PoC Scripts',         chips:['Web','Runnable scripts'] },
   'jsfiles/qa':       { doc:'content/jsfiles-qa.md',        title:'JavaScript Files — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
 
+  'ldap/guide':    { doc:'content/ldap-guide.md',     title:'LDAP Injection — Testing Guide',       chips:['Web','Critical: auth-bypass / ATO / disclosure'] },
+  'ldap/arsenal':  { doc:'content/ldap-arsenal.md',   title:'LDAP Injection — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'ldap/checklist':{ doc:'content/ldap-checklist.md', title:'LDAP Injection — Testing Checklist',   chips:['Web','Per-sink'] },
+  'ldap/poc':      { doc:'content/ldap-poc.md',       title:'LDAP Injection — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'ldap/qa':       { doc:'content/ldap-qa.md',        title:'LDAP Injection — Zero to Expert (Q&A)',chips:['Web','Study · 100 Q'] },
+
   'lfi/guide':    { doc:'content/lfi-guide.md',     title:'LFI — Testing Guide',       chips:['Web','Critical: RCE / source disclosure'] },
   'lfi/arsenal':  { doc:'content/lfi-arsenal.md',   title:'LFI — Attack Arsenal',      chips:['Web','Copy-paste'] },
   'lfi/checklist':{ doc:'content/lfi-checklist.md', title:'LFI — Testing Checklist',   chips:['Web','Per-parameter'] },
@@ -196,6 +202,10 @@ registerCode('jsfiles','jsfiles-poc','JavaScript Files',[
   ['endpoints','endpoints.py','python'], ['dom_sinks','dom_sinks.py','python'],
   ['sourcemap_unpack','sourcemap_unpack.py','python'],
 ]);
+registerCode('ldap','ldap-poc','LDAP Injection',[
+  ['ldap_fuzz','ldap_fuzz.py','python'], ['ldap_blind','ldap_blind.py','python'],
+  ['ldapsearch_cheat','ldapsearch_cheat.md','markdown'],
+]);
 registerCode('lfi','lfi-poc','LFI',[
   ['lfi_fuzz','lfi_fuzz.py','python'], ['phpfilter_dump','phpfilter_dump.py','python'],
   ['filter_chain_rce','filter_chain_rce.py','python'], ['logpoison','logpoison.py','python'],
@@ -284,6 +294,7 @@ const CORS_PAGES       = kitPages('cors');
 const FILEUPLOAD_PAGES = kitPages('fileupload');
 const HOSTHEADER_PAGES = kitPages('hostheader');
 const JSFILES_PAGES    = kitPages('jsfiles');
+const LDAP_PAGES       = kitPages('ldap');
 const LFI_PAGES        = kitPages('lfi');
 const RFI_PAGES        = kitPages('rfi');
 const SMUGGLING_PAGES  = kitPages('smuggling');
@@ -303,6 +314,7 @@ const NAV = [
     { label:'IDOR / BOLA', kit:true, pages:IDOR_PAGES },
     { label:'JavaScript Files', kit:true, pages:JSFILES_PAGES },
     { label:'JWT', kit:true, pages:JWT_PAGES },
+    { label:'LDAP', kit:true, pages:LDAP_PAGES },
     { label:'LFI', kit:true, pages:LFI_PAGES },
     { label:'Race Condition', kit:true, pages:RACECONDITION_PAGES },
     { label:'Request Smuggling', kit:true, pages:SMUGGLING_PAGES },
@@ -325,6 +337,7 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'LDAP',           route:'ldap/guide',           date:'Jun 2026' },
   { label:'WebSocket',      route:'websocket/guide',      date:'Jun 2026' },
   { label:'IDOR',           route:'idor/guide',           date:'Jun 2026' },
   { label:'Race Condition', route:'racecondition/guide',  date:'Jun 2026' },
