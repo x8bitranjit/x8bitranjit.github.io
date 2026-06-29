@@ -1,6 +1,6 @@
 /* ===== x8bitranjit security guides — SPA router + markdown renderer ===== */
 
-/* ---- Site map. Live kits: Recon, JWT, XSS, CSRF. ---- */
+/* ---- Site map. Live kits: Recon, JWT, XSS, CSRF, WebSocket, IDOR, Race Condition, GraphQL. ---- */
 const DOCS = {
   'about':        { doc:'content/about.md',        title:'About',                    chips:[] },
 
@@ -27,16 +27,40 @@ const DOCS = {
   'csrf/checklist':{ doc:'content/csrf-checklist.md', title:'CSRF — Testing Checklist', chips:['Web','Per-target'] },
   'csrf/poc':      { doc:'content/csrf-poc.md',       title:'CSRF — PoC Scripts',       chips:['Web','Runnable scripts'] },
   'csrf/qa':       { doc:'content/csrf-qa.md',        title:'CSRF — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'websocket/guide':    { doc:'content/websocket-guide.md',     title:'WebSocket — Testing Guide',       chips:['Web','Critical: CSWSH / ATO'] },
+  'websocket/arsenal':  { doc:'content/websocket-arsenal.md',   title:'WebSocket — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'websocket/checklist':{ doc:'content/websocket-checklist.md', title:'WebSocket — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'websocket/poc':      { doc:'content/websocket-poc.md',       title:'WebSocket — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'websocket/qa':       { doc:'content/websocket-qa.md',        title:'WebSocket — Zero to Expert (Q&A)',chips:['Web','Study · 115+ Q'] },
+
+  'idor/guide':    { doc:'content/idor-guide.md',     title:'IDOR — Testing Guide',       chips:['Web','Critical: BOLA / ATO / mass PII'] },
+  'idor/arsenal':  { doc:'content/idor-arsenal.md',   title:'IDOR — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'idor/checklist':{ doc:'content/idor-checklist.md', title:'IDOR — Testing Checklist',   chips:['Web','Per-object'] },
+  'idor/poc':      { doc:'content/idor-poc.md',       title:'IDOR — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'idor/qa':       { doc:'content/idor-qa.md',        title:'IDOR — Zero to Expert (Q&A)',chips:['Web','Study · 124+ Q'] },
+
+  'racecondition/guide':    { doc:'content/racecondition-guide.md',     title:'Race Condition — Testing Guide',       chips:['Web','Critical: limit-overrun / ATO'] },
+  'racecondition/arsenal':  { doc:'content/racecondition-arsenal.md',   title:'Race Condition — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'racecondition/checklist':{ doc:'content/racecondition-checklist.md', title:'Race Condition — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'racecondition/poc':      { doc:'content/racecondition-poc.md',       title:'Race Condition — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'racecondition/qa':       { doc:'content/racecondition-qa.md',        title:'Race Condition — Zero to Expert (Q&A)',chips:['Web','Study · 119+ Q'] },
+
+  'graphql/guide':    { doc:'content/graphql-guide.md',     title:'GraphQL — Testing Guide',       chips:['API','Critical: BOLA / injection / ATO'] },
+  'graphql/arsenal':  { doc:'content/graphql-arsenal.md',   title:'GraphQL — Attack Arsenal',      chips:['API','Copy-paste'] },
+  'graphql/checklist':{ doc:'content/graphql-checklist.md', title:'GraphQL — Testing Checklist',   chips:['API','Per-endpoint'] },
+  'graphql/poc':      { doc:'content/graphql-poc.md',       title:'GraphQL — PoC Scripts',         chips:['API','Runnable scripts'] },
+  'graphql/qa':       { doc:'content/graphql-qa.md',        title:'GraphQL — Zero to Expert (Q&A)',chips:['API','Study · 119+ Q'] },
 };
 
 /* Per-script code pages: click a script on a PoC index → its own page showing the source.
    Each entry: [route-slug, file (relative to the kit's poc folder), language]. */
-function registerCode(prefix, folder, label, items){
+function registerCode(prefix, folder, label, items, chips){
   items.forEach(([slug, file, lang])=>{
     DOCS[prefix+'/poc/'+slug] = {
       type:'code', file:'content/'+folder+'/'+file, lang,
       title: label+' PoC — '+file.split('/').pop(), nav:prefix+'/poc', back:prefix+'/poc',
-      chips:['Web','PoC script']
+      chips: chips || ['Web','PoC script']
     };
   });
 }
@@ -65,6 +89,26 @@ registerCode('recon','recon-poc','Recon',[
   ['js_extract','js_extract.sh','bash'], ['keys','keys.sh','bash'], ['setup','setup.sh','bash'],
   ['setup-recon-env','setup-recon-env.sh','bash'], ['config-env-example','config.env.example','bash'],
 ]);
+registerCode('websocket','websocket-poc','WebSocket',[
+  ['cswsh_poc','cswsh_poc.html','html'],
+  ['ws_client','ws_client.py','python'],
+  ['ws_ratelimit_test','ws_ratelimit_test.py','python'],
+]);
+registerCode('idor','idor-poc','IDOR',[
+  ['idor_replay_diff','idor_replay_diff.py','python'],
+  ['id_enumerator','id_enumerator.py','python'],
+  ['graphql_node_sweep','graphql_node_sweep.py','python'],
+]);
+registerCode('racecondition','racecondition-poc','Race Condition',[
+  ['race_single_packet','race_single_packet.py','python'],
+  ['race_otp_bruteforce','race_otp_bruteforce.py','python'],
+  ['parallel_fire','parallel_fire.py','python'],
+]);
+registerCode('graphql','graphql-poc','GraphQL',[
+  ['introspect','introspect.py','python'],
+  ['node_enumerator','node_enumerator.py','python'],
+  ['batch_ratelimit_test','batch_ratelimit_test.py','python'],
+], ['API','PoC script']);
 
 const RECON_PAGES = [
   { label:'Web Recon Guide',      route:'recon/guide' },
@@ -94,6 +138,34 @@ const CSRF_PAGES = [
   { label:'PoC Scripts',          route:'csrf/poc' },
   { label:'Zero to Expert (Q&A)', route:'csrf/qa' },
 ];
+const WEBSOCKET_PAGES = [
+  { label:'Testing Guide',        route:'websocket/guide' },
+  { label:'Attack Arsenal',       route:'websocket/arsenal' },
+  { label:'Testing Checklist',    route:'websocket/checklist' },
+  { label:'PoC Scripts',          route:'websocket/poc' },
+  { label:'Zero to Expert (Q&A)', route:'websocket/qa' },
+];
+const IDOR_PAGES = [
+  { label:'Testing Guide',        route:'idor/guide' },
+  { label:'Attack Arsenal',       route:'idor/arsenal' },
+  { label:'Testing Checklist',    route:'idor/checklist' },
+  { label:'PoC Scripts',          route:'idor/poc' },
+  { label:'Zero to Expert (Q&A)', route:'idor/qa' },
+];
+const RACECONDITION_PAGES = [
+  { label:'Testing Guide',        route:'racecondition/guide' },
+  { label:'Attack Arsenal',       route:'racecondition/arsenal' },
+  { label:'Testing Checklist',    route:'racecondition/checklist' },
+  { label:'PoC Scripts',          route:'racecondition/poc' },
+  { label:'Zero to Expert (Q&A)', route:'racecondition/qa' },
+];
+const GRAPHQL_PAGES = [
+  { label:'Testing Guide',        route:'graphql/guide' },
+  { label:'Attack Arsenal',       route:'graphql/arsenal' },
+  { label:'Testing Checklist',    route:'graphql/checklist' },
+  { label:'PoC Scripts',          route:'graphql/poc' },
+  { label:'Zero to Expert (Q&A)', route:'graphql/qa' },
+];
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
@@ -104,13 +176,20 @@ const NAV = [
     { label:'CORS', soon:true },
     { label:'CSRF', kit:true, pages:CSRF_PAGES },
     { label:'Host Header Injection', soon:true },
+    { label:'IDOR / BOLA', kit:true, pages:IDOR_PAGES },
     { label:'JWT', kit:true, pages:JWT_PAGES },
     { label:'LFI', soon:true },
+    { label:'Race Condition', kit:true, pages:RACECONDITION_PAGES },
     { label:'Request Smuggling', soon:true },
     { label:'RFI', soon:true },
     { label:'SSRF', soon:true },
     { label:'SSTI', soon:true },
+    { label:'WebSocket', kit:true, pages:WEBSOCKET_PAGES },
     { label:'XSS', kit:true, pages:XSS_PAGES },
+  ]},
+  { kind:'section', label:'API', open:false, items:[
+    { label:'GraphQL', kit:true, pages:GRAPHQL_PAGES },
+    { label:'REST', soon:true },
   ]},
   { kind:'section', label:'Mobile', open:false, groups:[
     { label:'Android', open:false, items:[ { label:'Coming soon', soon:true } ]},
@@ -121,10 +200,14 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
-  { label:'Recon', route:'recon/guide', date:'Jun 2026' },
-  { label:'XSS',   route:'xss/guide',   date:'Jun 2026' },
-  { label:'CSRF',  route:'csrf/guide',  date:'Jun 2026' },
-  { label:'JWT',   route:'jwt/guide',   date:'Jun 2026' },
+  { label:'WebSocket',      route:'websocket/guide',      date:'Jun 2026' },
+  { label:'IDOR',           route:'idor/guide',           date:'Jun 2026' },
+  { label:'Race Condition', route:'racecondition/guide',  date:'Jun 2026' },
+  { label:'GraphQL',        route:'graphql/guide',        date:'Jun 2026' },
+  { label:'XSS',            route:'xss/guide',            date:'Jun 2026' },
+  { label:'CSRF',           route:'csrf/guide',           date:'Jun 2026' },
+  { label:'JWT',            route:'jwt/guide',            date:'Jun 2026' },
+  { label:'Recon',          route:'recon/guide',          date:'Jun 2026' },
 ];
 function renderRecent(){
   const ul = document.getElementById('recent'); if(!ul) return;

