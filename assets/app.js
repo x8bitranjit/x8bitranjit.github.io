@@ -112,6 +112,12 @@ const DOCS = {
   'ssrf/poc':      { doc:'content/ssrf-poc.md',       title:'SSRF — PoC Scripts',         chips:['Web','Runnable scripts'] },
   'ssrf/qa':       { doc:'content/ssrf-qa.md',        title:'SSRF — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
 
+  'sqli/guide':    { doc:'content/sqli-guide.md',     title:'SQL Injection — Testing Guide',       chips:['Web','Critical: RCE / dump / auth-bypass'] },
+  'sqli/arsenal':  { doc:'content/sqli-arsenal.md',   title:'SQL Injection — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'sqli/checklist':{ doc:'content/sqli-checklist.md', title:'SQL Injection — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'sqli/poc':      { doc:'content/sqli-poc.md',       title:'SQL Injection — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'sqli/qa':       { doc:'content/sqli-qa.md',        title:'SQL Injection — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
   'ssti/guide':    { doc:'content/ssti-guide.md',     title:'SSTI — Testing Guide',       chips:['Web','Critical: RCE'] },
   'ssti/arsenal':  { doc:'content/ssti-arsenal.md',   title:'SSTI — Attack Arsenal',      chips:['Web','Copy-paste'] },
   'ssti/checklist':{ doc:'content/ssti-checklist.md', title:'SSTI — Testing Checklist',   chips:['Web','Per-parameter'] },
@@ -220,6 +226,10 @@ registerCode('ssrf','ssrf-poc','SSRF',[
   ['ip_encoder','ip_encoder.py','python'], ['redirect_server','redirect_server.py','python'],
   ['gopher_redis','gopher_redis.py','python'], ['ssrf_probe','ssrf_probe.sh','bash'],
 ]);
+registerCode('sqli','sqli-poc','SQL Injection',[
+  ['sqli_fuzz','sqli_fuzz.py','python'], ['sqli_blind','sqli_blind.py','python'],
+  ['sqlmap_cheat','sqlmap_cheat.md','markdown'],
+]);
 registerCode('ssti','ssti-poc','SSTI',[
   ['ssti_detect','ssti_detect.py','python'], ['ssti_rce','ssti_rce.py','python'],
 ]);
@@ -298,6 +308,7 @@ const LDAP_PAGES       = kitPages('ldap');
 const LFI_PAGES        = kitPages('lfi');
 const RFI_PAGES        = kitPages('rfi');
 const SMUGGLING_PAGES  = kitPages('smuggling');
+const SQLI_PAGES       = kitPages('sqli');
 const SSRF_PAGES       = kitPages('ssrf');
 const SSTI_PAGES       = kitPages('ssti');
 
@@ -319,6 +330,7 @@ const NAV = [
     { label:'Race Condition', kit:true, pages:RACECONDITION_PAGES },
     { label:'Request Smuggling', kit:true, pages:SMUGGLING_PAGES },
     { label:'RFI', kit:true, pages:RFI_PAGES },
+    { label:'SQL Injection', kit:true, pages:SQLI_PAGES },
     { label:'SSRF', kit:true, pages:SSRF_PAGES },
     { label:'SSTI', kit:true, pages:SSTI_PAGES },
     { label:'WebSocket', kit:true, pages:WEBSOCKET_PAGES },
@@ -337,6 +349,7 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'SQL Injection',  route:'sqli/guide',           date:'Jun 2026' },
   { label:'LDAP',           route:'ldap/guide',           date:'Jun 2026' },
   { label:'WebSocket',      route:'websocket/guide',      date:'Jun 2026' },
   { label:'IDOR',           route:'idor/guide',           date:'Jun 2026' },
