@@ -1,7 +1,5 @@
 # WebSocket Attack Arsenal — Handshake/CSWSH PoCs, Frame-Tamper Payloads & Recipes
 
-**Author:** x8bitranjit
-
 > Companion to `WEBSOCKET_TESTING_GUIDE.md`. **Read the handshake first (cookie-vs-token auth, Origin check, wss), then attack the frames.** Replace `target.com`, `<victim cookie>`/`<A_TOKEN>`, `attacker.example`, `YOUR.oast.fun`. **Authorized targets only; CSWSH/PoCs use YOUR own victim account and exfil to YOUR server; two accounts for IDOR; measured counts for brute; measure-don't-flood for DoS** (guide §21).
 >
 > **Workflow:** find WS (§3) → baseline handshake/auth (§4) → CSWSH (§5) → per-message authz/IDOR (§6) → message injection (§8) → escalate.
@@ -119,7 +117,7 @@ socket.io / engine.io : /socket.io/?EIO=4&transport=websocket ; frames like 42["
 SignalR (.NET)        : POST /negotiate → connectionToken → WS /hub ; test hub-method authorization (BFLA).
 STOMP over WS         : SEND/SUBSCRIBE frames with destination: header → subscribe to other/admin destinations.
 SockJS                : falls back to XHR/EventSource — test those transports' Origin/CSRF too.
-graphql-ws            : connection_init + subscribe → CSWSH + GraphQL BOLA (see GraphQL kit §15.5).
+graphql-ws            : connection_init + subscribe → CSWSH + GraphQL BOLA (see API/GraphQL §15.5).
 Rails ActionCable /cable · Phoenix Channels · MQTT-over-WS : channel/topic subscribe → test channel authz.
 ```
 
@@ -144,5 +142,3 @@ socket.io/SignalR/STOMP Origin/channel → CSWSH + broken channel authz.
 Refs: PortSwigger WebSockets (CSWSH/handshake/message labs); OWASP WSTG WebSockets; RFC 6455/7692;
       CWE-1385/346/352/319/598/306/862 + the injection CWEs (79/89/943/77/78/918/22).
 ```
-
-**Contact:** [LinkedIn](https://in.linkedin.com/in/x8bitranjit)

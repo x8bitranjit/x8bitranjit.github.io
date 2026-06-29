@@ -1,7 +1,5 @@
 # WebSocket Security — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
-**Author:** x8bitranjit
-
 > A complete, in-depth study + field reference for **attacking WebSockets**: from "what is a WebSocket" to Cross-Site WebSocket Hijacking (CSWSH), message-layer injection (XSS/SQLi/cmdi/IDOR), per-message authorization flaws, rate-limit bypass, DoS, smuggling, and framework quirks (socket.io/SignalR/STOMP/graphql-ws). Q&A format, progressive difficulty, written as **"IF this → THEN that"** decision logic. Includes a beginner primer, tooling, methodology, real cases, **and** defense.
 >
 > ⚖️ **Authorized use only.** Bug bounty (in-scope), sanctioned pentests, CTFs, and learning. Prove CSWSH in a real browser with **your own** victim account, exfil to **your own** server; two own accounts for IDOR; measured counts for brute; measure-don't-flood for DoS.
@@ -130,7 +128,7 @@ Because the auth model decides everything: cookie+no-Origin → go for CSWSH; to
 Yes — like CSRF, the cookie must actually be sent on the cross-site handshake. `SameSite=None` → sent (CSWSH works); `Lax/Strict` → the cross-site WS handshake (a background connection, not a top-level navigation) generally **won't** carry the cookie → CSWSH blocked unless you have a same-site position. Check the cookie's SameSite (CSRF kit).
 
 ### Q22. What frameworks change the framing?
-socket.io (`42["event",{...}]`), SignalR (`/negotiate` then `/hub`), STOMP (`SEND`/`SUBSCRIBE` frames), SockJS (fallbacks), graphql-ws (`connection_init`/`subscribe`), ActionCable (`/cable`). Recognise it so you tamper the right structure (Q75–Q82).
+socket.io (`42["event",{...}]`), SignalR (`/negotiate` then `/hub`), STOMP (`SEND`/`SUBSCRIBE` frames), SockJS (fallbacks), graphql-ws (`connection_init`/`subscribe`), ActionCable (`/cable`). Recognise it so you tamper the right structure (Q78–Q82).
 
 ### Q23. Where are WS endpoints most sensitive?
 Chat/messaging (private data + stored XSS), trading/wallet feeds (state change), collaborative editors (IDOR), admin/live dashboards (BFLA), notifications (data leak).
@@ -317,7 +315,7 @@ Frames like `SEND`/`SUBSCRIBE` with a `destination:` header → **subscribe to o
 Falls back to XHR/EventSource/long-polling when WS is unavailable — test those fallback transports' Origin/CSRF handling too, not just the WS path.
 
 ### Q79. graphql-ws / GraphQL subscriptions?
-Subscriptions run over WS (`connection_init`+`subscribe`) → CSWSH + GraphQL BOLA over the socket. See the GraphQL kit §15.5.
+Subscriptions run over WS (`connection_init`+`subscribe`) → CSWSH + GraphQL BOLA over the socket. See `API/GraphQL/` §15.5.
 
 ### Q80. ActionCable / Phoenix Channels / MQTT-over-WS?
 All carry channel/topic subscriptions and per-channel auth — test subscribing to channels you shouldn't (cross-user/admin/tenant).
@@ -411,7 +409,7 @@ By what the socket can **read** and **do** × victim reach. Injection→RCE = Cr
 As the **mechanism**, bundled with the impact it enables (data theft / ATO). On its own it's weak; with a real-browser CSWSH PoC it's High/Critical.
 
 ### Q105. How do I de-duplicate?
-One strong CSWSH→ATO or message-injection beats a pile of "no Origin check / ws://" notes. If the program knows about a missing Origin check, report your **distinct impact**.
+One strong CSWSH→ATO or message-injection beats a pile of "no Origin check / ws:// " notes. If the program knows about a missing Origin check, report your **distinct impact**.
 
 ---
 
@@ -467,5 +465,3 @@ Per-**message** rate-limiting (not per-connection); max frame/message size; max 
 ```
 
 > **Authorized testing only.** Prove CSWSH cross-site in a real browser with your own victim account (exfil to your own server), use two own accounts for IDOR, measured counts for brute, measure-don't-flood for DoS, revert state. Report **impact** (data theft, ATO, RCE, stored-XSS, cross-user) — not "no Origin check."
-
-**Contact:** [LinkedIn](https://in.linkedin.com/in/x8bitranjit)

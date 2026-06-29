@@ -1,10 +1,8 @@
 # WebSocket Testing Checklist — Per-Endpoint, In Testing Order
 
-**Author:** x8bitranjit
-
 > Tick per WebSocket endpoint. Mirrors the Master Testing Sequence in `WEBSOCKET_TESTING_GUIDE.md`. The point: **read the handshake (cookie-vs-token, Origin, wss) → CSWSH → per-message authz/IDOR → message injection → escalate to ATO/RCE.** `§` = section in the main guide.
 
-**Target:** ____________  **WS endpoint:** `wss://__________________`
+**Target:** ____________  **WS endpoint:** `wss://__________________`  **Date:** ________
 **Auth model:** cookie (auto-sent) / token-in-URL / subprotocol / first-message  **Origin validated:** y/n  **wss:** y/n
 **Framing:** raw JSON / socket.io `42[...]` / STOMP / SignalR / SockJS / graphql-ws / binary  **Accounts:** A=____ B=____
 
@@ -62,5 +60,3 @@ read handshake (cookie? Origin? wss?) → CSWSH oracle (foreign Origin + cookie)
    → per-message: swap B's id (IDOR) · privileged type (BFLA) · inject fields (XSS/SQLi/cmdi/SSRF)
    → escalate (CSWSH→ATO / injection→RCE / brute→ATO) → validate → CVSS+CWE-1385 → reversible PoC → dedup
 ```
-
-**Contact:** [LinkedIn](https://in.linkedin.com/in/x8bitranjit)

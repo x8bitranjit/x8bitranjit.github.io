@@ -2,7 +2,8 @@
 
 > Tick per object/endpoint. Mirrors the Master Testing Sequence in `IDOR_TESTING_GUIDE.md`. The point: **two accounts (A reaches B's object) is the proof → swap the reference → if blocked, run the mutation matrix → escalate read→enumerate→write→ATO→BFLA→cross-tenant.** `§` = section in the main guide.
 
-**Target:** ____________  **Object/endpoint:** ____________  **Method:** ____________  **Reference location:** path / query / body / JSON / header / cookie / GraphQL / file  **ID format:** seq-int / encoded / uuidv1 / uuidv4 / objectid / snowflake / composite
+**Target:** ____________  **Object/endpoint:** ____________  **Method:** ____________  **Date:** ________
+**Reference location:** path / query / body / JSON / header / cookie / GraphQL / file  **ID format:** seq-int / encoded / uuidv1 / uuidv4 / objectid / snowflake / composite
 **Accounts:** A=__________ (attacker)  B=__________ (victim, same role)  admin?___  2nd-tenant?___
 
 ---

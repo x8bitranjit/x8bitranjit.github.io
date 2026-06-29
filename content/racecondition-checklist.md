@@ -2,7 +2,8 @@
 
 > Tick per limited/stateful action. Mirrors the Master Testing Sequence in `RACE_CONDITION_TESTING_GUIDE.md`. The point: **identify the invariant → control (1×) → fire N parallel into one window → re-read the invariant → repeat → escalate to money/ATO.** `§` = section in the main guide.
 
-**Target:** ____________  **Action/endpoint:** ____________  **Method:** ____________  **Invariant it should protect:** used-once / balance≥0 / ≤N attempts / unique / stock≥0 / state-machine
+**Target:** ____________  **Action/endpoint:** ____________  **Method:** ____________  **Date:** ________
+**Invariant it should protect:** used-once / balance≥0 / ≤N attempts / unique / stock≥0 / state-machine
 **Protocol:** HTTP/2 (single-packet ✓) / HTTP/1.1 (last-byte-sync)  **Scope:** per-account / global
 
 ---

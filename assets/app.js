@@ -51,6 +51,66 @@ const DOCS = {
   'graphql/checklist':{ doc:'content/graphql-checklist.md', title:'GraphQL — Testing Checklist',   chips:['API','Per-endpoint'] },
   'graphql/poc':      { doc:'content/graphql-poc.md',       title:'GraphQL — PoC Scripts',         chips:['API','Runnable scripts'] },
   'graphql/qa':       { doc:'content/graphql-qa.md',        title:'GraphQL — Zero to Expert (Q&A)',chips:['API','Study · 119+ Q'] },
+
+  'cmdi/guide':    { doc:'content/cmdi-guide.md',     title:'Command Injection — Testing Guide',       chips:['Web','Critical: RCE'] },
+  'cmdi/arsenal':  { doc:'content/cmdi-arsenal.md',   title:'Command Injection — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'cmdi/checklist':{ doc:'content/cmdi-checklist.md', title:'Command Injection — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'cmdi/poc':      { doc:'content/cmdi-poc.md',       title:'Command Injection — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'cmdi/qa':       { doc:'content/cmdi-qa.md',        title:'Command Injection — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'cors/guide':    { doc:'content/cors-guide.md',     title:'CORS — Testing Guide',       chips:['Web','High: data theft / ATO'] },
+  'cors/arsenal':  { doc:'content/cors-arsenal.md',   title:'CORS — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'cors/checklist':{ doc:'content/cors-checklist.md', title:'CORS — Testing Checklist',   chips:['Web','Per-origin'] },
+  'cors/poc':      { doc:'content/cors-poc.md',       title:'CORS — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'cors/qa':       { doc:'content/cors-qa.md',        title:'CORS — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'fileupload/guide':    { doc:'content/fileupload-guide.md',     title:'File Upload — Testing Guide',       chips:['Web','Critical: RCE'] },
+  'fileupload/arsenal':  { doc:'content/fileupload-arsenal.md',   title:'File Upload — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'fileupload/checklist':{ doc:'content/fileupload-checklist.md', title:'File Upload — Testing Checklist',   chips:['Web','Per-upload'] },
+  'fileupload/poc':      { doc:'content/fileupload-poc.md',       title:'File Upload — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'fileupload/qa':       { doc:'content/fileupload-qa.md',        title:'File Upload — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'hostheader/guide':    { doc:'content/hostheader-guide.md',     title:'Host Header Injection — Testing Guide',       chips:['Web','High: ATO / cache poisoning'] },
+  'hostheader/arsenal':  { doc:'content/hostheader-arsenal.md',   title:'Host Header Injection — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'hostheader/checklist':{ doc:'content/hostheader-checklist.md', title:'Host Header Injection — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'hostheader/poc':      { doc:'content/hostheader-poc.md',       title:'Host Header Injection — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'hostheader/qa':       { doc:'content/hostheader-qa.md',        title:'Host Header Injection — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'jsfiles/guide':    { doc:'content/jsfiles-guide.md',     title:'JavaScript Files — Testing Guide',       chips:['Web','Recon · secrets / endpoints'] },
+  'jsfiles/arsenal':  { doc:'content/jsfiles-arsenal.md',   title:'JavaScript Files — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'jsfiles/checklist':{ doc:'content/jsfiles-checklist.md', title:'JavaScript Files — Testing Checklist',   chips:['Web','Per-target'] },
+  'jsfiles/poc':      { doc:'content/jsfiles-poc.md',       title:'JavaScript Files — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'jsfiles/qa':       { doc:'content/jsfiles-qa.md',        title:'JavaScript Files — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'lfi/guide':    { doc:'content/lfi-guide.md',     title:'LFI — Testing Guide',       chips:['Web','Critical: RCE / source disclosure'] },
+  'lfi/arsenal':  { doc:'content/lfi-arsenal.md',   title:'LFI — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'lfi/checklist':{ doc:'content/lfi-checklist.md', title:'LFI — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'lfi/poc':      { doc:'content/lfi-poc.md',       title:'LFI — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'lfi/qa':       { doc:'content/lfi-qa.md',        title:'LFI — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'rfi/guide':    { doc:'content/rfi-guide.md',     title:'RFI — Testing Guide',       chips:['Web','Critical: RCE'] },
+  'rfi/arsenal':  { doc:'content/rfi-arsenal.md',   title:'RFI — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'rfi/checklist':{ doc:'content/rfi-checklist.md', title:'RFI — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'rfi/poc':      { doc:'content/rfi-poc.md',       title:'RFI — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'rfi/qa':       { doc:'content/rfi-qa.md',        title:'RFI — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'smuggling/guide':    { doc:'content/smuggling-guide.md',     title:'Request Smuggling — Testing Guide',       chips:['Web','Critical: desync / cache poisoning'] },
+  'smuggling/arsenal':  { doc:'content/smuggling-arsenal.md',   title:'Request Smuggling — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'smuggling/checklist':{ doc:'content/smuggling-checklist.md', title:'Request Smuggling — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'smuggling/poc':      { doc:'content/smuggling-poc.md',       title:'Request Smuggling — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'smuggling/qa':       { doc:'content/smuggling-qa.md',        title:'Request Smuggling — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'ssrf/guide':    { doc:'content/ssrf-guide.md',     title:'SSRF — Testing Guide',       chips:['Web','Critical: cloud creds / RCE'] },
+  'ssrf/arsenal':  { doc:'content/ssrf-arsenal.md',   title:'SSRF — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'ssrf/checklist':{ doc:'content/ssrf-checklist.md', title:'SSRF — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'ssrf/poc':      { doc:'content/ssrf-poc.md',       title:'SSRF — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'ssrf/qa':       { doc:'content/ssrf-qa.md',        title:'SSRF — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'ssti/guide':    { doc:'content/ssti-guide.md',     title:'SSTI — Testing Guide',       chips:['Web','Critical: RCE'] },
+  'ssti/arsenal':  { doc:'content/ssti-arsenal.md',   title:'SSTI — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'ssti/checklist':{ doc:'content/ssti-checklist.md', title:'SSTI — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'ssti/poc':      { doc:'content/ssti-poc.md',       title:'SSTI — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'ssti/qa':       { doc:'content/ssti-qa.md',        title:'SSTI — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
 };
 
 /* Per-script code pages: click a script on a PoC index → its own page showing the source.
@@ -109,6 +169,50 @@ registerCode('graphql','graphql-poc','GraphQL',[
   ['node_enumerator','node_enumerator.py','python'],
   ['batch_ratelimit_test','batch_ratelimit_test.py','python'],
 ], ['API','PoC script']);
+registerCode('cmdi','cmdi-poc','Command Injection',[
+  ['cmdi_fuzz','cmdi_fuzz.py','python'], ['evasion','evasion.py','python'],
+  ['revshell','revshell.py','python'], ['oob_listen','oob_listen.md','markdown'],
+]);
+registerCode('cors','cors-poc','CORS',[
+  ['cors_scan','cors_scan.py','python'], ['exfil','exfil.html','html'],
+  ['null_iframe','null_iframe.html','html'], ['cswsh','cswsh.html','html'],
+]);
+registerCode('fileupload','fileupload-poc','File Upload',[
+  ['webshell_marker_php','webshell_marker.php','php'], ['webshell_marker_phtml','webshell_marker.phtml','php'],
+  ['webshell_marker_jsp','webshell_marker.jsp','xml'], ['webshell_marker_aspx','webshell_marker.aspx','xml'],
+  ['xss_svg','xss.svg','xml'], ['xxe_svg','xxe.svg','xml'],
+  ['xxe_oob_svg','xxe_oob.svg','xml'], ['xxe_oob_dtd','xxe_oob.dtd','xml'],
+  ['htaccess_poc','htaccess_poc.txt','apache'], ['user_ini_poc','user_ini_poc.txt','ini'],
+  ['make_polyglot','make_polyglot.sh','bash'], ['make_zipslip','make_zipslip.py','python'],
+  ['make_symlink_tar','make_symlink_tar.sh','bash'], ['exif_rce_notes','exif_rce_notes.md','markdown'],
+  ['upload_fuzz','upload_fuzz.sh','bash'],
+]);
+registerCode('hostheader','hostheader-poc','Host Header Injection',[
+  ['hosthdr_probe','hosthdr_probe.py','python'], ['reset_poison','reset_poison.py','python'],
+  ['cache_poison','cache_poison.py','python'], ['wcd_test','wcd_test.py','python'],
+]);
+registerCode('jsfiles','jsfiles-poc','JavaScript Files',[
+  ['js_harvest','js_harvest.sh','bash'], ['secret_scan','secret_scan.py','python'],
+  ['endpoints','endpoints.py','python'], ['dom_sinks','dom_sinks.py','python'],
+  ['sourcemap_unpack','sourcemap_unpack.py','python'],
+]);
+registerCode('lfi','lfi-poc','LFI',[
+  ['lfi_fuzz','lfi_fuzz.py','python'], ['phpfilter_dump','phpfilter_dump.py','python'],
+  ['filter_chain_rce','filter_chain_rce.py','python'], ['logpoison','logpoison.py','python'],
+]);
+registerCode('rfi','rfi-poc','RFI',[
+  ['payload_host','payload_host.py','python'], ['rfi_probe','rfi_probe.py','python'],
+]);
+registerCode('smuggling','smuggling-poc','Request Smuggling',[
+  ['desync_timing','desync_timing.py','python'], ['build_smuggle','build_smuggle.py','python'],
+]);
+registerCode('ssrf','ssrf-poc','SSRF',[
+  ['ip_encoder','ip_encoder.py','python'], ['redirect_server','redirect_server.py','python'],
+  ['gopher_redis','gopher_redis.py','python'], ['ssrf_probe','ssrf_probe.sh','bash'],
+]);
+registerCode('ssti','ssti-poc','SSTI',[
+  ['ssti_detect','ssti_detect.py','python'], ['ssti_rce','ssti_rce.py','python'],
+]);
 
 const RECON_PAGES = [
   { label:'Web Recon Guide',      route:'recon/guide' },
@@ -166,24 +270,45 @@ const GRAPHQL_PAGES = [
   { label:'PoC Scripts',          route:'graphql/poc' },
   { label:'Zero to Expert (Q&A)', route:'graphql/qa' },
 ];
+function kitPages(prefix){
+  return [
+    { label:'Testing Guide',        route:prefix+'/guide' },
+    { label:'Attack Arsenal',       route:prefix+'/arsenal' },
+    { label:'Testing Checklist',    route:prefix+'/checklist' },
+    { label:'PoC Scripts',          route:prefix+'/poc' },
+    { label:'Zero to Expert (Q&A)', route:prefix+'/qa' },
+  ];
+}
+const CMDI_PAGES       = kitPages('cmdi');
+const CORS_PAGES       = kitPages('cors');
+const FILEUPLOAD_PAGES = kitPages('fileupload');
+const HOSTHEADER_PAGES = kitPages('hostheader');
+const JSFILES_PAGES    = kitPages('jsfiles');
+const LFI_PAGES        = kitPages('lfi');
+const RFI_PAGES        = kitPages('rfi');
+const SMUGGLING_PAGES  = kitPages('smuggling');
+const SSRF_PAGES       = kitPages('ssrf');
+const SSTI_PAGES       = kitPages('ssti');
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
   { kind:'section', label:'Web', open:true, items:[
     { label:'Recon', kit:true, pages:RECON_PAGES },   // pinned to the top of Web
     { label:'Clickjacking', soon:true },
-    { label:'Command Injection', soon:true },
-    { label:'CORS', soon:true },
+    { label:'Command Injection', kit:true, pages:CMDI_PAGES },
+    { label:'CORS', kit:true, pages:CORS_PAGES },
     { label:'CSRF', kit:true, pages:CSRF_PAGES },
-    { label:'Host Header Injection', soon:true },
+    { label:'File Upload', kit:true, pages:FILEUPLOAD_PAGES },
+    { label:'Host Header Injection', kit:true, pages:HOSTHEADER_PAGES },
     { label:'IDOR / BOLA', kit:true, pages:IDOR_PAGES },
+    { label:'JavaScript Files', kit:true, pages:JSFILES_PAGES },
     { label:'JWT', kit:true, pages:JWT_PAGES },
-    { label:'LFI', soon:true },
+    { label:'LFI', kit:true, pages:LFI_PAGES },
     { label:'Race Condition', kit:true, pages:RACECONDITION_PAGES },
-    { label:'Request Smuggling', soon:true },
-    { label:'RFI', soon:true },
-    { label:'SSRF', soon:true },
-    { label:'SSTI', soon:true },
+    { label:'Request Smuggling', kit:true, pages:SMUGGLING_PAGES },
+    { label:'RFI', kit:true, pages:RFI_PAGES },
+    { label:'SSRF', kit:true, pages:SSRF_PAGES },
+    { label:'SSTI', kit:true, pages:SSTI_PAGES },
     { label:'WebSocket', kit:true, pages:WEBSOCKET_PAGES },
     { label:'XSS', kit:true, pages:XSS_PAGES },
   ]},

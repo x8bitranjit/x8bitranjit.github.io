@@ -2,7 +2,8 @@
 
 > Tick per GraphQL endpoint. Mirrors the Master Testing Sequence in `GRAPHQL_TESTING_GUIDE.md`. The point: **map the schema (even if introspection is off) → build the sink list → drive each sink to impact → prove per sub-bug.** `§` = section in the main guide.
 
-**Target:** ____________  **Endpoint:** ____________  **Engine (graphw00f):** ____________  **Introspection:** on / off  **Suggestions:** on / off  **GET allowed:** y/n  **Batching (alias/array):** y/n
+**Target:** ____________  **Endpoint:** ____________  **Engine (graphw00f):** ____________  **Date:** ________
+**Introspection:** on / off  **Suggestions:** on / off  **GET allowed:** y/n  **Batching (alias/array):** y/n
 **Accounts:** A=__________ (attacker) B=__________ (victim) admin?___
 
 ---

