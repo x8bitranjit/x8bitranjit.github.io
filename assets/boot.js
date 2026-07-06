@@ -3,7 +3,7 @@
   'use strict';
 
   var K = 'x8_v';
-  var H = 'edc9808de391fbc76e7845de5e03de0c20e82a9d558c066de486742a0717bceb';
+  var H = '7b6bda4bd020350b0cfbc0cebddaf255e4e39a4c9a219dc0a4ad6576513cacea';
 
   try { if (sessionStorage.getItem(K) === '1') return; } catch (e) {}
 
@@ -25,7 +25,7 @@
     if (g) { g.classList.add('nb-off'); setTimeout(function () { g.remove(); }, 600); }
   }
 
-  var HTML =
+  var AUTH_HTML =
     '<div class="nb-bar" aria-hidden="true"></div>' +
     '<div class="nb-wrap">' +
       '<div class="nb-seal-box">' +
@@ -45,7 +45,7 @@
         '<div class="nb-auth-h">AUTHORIZED ACCESS ONLY</div>' +
         '<label class="nb-auth-l" for="nbIn">Enter access authorization code</label>' +
         '<div class="nb-row">' +
-          '<input id="nbIn" class="nb-input" type="text" autocomplete="off" autocapitalize="off" ' +
+          '<input id="nbIn" class="nb-input" type="password" autocomplete="off" autocapitalize="off" ' +
             'autocorrect="off" spellcheck="false" placeholder="Authorization code" aria-label="Access authorization code">' +
           '<button id="nbBtn" class="nb-btn" type="button">AUTHENTICATE</button>' +
         '</div>' +
@@ -54,29 +54,29 @@
       '<div class="nb-foot">FEDERAL BUREAU OF INVESTIGATION &#183; CYBER DIVISION &mdash; UNAUTHORIZED USE PROHIBITED</div>' +
     '</div>';
 
-  function build() {
-    if (document.getElementById('nbOv')) return;
-    var g = document.createElement('div');
-    g.id = 'nbOv';
-    g.className = 'nb-ov';
-    g.innerHTML = HTML;
-    document.body.appendChild(g);
+  var DECOY_HTML =
+    '<div class="nb-bar" aria-hidden="true"></div>' +
+    '<div class="nb-wrap">' +
+      '<div class="nb-eyebrow">PRIVACY CHECKPOINT &#183; ACCESS NOT RECOGNIZED</div>' +
+      '<h1 class="nb-title">NICE TRY &#128373;</h1>' +
+      '<div class="nb-rule" aria-hidden="true"></div>' +
+      '<img class="nb-decoy-img" src="image2.jpg" width="540" height="536" ' +
+        'alt="The hacker who cannot see the password vs. the one who set it to eight asterisks">' +
+      '<p class="nb-lead nb-joke">That&#39;s not the code &mdash; but relax. We take your privacy so seriously ' +
+        'we won&#39;t even tell you what you got wrong.</p>' +
+      '<p class="nb-legal nb-joke">This access attempt was securely logged straight to <code>/dev/null</code>, ' +
+        'fully anonymized, encrypted with military-grade ROT13, and immediately forgotten. ' +
+        'That&#39;s the x8bit privacy guarantee&#8482;.</p>' +
+      '<p class="nb-legal nb-joke">Pro tip: the password is eight asterisks. Good luck guessing which eight.</p>' +
+      '<button id="nbAgain" class="nb-again" type="button">&#8592; Fine, let me try again</button>' +
+    '</div>';
 
+  function showAuth(g) {
+    g.innerHTML = AUTH_HTML;
     var input = document.getElementById('nbIn');
     var btn   = document.getElementById('nbBtn');
     var msg   = document.getElementById('nbMsg');
-    var box   = g.querySelector('.nb-auth');
 
-    function bad() {
-      msg.classList.remove('ok');
-      msg.textContent = 'ACCESS DENIED — INVALID AUTHORIZATION CODE';
-      msg.classList.add('show');
-      box.classList.remove('nb-shake');
-      void box.offsetWidth;
-      box.classList.add('nb-shake');
-      input.value = '';
-      try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
-    }
     function ok() {
       msg.classList.add('ok', 'show');
       msg.textContent = 'AUTHORIZATION ACCEPTED — ACCESS GRANTED';
@@ -91,14 +91,34 @@
       busy = true;
       d(v).then(function (x) {
         busy = false;
-        if (x === H) ok(); else bad();
-      }).catch(function () { busy = false; bad(); });
+        if (x === H) ok(); else showDecoy(g);   // only the exact code unlocks; anything else -> decoy
+      }).catch(function () { busy = false; showDecoy(g); });
     }
 
     btn.addEventListener('click', go);
     input.addEventListener('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); go(); }
     });
+    try { input.focus({ preventScroll: true }); } catch (e) { input.focus(); }
+  }
+
+  function showDecoy(g) {
+    g.innerHTML = DECOY_HTML;
+    try { g.scrollTop = 0; } catch (e) {}
+    var again = document.getElementById('nbAgain');
+    if (again) {
+      again.addEventListener('click', function () { showAuth(g); });
+      try { again.focus({ preventScroll: true }); } catch (e) {}
+    }
+  }
+
+  function build() {
+    if (document.getElementById('nbOv')) return;
+    var g = document.createElement('div');
+    g.id = 'nbOv';
+    g.className = 'nb-ov';
+    document.body.appendChild(g);
+    showAuth(g);
   }
 
   if (document.readyState === 'loading') {

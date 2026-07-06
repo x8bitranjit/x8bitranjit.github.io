@@ -305,3 +305,22 @@ a:hover{color:var(--link-hover);text-decoration:underline}
 @media (max-width:560px){
   .nb-row{flex-direction:column} .nb-btn{width:100%}
 }
+
+/* decoy panel — shown when an unrecognized code is entered */
+.nb-decoy-img{
+  display:block; width:min(440px,86vw); height:auto; margin:2px auto 18px;
+  border-radius:12px; border:1px solid #243a63; box-shadow:0 12px 40px rgba(0,0,0,.6);
+}
+.nb-joke{color:#dfe3ec}
+.nb-joke code{
+  background:#0a1428; border:1px solid #243a63; border-radius:4px;
+  padding:1px 5px; color:#e3c463; font-size:.92em;
+}
+.nb-again{
+  margin-top:10px; padding:9px 16px; border-radius:6px; cursor:pointer;
+  border:1px solid #cdab46; background:linear-gradient(180deg,#1a2949,#12203c); color:#f6e7b8;
+  font:700 12px "Lato",sans-serif; letter-spacing:.6px;
+  transition:background .15s, color .15s, transform .05s;
+}
+.nb-again:hover{background:linear-gradient(180deg,#e3c463,#cdab46); color:#0c1426}
+.nb-again:active{transform:translateY(1px)}

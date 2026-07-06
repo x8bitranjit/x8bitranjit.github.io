@@ -6,3 +6,6 @@
 # Treat fonts/images as binary (never line-ending-converted)
 *.woff2 binary
 *.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.webp  binary
