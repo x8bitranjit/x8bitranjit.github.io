@@ -66,8 +66,8 @@
         'we won&#39;t even tell you what you got wrong.</p>' +
       '<p class="nb-legal nb-joke">This access attempt was securely logged straight to <code>/dev/null</code>, ' +
         'fully anonymized, encrypted with military-grade ROT13, and immediately forgotten. ' +
-        'That&#39;s the x8bit privacy guarantee&#8482;.</p>' +
-      '<p class="nb-legal nb-joke">Pro tip: the password is eight asterisks. Good luck guessing which eight.</p>' +
+        'That&#39;s the x8bitranjit&#39;s privacy guarantee&#8482;.</p>' +
+      '<p class="nb-legal nb-joke">The password is sixtynine asterisks. Good luck guessing which six.</p>' +
       '<button id="nbAgain" class="nb-again" type="button">&#8592; Fine, let me try again</button>' +
     '</div>';
 
