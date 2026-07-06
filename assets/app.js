@@ -123,6 +123,48 @@ const DOCS = {
   'ssti/checklist':{ doc:'content/ssti-checklist.md', title:'SSTI — Testing Checklist',   chips:['Web','Per-parameter'] },
   'ssti/poc':      { doc:'content/ssti-poc.md',       title:'SSTI — PoC Scripts',         chips:['Web','Runnable scripts'] },
   'ssti/qa':       { doc:'content/ssti-qa.md',        title:'SSTI — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'xxe/guide':    { doc:'content/xxe-guide.md',     title:'XXE — Testing Guide',       chips:['Web','Critical: file read / SSRF / RCE'] },
+  'xxe/arsenal':  { doc:'content/xxe-arsenal.md',   title:'XXE — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'xxe/checklist':{ doc:'content/xxe-checklist.md', title:'XXE — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'xxe/poc':      { doc:'content/xxe-poc.md',       title:'XXE — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'xxe/qa':       { doc:'content/xxe-qa.md',        title:'XXE — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'deser/guide':    { doc:'content/deser-guide.md',     title:'Insecure Deserialization — Testing Guide',       chips:['Web','Critical: RCE'] },
+  'deser/arsenal':  { doc:'content/deser-arsenal.md',   title:'Insecure Deserialization — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'deser/checklist':{ doc:'content/deser-checklist.md', title:'Insecure Deserialization — Testing Checklist',   chips:['Web','Per-blob'] },
+  'deser/poc':      { doc:'content/deser-poc.md',       title:'Insecure Deserialization — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'deser/qa':       { doc:'content/deser-qa.md',        title:'Insecure Deserialization — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'oauth/guide':    { doc:'content/oauth-guide.md',     title:'OAuth / SSO / SAML — Testing Guide',       chips:['Web','Critical: account takeover'] },
+  'oauth/arsenal':  { doc:'content/oauth-arsenal.md',   title:'OAuth / SSO / SAML — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'oauth/checklist':{ doc:'content/oauth-checklist.md', title:'OAuth / SSO / SAML — Testing Checklist',   chips:['Web','Per-flow'] },
+  'oauth/poc':      { doc:'content/oauth-poc.md',       title:'OAuth / SSO / SAML — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'oauth/qa':       { doc:'content/oauth-qa.md',        title:'OAuth / SSO / SAML — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'nosqli/guide':    { doc:'content/nosqli-guide.md',     title:'NoSQL Injection — Testing Guide',       chips:['Web','Critical: auth-bypass / RCE'] },
+  'nosqli/arsenal':  { doc:'content/nosqli-arsenal.md',   title:'NoSQL Injection — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'nosqli/checklist':{ doc:'content/nosqli-checklist.md', title:'NoSQL Injection — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'nosqli/poc':      { doc:'content/nosqli-poc.md',       title:'NoSQL Injection — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'nosqli/qa':       { doc:'content/nosqli-qa.md',        title:'NoSQL Injection — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'prototype/guide':    { doc:'content/prototype-guide.md',     title:'Prototype Pollution — Testing Guide',       chips:['Web','Critical: RCE / DOM-XSS'] },
+  'prototype/arsenal':  { doc:'content/prototype-arsenal.md',   title:'Prototype Pollution — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'prototype/checklist':{ doc:'content/prototype-checklist.md', title:'Prototype Pollution — Testing Checklist',   chips:['Web','Per-source'] },
+  'prototype/poc':      { doc:'content/prototype-poc.md',       title:'Prototype Pollution — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'prototype/qa':       { doc:'content/prototype-qa.md',        title:'Prototype Pollution — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'xpath/guide':    { doc:'content/xpath-guide.md',     title:'XPath Injection — Testing Guide',       chips:['Web','High: auth-bypass / data theft'] },
+  'xpath/arsenal':  { doc:'content/xpath-arsenal.md',   title:'XPath Injection — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'xpath/checklist':{ doc:'content/xpath-checklist.md', title:'XPath Injection — Testing Checklist',   chips:['Web','Per-parameter'] },
+  'xpath/poc':      { doc:'content/xpath-poc.md',       title:'XPath Injection — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'xpath/qa':       { doc:'content/xpath-qa.md',        title:'XPath Injection — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'rest/guide':    { doc:'content/rest-guide.md',     title:'REST API — Testing Guide',       chips:['API','Critical: BOLA / BFLA / ATO'] },
+  'rest/arsenal':  { doc:'content/rest-arsenal.md',   title:'REST API — Attack Arsenal',      chips:['API','Copy-paste'] },
+  'rest/checklist':{ doc:'content/rest-checklist.md', title:'REST API — Testing Checklist',   chips:['API','Per-endpoint'] },
+  'rest/poc':      { doc:'content/rest-poc.md',       title:'REST API — PoC Scripts',         chips:['API','Runnable scripts'] },
+  'rest/qa':       { doc:'content/rest-qa.md',        title:'REST API — Zero to Expert (Q&A)',chips:['API','Study · 100+ Q'] },
 };
 
 /* Per-script code pages: click a script on a PoC index → its own page showing the source.
@@ -233,6 +275,34 @@ registerCode('sqli','sqli-poc','SQL Injection',[
 registerCode('ssti','ssti-poc','SSTI',[
   ['ssti_detect','ssti_detect.py','python'], ['ssti_rce','ssti_rce.py','python'],
 ]);
+registerCode('xxe','xxe-poc','XXE',[
+  ['oob_server','oob_server.py','python'], ['xxe_probe','xxe_probe.py','python'],
+  ['make_ooxml_xxe','make_ooxml_xxe.py','python'], ['make_svg_xxe','make_svg_xxe.py','python'],
+]);
+registerCode('deser','deser-poc','Insecure Deserialization',[
+  ['deser_detect','deser_detect.py','python'], ['pickle_poc','pickle_poc.py','python'],
+  ['php_object_poc','php_object_poc.py','python'], ['ysoserial_cheat','ysoserial_cheat.md','markdown'],
+]);
+registerCode('oauth','oauth-poc','OAuth / SSO / SAML',[
+  ['oauth_flow_audit','oauth_flow_audit.py','python'], ['oauth_redirect_fuzz','oauth_redirect_fuzz.py','python'],
+  ['idtoken_tamper','idtoken_tamper.py','python'], ['saml_xsw','saml_xsw.py','python'],
+]);
+registerCode('nosqli','nosqli-poc','NoSQL Injection',[
+  ['nosqli_fuzz','nosqli_fuzz.py','python'], ['nosqli_blind','nosqli_blind.py','python'],
+  ['nosqlmap_cheat','nosqlmap_cheat.md','markdown'],
+]);
+registerCode('prototype','prototype-poc','Prototype Pollution',[
+  ['pp_probe','pp_probe.py','python'], ['pp_payloads','pp_payloads.py','python'],
+  ['gadgets_cheat','gadgets_cheat.md','markdown'],
+]);
+registerCode('xpath','xpath-poc','XPath Injection',[
+  ['xpath_fuzz','xpath_fuzz.py','python'], ['xpath_blind','xpath_blind.py','python'],
+  ['xcat_cheat','xcat_cheat.md','markdown'],
+]);
+registerCode('rest','rest-poc','REST API',[
+  ['api_discover','api_discover.py','python'], ['authz_diff','authz_diff.py','python'],
+  ['massassign_fuzz','massassign_fuzz.py','python'], ['method_tamper','method_tamper.py','python'],
+], ['API','PoC script']);
 
 const RECON_PAGES = [
   { label:'Web Recon Guide',      route:'recon/guide' },
@@ -311,6 +381,13 @@ const SMUGGLING_PAGES  = kitPages('smuggling');
 const SQLI_PAGES       = kitPages('sqli');
 const SSRF_PAGES       = kitPages('ssrf');
 const SSTI_PAGES       = kitPages('ssti');
+const DESER_PAGES      = kitPages('deser');
+const NOSQLI_PAGES     = kitPages('nosqli');
+const OAUTH_PAGES      = kitPages('oauth');
+const PROTOTYPE_PAGES  = kitPages('prototype');
+const REST_PAGES       = kitPages('rest');
+const XPATH_PAGES      = kitPages('xpath');
+const XXE_PAGES        = kitPages('xxe');
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
@@ -323,10 +400,14 @@ const NAV = [
     { label:'File Upload', kit:true, pages:FILEUPLOAD_PAGES },
     { label:'Host Header Injection', kit:true, pages:HOSTHEADER_PAGES },
     { label:'IDOR / BOLA', kit:true, pages:IDOR_PAGES },
+    { label:'Insecure Deserialization', kit:true, pages:DESER_PAGES },
     { label:'JavaScript Files', kit:true, pages:JSFILES_PAGES },
     { label:'JWT', kit:true, pages:JWT_PAGES },
     { label:'LDAP', kit:true, pages:LDAP_PAGES },
     { label:'LFI', kit:true, pages:LFI_PAGES },
+    { label:'NoSQL Injection', kit:true, pages:NOSQLI_PAGES },
+    { label:'OAuth / SSO / SAML', kit:true, pages:OAUTH_PAGES },
+    { label:'Prototype Pollution', kit:true, pages:PROTOTYPE_PAGES },
     { label:'Race Condition', kit:true, pages:RACECONDITION_PAGES },
     { label:'Request Smuggling', kit:true, pages:SMUGGLING_PAGES },
     { label:'RFI', kit:true, pages:RFI_PAGES },
@@ -334,11 +415,13 @@ const NAV = [
     { label:'SSRF', kit:true, pages:SSRF_PAGES },
     { label:'SSTI', kit:true, pages:SSTI_PAGES },
     { label:'WebSocket', kit:true, pages:WEBSOCKET_PAGES },
+    { label:'XPath Injection', kit:true, pages:XPATH_PAGES },
     { label:'XSS', kit:true, pages:XSS_PAGES },
+    { label:'XXE', kit:true, pages:XXE_PAGES },
   ]},
   { kind:'section', label:'API', open:false, items:[
     { label:'GraphQL', kit:true, pages:GRAPHQL_PAGES },
-    { label:'REST', soon:true },
+    { label:'REST', kit:true, pages:REST_PAGES },
   ]},
   { kind:'section', label:'Mobile', open:false, groups:[
     { label:'Android', open:false, items:[ { label:'Coming soon', soon:true } ]},
@@ -349,6 +432,13 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'XPath Injection',         route:'xpath/guide',      date:'Jul 2026' },
+  { label:'Prototype Pollution',     route:'prototype/guide',  date:'Jul 2026' },
+  { label:'NoSQL Injection',         route:'nosqli/guide',     date:'Jul 2026' },
+  { label:'OAuth / SSO / SAML',      route:'oauth/guide',      date:'Jul 2026' },
+  { label:'Insecure Deserialization',route:'deser/guide',      date:'Jul 2026' },
+  { label:'XXE',                     route:'xxe/guide',        date:'Jul 2026' },
+  { label:'REST API',                route:'rest/guide',       date:'Jul 2026' },
   { label:'SQL Injection',  route:'sqli/guide',           date:'Jun 2026' },
   { label:'LDAP',           route:'ldap/guide',           date:'Jun 2026' },
   { label:'WebSocket',      route:'websocket/guide',      date:'Jun 2026' },
