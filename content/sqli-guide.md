@@ -1007,21 +1007,25 @@ NO-QUOTE strings:  MySQL 0x61646d696e = 'admin' ·  CHAR/CHR(...) on all ·  Ora
 
 ---
 
-# Appendix D — Important Links
+# Appendix D — References & Further Reading
 
-```
-PortSwigger — SQL injection (+ cheat sheet + labs)   https://portswigger.net/web-security/sql-injection
-PortSwigger — SQLi cheat sheet                        https://portswigger.net/web-security/sql-injection/cheat-sheet
-OWASP — SQL Injection                                 https://owasp.org/www-community/attacks/SQL_Injection
-OWASP WSTG — Testing for SQL Injection (WSTG-INPV-05) https://owasp.org/www-project-web-security-testing-guide/
-OWASP — SQL Injection Prevention Cheat Sheet          https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
-PayloadsAllTheThings — SQL Injection                  https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/SQL%20Injection
-HackTricks — SQL injection                            https://book.hacktricks.xyz/pentesting-web/sql-injection
-sqlmap                                                https://sqlmap.org/  ·  https://github.com/sqlmapproject/sqlmap
-GTFOBins / per-DBMS RCE notes (xp_cmdshell, COPY)     vendor docs + HackTricks DBMS pages
-CWE-89 (SQLi) / CWE-74 / CWE-287 / CWE-78             https://cwe.mitre.org/data/definitions/89.html
-Notable cases: MOVEit CVE-2023-34362 · Accellion CVE-2021-27101 · Drupalgeddon CVE-2014-3704 · Joomla CVE-2017-8917
-```
+**Always-on (start here):**
+- **PortSwigger Web Security Academy — SQL injection** (topic + labs): https://portswigger.net/web-security/sql-injection
+- **PortSwigger — SQL injection cheat sheet:** https://portswigger.net/web-security/sql-injection/cheat-sheet
+- **HackTricks — SQL injection** (+ per-DBMS pages): https://book.hacktricks.xyz/pentesting-web/sql-injection
+- **PayloadsAllTheThings — SQL Injection:** https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/SQL%20Injection
+- **OWASP** — SQL Injection · **WSTG** Testing for SQL Injection (WSTG-INPV-05) · **SQL Injection Prevention Cheat Sheet**: https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html
+- **PentesterLab** — "From SQL Injection to Shell" I/II + the SQLi badges (hands-on)
+
+**Tools:**
+- **sqlmap** (the reference exploiter): https://sqlmap.org/ · https://github.com/sqlmapproject/sqlmap · **ghauri** (fast blind alternative) · **GTFOBins** + HackTricks DBMS pages for per-engine RCE (xp_cmdshell / COPY … FROM PROGRAM / UDF)
+
+**Standards & scoring:**
+- **CWE-89** (SQL Injection) · **CWE-74** (injection) · **CWE-287** (auth bypass) · **CWE-78** (OS command via SQL→RCE): https://cwe.mitre.org/data/definitions/89.html
+- **CVSS 3.1** — SQLi is typically `AC:L` and reaches `C:H/I:H/A:H` (full DB compromise), rising to `S:C` when it pivots to the OS / other tenants (see §23).
+
+**Notable real-world cases / CVEs:**
+- **MOVEit Transfer** CVE-2023-34362 (Cl0p mass exploitation) · **Accellion FTA** CVE-2021-27101 · **Drupalgeddon** CVE-2014-3704 · **Joomla!** CVE-2017-8917. Pattern: *one injectable parameter → mass data theft / RCE at scale.*
 
 ---
 

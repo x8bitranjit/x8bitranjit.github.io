@@ -100,7 +100,7 @@ def main():
     print()
     if flagged:
         for name, t in flagged:
-            print(f"[SIGNAL] {name}: ~{t:.1f}s vs baseline ~{base:.1f}s → possible desync.")
+            print(f"[SIGNAL] {name}: ~{t:.1f}s vs baseline ~{base:.1f}s -> possible desync.")
         print("\n[next] CONFIRM deterministically (a smuggled prefix changes YOUR follow-up) with build_smuggle.py +")
         print("       Burp/Turbo Intruder (§8), THEN build a concrete, do-no-harm exploit (§9-§13). Don't report a blip.")
     else:

@@ -57,7 +57,7 @@ async def run(args):
     headers = {}
     if args.token:
         headers["Authorization"] = f"Bearer {args.token}"
-    if args.body:
+    if args.action_body:
         headers["Content-Type"] = "application/json"
 
     if args.n > 50:

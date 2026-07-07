@@ -9,7 +9,7 @@
 - `SSRF_REPORT_TEMPLATE.md` — the report skeleton that gets paid
 - `poc/` — runnable tooling (IP encoder, redirect server, gopher/Redis payload builder, SSRF prober)
 
-> **Companion to the XSS / JWT / Recon / FileUpload guides.** Same philosophy: *find* is Part I–II, *get paid* is Part III–IV. SSRF is one of the **highest-paying** web classes because a single fetch can reach **cloud metadata → IAM credentials → full cloud-account takeover**. But it's also the class most often reported at the wrong severity — "the server pinged my collaborator" is *confirmation*, not *impact*. Read Part III before you celebrate a callback.
+> **Companion to the Recon · FileUpload · XXE · OAuth-SSO · Host-Header guides** (they find or feed SSRF — Recon locates the fetch sinks, FileUpload/XXE reach it via SVG/external entities, OAuth-SSO via `request_uri`/`jku`, Host-Header via routing-based SSRF). Same philosophy: *find* is Part I–II, *get paid* is Part III–IV. SSRF is one of the **highest-paying** web classes because a single fetch can reach **cloud metadata → IAM credentials → full cloud-account takeover**. But it's also the class most often reported at the wrong severity — "the server pinged my collaborator" is *confirmation*, not *impact*. Read Part III before you celebrate a callback.
 
 ---
 
@@ -796,19 +796,32 @@ ALWAYS: prove impact (creds via get-caller-identity / file contents / benign gop
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — References & Further Reading
 
-```
-PortSwigger — SSRF (Web Security Academy)          https://portswigger.net/web-security/ssrf
-OWASP — SSRF Prevention Cheat Sheet                https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
-PayloadsAllTheThings — SSRF                         https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Request%20Forgery
-SSRFmap (automated exploitation)                   https://github.com/swisskyrepo/SSRFmap
-Gopherus (gopher payloads → RCE)                   https://github.com/tarunkant/Gopherus
-interactsh / Burp Collaborator (OOB)               https://github.com/projectdiscovery/interactsh
-AWS IMDSv2 / cloud metadata docs                   https://docs.aws.amazon.com/.../instancedata-data-retrieval.html
-DNS rebinding tooling (rbndr / 1u.ms / nip.io)     https://lock.cmpxchg8b.com/rebinder.html
-CWE-918 (SSRF)                                     https://cwe.mitre.org/data/definitions/918.html
-```
+**Always-on (start here):**
+- **PortSwigger Web Security Academy — SSRF** (topic + labs): https://portswigger.net/web-security/ssrf
+- **HackTricks — SSRF (Server Side Request Forgery):** https://book.hacktricks.xyz/pentesting-web/ssrf-server-side-request-forgery
+- **PayloadsAllTheThings — Server Side Request Forgery:** https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Request%20Forgery
+- **OWASP** — SSRF Prevention Cheat Sheet · **WSTG** Testing for SSRF: https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html
+- **PentesterLab** — SSRF / cloud-metadata exercises
+
+**Class research (SSRF is a research-driven class — read the primaries):**
+- **Orange Tsai — "A New Era of SSRF: Exploiting URL Parsers"** (Black Hat USA 2017) — the seminal URL-parser-confusion / protocol-smuggling research: https://blog.orange.tw/2017/07/how-i-chained-4-vulnerabilities-on.html
+- **Rhino Security Labs — SSRF → AWS IMDS → IAM credentials** (the Capital One breach pattern, 2019): https://rhinosecuritylabs.com/aws/
+- **DNS rebinding** (rbndr / 1u.ms / nip.io / sslip.io): https://lock.cmpxchg8b.com/rebinder.html
+
+**Tools:**
+- **SSRFmap** (automated exploitation): https://github.com/swisskyrepo/SSRFmap · **Gopherus** (gopher→RCE payloads): https://github.com/tarunkant/Gopherus · **interactsh** / Burp Collaborator (OOB): https://github.com/projectdiscovery/interactsh · the `poc/` helpers here.
+
+**Reference docs:**
+- **AWS IMDSv2 / cloud metadata retrieval** (the `PUT`-token flow that changes the technique): https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instancedata-data-retrieval.html
+
+**Standards & scoring:**
+- **CWE-918** (Server-Side Request Forgery): https://cwe.mitre.org/data/definitions/918.html · related **CWE-611** (XXE→SSRF) · **CWE-441** (confused deputy)
+- **CVSS 3.1** — external-only SSRF is often Low, but SSRF→metadata→IAM/RCE is `C:H/I:H/A:H` (often `S:C`) = Critical (see §21).
+
+**Notable real-world case:**
+- **Capital One breach (2019)** — WAF SSRF → EC2 IMDSv1 → IAM role creds → S3 dump of 100M+ records. The canonical "SSRF is Critical" case.
 
 ---
 

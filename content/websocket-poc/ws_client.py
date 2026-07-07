@@ -1,18 +1,26 @@
 #!/usr/bin/env python3
 """
 ws_client.py — benign WebSocket client for testing: connect with a chosen Origin/Cookie, send a
-frame, and print the reply. Use it as the CSWSH CLI oracle (foreign Origin + victim cookie →
+frame, and print the reply. Use it as the CSWSH CLI oracle (foreign Origin + victim cookie ->
 still authenticated?), for IDOR-over-WS (A's cookie + B's id), and for frame tampering.
 
 Authorized testing only. Your own accounts. The CLI ignores the browser Same-Origin Policy, so a
 connect here is NOT proof of CSWSH by itself — it's an oracle; prove CSWSH in a REAL BROWSER with
 cswsh_poc.html (guide §15). For IDOR, use two of your own accounts (A reaches B).
 """
-import argparse, asyncio, sys
+import argparse, asyncio, inspect, sys
 try:
     import websockets
 except ImportError:
     sys.exit("pip install websockets")
+
+# websockets v14 renamed connect(extra_headers=) -> connect(additional_headers=); support both.
+try:
+    _HDR_KW = ("additional_headers"
+               if "additional_headers" in inspect.signature(websockets.connect).parameters
+               else "extra_headers")
+except (ValueError, TypeError):
+    _HDR_KW = "extra_headers"
 
 
 async def run(args):
@@ -28,8 +36,8 @@ async def run(args):
 
     print(f"[*] connecting {args.url}  (Origin={args.origin or '-'}, cookie={'yes' if args.cookie else 'no'})")
     try:
-        async with websockets.connect(args.url, extra_headers=headers,
-                                      subprotocols=args.subprotocol or None, open_timeout=15) as ws:
+        async with websockets.connect(args.url, subprotocols=args.subprotocol or None,
+                                      open_timeout=15, **{_HDR_KW: headers}) as ws:
             print("[+] connected (handshake accepted). NOTE: CLI ignores SOP — confirm CSWSH in a real browser.")
             for msg in (args.send or []):
                 await ws.send(msg)

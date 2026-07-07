@@ -578,18 +578,24 @@ ALWAYS: only claim RFI when YOUR CODE RAN. Prove with a benign marker + id, then
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — References & Further Reading
 
-```
-PortSwigger — File inclusion                          https://portswigger.net/web-security/file-inclusion
-OWASP — Testing for Remote File Inclusion             https://owasp.org/www-project-web-security-testing-guide/
-PayloadsAllTheThings — File Inclusion (RFI)           https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/File%20Inclusion
-HackTricks — LFI to RFI / RCE                          https://book.hacktricks.xyz/pentesting-web/file-inclusion
-fimap (FI scanner)                                    https://github.com/kurobeats/fimap
-impacket-smbserver (UNC hosting)                       https://github.com/fortra/impacket
-PHP allow_url_include docs                             https://www.php.net/manual/en/filesystem.configuration.php
-CWE-98 (Improper Control of Filename for include)     https://cwe.mitre.org/data/definitions/98.html
-```
+**Always-on (start here):**
+- **PortSwigger Web Security Academy — File path traversal & File inclusion:** https://portswigger.net/web-security/file-inclusion
+- **HackTricks — File Inclusion / LFI-to-RFI / LFI2RCE** (wrappers: `data://`, `php://input`, `expect://`): https://book.hacktricks.xyz/pentesting-web/file-inclusion
+- **PayloadsAllTheThings — File Inclusion (RFI):** https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/File%20Inclusion
+- **OWASP WSTG** — Testing for Remote File Inclusion (WSTG-INPV-11/12): https://owasp.org/www-project-web-security-testing-guide/
+- **PentesterLab** — PHP file-inclusion exercises ("PHP Include And Post", "Rack Cookies and Commands Injection")
+
+**Tools:**
+- **fimap** (FI scanner): https://github.com/kurobeats/fimap · **impacket-smbserver** (Windows UNC/SMB hosting): https://github.com/fortra/impacket · the `poc/` payload host + prober here.
+
+**Reference docs:**
+- **PHP `allow_url_include` / `allow_url_fopen`** (the switch that gates classic `http://` RFI): https://www.php.net/manual/en/filesystem.configuration.php
+
+**Standards & scoring:**
+- **CWE-98** (Improper Control of Filename for Include/Require — 'RFI'): https://cwe.mitre.org/data/definitions/98.html · related **CWE-94** (code injection) · **CWE-918** (the SSRF you must distinguish it from, §15)
+- **CVSS 3.1** — real RFI is RCE → typically `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (Critical) (see §17).
 
 ---
 

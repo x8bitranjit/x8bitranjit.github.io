@@ -271,12 +271,25 @@ https://target/?__proto__[srcdoc]=<script>alert(1)</script>
 
 Lead with **Source + Gadget + Impact**. Show: the exact pollution request (JSON/URL), the **proof of global pollution** (fresh-object property or the SSPP oracle diff), and the **gadget firing** (XSS alert / executed command / admin access). Name the vulnerable operation (`_.merge`/`$.extend(true)`/`_.set`) and the fix. Use the report template. Cite CWE-1321 and the library CVE if it's a known-vulnerable dependency.
 
-## 6.5 Real-world references / CVEs
+## 6.5 References & further reading
 
-- **Olivier Arteau**, "Prototype pollution attacks in NodeJS applications" (NorthSec 2018) — the origin.
-- **PortSwigger / Gareth Heyes** — client-side "widespread prototype pollution gadgets" (2020) + **server-side prototype pollution** detection & gadgets (2022–2023); Academy labs.
-- **lodash** CVE-2019-10744 (`defaultsDeep`), CVE-2018-3721/16487; **jQuery** CVE-2019-11358 (`$.extend`); **minimist** CVE-2020-7598; **yargs-parser** CVE-2020-7608; **set-value/merge/deep-set** family.
-- **Kibana** CVE-2019-7609 (Timelion prototype pollution → RCE); numerous npm-package and app-level PP→RCE reports on HackerOne.
+**Always-on core:**
+- **PortSwigger Web Security Academy** — Prototype pollution (client **and** server labs) · **PortSwigger Research** (Gareth Heyes).
+- **HackTricks** — Prototype Pollution (client + NodeJS) · **The Hacker Recipes** — Prototype pollution.
+- **PayloadsAllTheThings** — Prototype Pollution · **OWASP** — Prototype-Pollution-Prevention Cheat Sheet · **PentesterLab**.
+
+**Class-specific research (read these):**
+- **Olivier Arteau** — "Prototype pollution attacks in NodeJS applications" (NorthSec 2018) — the origin.
+- **Gareth Heyes (PortSwigger)** — client-side "widespread prototype pollution gadgets" (2020) + **server-side prototype pollution** detection & gadgets (2022–2023) + the **DOM Invader** tooling.
+- **Mikhail Shcherbakov et al.** — "Silent Spring: Prototype Pollution Leads to RCE in Node.js" (USENIX Security 2023) — the systematic `NODE_OPTIONS`/`--require` server-side-RCE research (matches §3.1).
+- **Michał Bentkowski (Securitum)** — client-side PP + sanitizer/**DOMPurify**-config gadgets & mXSS write-ups.
+- **s1r1us** — prototype-pollution-to-RCE write-ups (Blitz.js / Electron / etc.) · **BlackFan (Sergey Bobrov)** — the *client-side-prototype-pollution* gadgets collection.
+
+**CVEs & real-world:**
+- **lodash** CVE-2019-10744 (`defaultsDeep`), CVE-2018-3721/16487; **jQuery** CVE-2019-11358 (`$.extend`); **minimist** CVE-2020-7598; **yargs-parser** CVE-2020-7608; **set-value / merge / deep-set** family.
+- **Kibana** CVE-2019-7609 (Timelion prototype pollution → RCE); numerous npm-package and app-level **PP→RCE** reports on HackerOne (`--require`/`NODE_OPTIONS` + template-engine gadgets).
+
+**Standards & scoring:** CWE-1321 (→ CWE-94/78 RCE · CWE-79 DOM-XSS · CWE-287/269 authz bypass) · CVSS 3.1 calculator (first.org/cvss/calculator/3.1).
 
 ---
 

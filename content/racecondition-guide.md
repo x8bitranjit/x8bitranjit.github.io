@@ -454,13 +454,27 @@ Fire N parallel into one window (single-packet / Burp parallel).
    └─ N× 200 but invariant UNCHANGED ............. NOT a race (idempotent) → drop (§16)
 ```
 
-# Appendix C — Important Links
-- **PortSwigger — Race conditions** (single-packet attack, labs): https://portswigger.net/web-security/race-conditions
-- **PortSwigger Research — "Smashing the state machine"** (James Kettle, 2023, single-packet attack)
-- **Turbo Intruder** (Burp ext) — `race-single-packet.py`, `examples.py`
-- **CWE-362** https://cwe.mitre.org/data/definitions/362.html · **CWE-367** (TOCTOU) /367 · **CWE-841** /841 · **CWE-662** (improper synchronization) · **CWE-820** (missing synchronization) · **CWE-330** (predictable token, §10.5)
-- **OWASP WSTG** — Testing for Race Conditions; OWASP "Business Logic" testing
-- **Tools** — Turbo Intruder (`race-single-packet.py`, `examples.py`); **requests-racer** (Python, last-byte-sync); **race-the-web** (Go, older); the `poc/` helpers here.
-- **Real cases / patterns** — **Starbucks** gift-card balance race (well-known double-spend), HackerOne disclosed **coupon/gift-card overrun** and **OTP-bypass → ATO** reports, **file-upload TOCTOU → webshell** writeups, and **predictable password-reset-token** collisions. Pattern: *limited/valuable check-then-act without atomicity + simultaneous arrival → broken invariant → money / ATO / RCE.*
+# Appendix C — References & Further Reading
+
+**Always-on (start here):**
+- **PortSwigger Web Security Academy — Race conditions** (topic + labs): https://portswigger.net/web-security/race-conditions
+- **HackTricks — Race Condition:** https://book.hacktricks.xyz/pentesting-web/race-condition
+- **PayloadsAllTheThings — Race Condition:** https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Race%20Condition
+- **OWASP WSTG** — Testing for Race Conditions; OWASP **Business Logic** testing
+- **PentesterLab** — race-condition / concurrency exercises
+
+**Class research (the single-packet era):**
+- **PortSwigger Research — James Kettle, "Smashing the State Machine: The True Potential of Web Race Conditions"** (2023) — the single-packet attack (the paper this whole class now rests on): https://portswigger.net/research/smashing-the-state-machine
+- **Turbo Intruder** (Burp extension) — `race-single-packet.py`, `examples.py`: https://github.com/PortSwigger/turbo-intruder
+
+**Tools:**
+- Turbo Intruder (`race-single-packet.py` / `examples.py`) · **requests-racer** (Python, last-byte-sync) · **race-the-web** (Go, older) · the `poc/` helpers here.
+
+**Real cases / patterns:**
+- **Starbucks** gift-card balance race (well-known double-spend) · HackerOne-disclosed **coupon/gift-card overrun** and **OTP-bypass → ATO** reports · **file-upload TOCTOU → webshell** writeups · **predictable password-reset-token** collisions. Pattern: *limited/valuable check-then-act without atomicity + simultaneous arrival → broken invariant → money / ATO / RCE.*
+
+**Standards & scoring:**
+- **CWE-362** (Race Condition — primary): https://cwe.mitre.org/data/definitions/362.html · **CWE-367** (TOCTOU) · **CWE-841** (improper enforcement of behavioral workflow) · **CWE-662** (improper synchronization) · **CWE-820** (missing synchronization) · **CWE-330** (predictable token, §10.5)
+- **CVSS 3.1** — `AC:H` is expected for races (you need timing), but a reliable single-packet PoC keeps severity where the impact puts it (see §17).
 
 > **Authorized testing only.** Race your own balances/accounts, keep bursts bounded, never cash out real funds or affect real users, reset state, and report **a repeatable broken invariant with impact** (money/ATO/business) — not "I sent many requests."

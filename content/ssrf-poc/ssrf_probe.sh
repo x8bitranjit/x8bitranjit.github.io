@@ -39,8 +39,8 @@ printf "%-58s %-6s %-8s %s\n" "PAYLOAD" "CODE" "BYTES" "TIME"
 echo "--------------------------------------------------------------------------------"
 for t in "${TARGETS[@]}"; do
   enc=$(python3 -c "import urllib.parse,sys;print(urllib.parse.quote(sys.argv[1],safe=''))" "$t" 2>/dev/null || echo "$t")
-  read -r CODE BYTES TIME < <(curl -s -o /tmp/_ssrf_body -w "%{http_code} %{size_download} %{time_total}" \
-        ${AUTH:+-H "$AUTH"} "${SINK}${enc}" 2>/dev/null)
+  read -r CODE BYTES TIME < <(curl -s --connect-timeout 5 --max-time 20 -o /tmp/_ssrf_body \
+        -w "%{http_code} %{size_download} %{time_total}" ${AUTH:+-H "$AUTH"} "${SINK}${enc}" 2>/dev/null)
   printf "%-58s %-6s %-8s %s\n" "$t" "${CODE:-ERR}" "${BYTES:-0}" "${TIME:-0}"
 done
 echo "--------------------------------------------------------------------------------"

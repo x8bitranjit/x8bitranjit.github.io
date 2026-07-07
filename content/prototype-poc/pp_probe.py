@@ -90,7 +90,7 @@ def main():
     ap.add_argument("--header", action="append", default=[], help="extra header 'Name: value' (repeatable)")
     ap.add_argument("--timeout", type=float, default=15.0)
     a = ap.parse_args()
-    hdrs = dict(hh.split(":", 1) for hh in a.header) if a.header else {}
+    hdrs = {k.strip(): v.strip() for k, v in (hh.split(":", 1) for hh in a.header if ":" in hh)}
 
     def wrap(inner):
         return {"__proto__": inner} if a.root == "__proto__" else {"constructor": {"prototype": inner}}

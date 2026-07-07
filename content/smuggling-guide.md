@@ -603,18 +603,27 @@ ALWAYS: do-no-harm — timing first, own connections, benign markers; prove the 
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — References & Further Reading
 
-```
-PortSwigger — HTTP request smuggling (Academy)         https://portswigger.net/web-security/request-smuggling
-PortSwigger — Browser-powered / HTTP/2 desync          https://portswigger.net/research/http2
-James Kettle — "HTTP Desync Attacks"                   https://portswigger.net/research/http-desync-attacks-request-smuggling-reborn
-James Kettle — "HTTP/2: The Sequel is Always Worse"    https://portswigger.net/research/http2-the-sequel-is-always-worse
-HTTP Request Smuggler (Burp BApp)                       https://github.com/PortSwigger/http-request-smuggler
-smuggler.py (defparam)                                  https://github.com/defparam/smuggler
-PayloadsAllTheThings — Request Smuggling                https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Request%20Smuggling
-CWE-444 (Inconsistent Interpretation of HTTP Requests)  https://cwe.mitre.org/data/definitions/444.html
-```
+**Always-on (start here):**
+- **PortSwigger Web Security Academy — HTTP request smuggling** (topic + labs): https://portswigger.net/web-security/request-smuggling
+- **HackTricks — HTTP Request Smuggling / HTTP Desync:** https://book.hacktricks.xyz/pentesting-web/http-request-smuggling
+- **PayloadsAllTheThings — Request Smuggling:** https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Request%20Smuggling
+- **OWASP WSTG** — Testing for HTTP Splitting/Smuggling (WSTG-INPV-15)
+- **PentesterLab** — HTTP request smuggling exercises
+
+**Class research (smuggling is a research-driven class — read the primaries):**
+- **James Kettle — "HTTP Desync Attacks: Request Smuggling Reborn"** (2019 — the paper that revived the class): https://portswigger.net/research/http-desync-attacks-request-smuggling-reborn
+- **James Kettle — "HTTP/2: The Sequel is Always Worse"** (2021 — H2.CL / H2.TE / CRLF downgrade desync, §7): https://portswigger.net/research/http2-the-sequel-is-always-worse
+- **James Kettle — "Browser-Powered Desync Attacks"** (2022 — client-side desync / CL.0 / pause-based, §7.2/§7.4): https://portswigger.net/research/browser-powered-desync-attacks
+- **Assetnote** — "Practical HTTP Header Smuggling" + desync/CVE deep-dives: https://www.assetnote.io/resources
+
+**Tools:**
+- **HTTP Request Smuggler** (Burp BApp, PortSwigger): https://github.com/PortSwigger/http-request-smuggler · **smuggler.py** (defparam): https://github.com/defparam/smuggler · **Turbo Intruder** (byte-exact PoCs) · the `poc/` helpers here.
+
+**Standards & scoring:**
+- **CWE-444** (Inconsistent Interpretation of HTTP Requests / "HTTP Request Smuggling"): https://cwe.mitre.org/data/definitions/444.html · outcome CWEs — **CWE-79** (XSS via cache/stored) · **CWE-384** (session) · **CWE-918/CWE-94** (SSRF/RCE via the reached endpoint)
+- **CVSS 3.1** — `AC:H` (needs timing/positioning) but the cross-user impact drives it to **High–Critical** (see §16).
 
 ---
 

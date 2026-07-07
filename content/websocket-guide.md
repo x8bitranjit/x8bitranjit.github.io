@@ -440,12 +440,29 @@ Read the handshake → how is it authenticated?
 Then: severity by what the socket can READ + DO; PoC; report.
 ```
 
-# Appendix C — Important Links
-- **PortSwigger — WebSockets security** (labs: manipulating messages, manipulating the handshake, **cross-site WebSocket hijacking**): https://portswigger.net/web-security/websockets
-- **OWASP WSTG** — Testing WebSockets; **OWASP** WebSocket security cheat sheet
-- **CWE-1385** (Missing Origin Validation in WebSockets) https://cwe.mitre.org/data/definitions/1385.html · **CWE-346** /346 · **CWE-352** /352 · **CWE-319** /319 · **CWE-306/862/285** (authn/authz)
-- **RFC 6455** (The WebSocket Protocol); **RFC 7692** (`permessage-deflate`); **graphql-ws** & **subscriptions-transport-ws** sub-protocols
-- **Tools** — Burp (WebSockets history + CSWSH PoC generator), **websocat**, **wscat**, Python **websockets**, **STÖK/ws-harness**
-- **Related kits here** — CSRF (the cookie/SameSite gate), CORS (Origin allow-list bypasses), IDOR (two-account proof), XSS (escalate stored-XSS), GraphQL (`API/GraphQL/` §15.5 subscriptions/CSWSH), Request Smuggling (upgrade smuggling).
+# Appendix C — References & Further Reading
+
+**Always-on (start here):**
+- **PortSwigger Web Security Academy — WebSockets security** (labs: manipulating messages, manipulating the handshake, **cross-site WebSocket hijacking**): https://portswigger.net/web-security/websockets
+- **HackTricks — Cross-Site WebSocket Hijacking (CSWSH):** https://book.hacktricks.xyz/pentesting-web/cross-site-websocket-hijacking-cswsh
+- **OWASP WSTG** — Testing WebSockets (WSTG-CLNT-10); **OWASP** HTML5 / WebSocket security cheat sheet
+- **PentesterLab** — WebSocket / CSWSH exercises
+
+**Class research:**
+- **Christian Schneider — "Cross-Site WebSocket Hijacking (CSWSH)"** — the canonical writeup that named the class (2013): http://www.christian-schneider.net/CrossSiteWebSocketHijacking.html
+- **PortSwigger Research — James Kettle, "HTTP/2: The Sequel is Always Worse"** (h2c / WebSocket-over-HTTP/2 upgrade smuggling): https://portswigger.net/research/http2
+
+**Specs & protocol:**
+- **RFC 6455** (The WebSocket Protocol) · **RFC 7692** (`permessage-deflate` compression) · **graphql-ws** & **subscriptions-transport-ws** sub-protocols
+
+**Tools:**
+- Burp (WebSockets history + CSWSH PoC generator) · **websocat** · **wscat** · Python **websockets** · **ws-harness** (STÖK)
+
+**Standards & scoring:**
+- **CWE-1385** (Missing Origin Validation in WebSockets → CSWSH): https://cwe.mitre.org/data/definitions/1385.html · **CWE-346** (Origin Validation Error) · **CWE-352** (CSRF) · **CWE-319** (cleartext `ws://`) · **CWE-598/200** (token-in-URL) · **CWE-306/862/285** (missing authn/authz) · injection CWEs (79/89/943/77/78/918/22) · **CWE-770/400** (DoS)
+- **CVSS 3.1** — CSWSH is `UI:R` (victim opens the page) but rates higher than plain CSRF because it also **reads** the responses (see §17).
+
+**Related kits here:**
+- **CSRF** (the cookie/SameSite gate) · **CORS** (Origin allow-list bypasses) · **IDOR** (two-account proof) · **XSS** (escalate stored-XSS via chat) · **GraphQL** (`API/GraphQL/` §15.5 subscriptions/CSWSH) · **Request Smuggling** (upgrade smuggling).
 
 > **Authorized testing only.** CSWSH PoCs exfiltrate to **your** server using **your** victim test account; prove cross-site in a real browser; two own accounts for IDOR; measured counts for brute; measure-don't-flood for DoS; revert state. Report **impact** (data theft, ATO, RCE, XSS, cross-user) — not "no Origin check."
