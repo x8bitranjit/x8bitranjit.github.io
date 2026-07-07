@@ -9,7 +9,7 @@
 - `LDAP_INJECTION_REPORT_TEMPLATE.md` — the report skeleton that gets paid
 - `poc/` — runnable tooling (filter fuzzer + AND/OR context detector, blind char-by-char extractor, `ldapsearch` cheat-sheet)
 
-> **Companion to the SQLi / CommandInjection / SSTI guides.** LDAP injection is the **enterprise-auth killer**: the directory is usually the source of truth for *who you are* and *what you can do*. Unlike SQLi it almost never gives RCE — but it gives the two things that pay just as well: **authentication bypass → log in as admin (ATO)** and **directory disclosure → every user, email, group, and (where readable) password hash.** The mistakes hunters make are (a) treating a returned `*` wildcard as "intended search" and walking away, (b) not detecting the **blind** case (no data, but the response *differs* true-vs-false → extract attributes char-by-char), and (c) escaping at the first WAF instead of routing around it. Read Part II (context + blind) and Part III (impact) — that's where a "login form" becomes a confirmed auth bypass.
+> **Companion to the SQLi · NoSQLi · XPath guides (same query-injection + boolean-blind engine) and the JWT · OAuth-SSO guides (the auth-bypass → ATO outcome).** LDAP injection is the **enterprise-auth killer**: the directory is usually the source of truth for *who you are* and *what you can do*. Unlike SQLi it almost never gives RCE — but it gives the two things that pay just as well: **authentication bypass → log in as admin (ATO)** and **directory disclosure → every user, email, group, and (where readable) password hash.** The mistakes hunters make are (a) treating a returned `*` wildcard as "intended search" and walking away, (b) not detecting the **blind** case (no data, but the response *differs* true-vs-false → extract attributes char-by-char), and (c) escaping at the first WAF instead of routing around it. Read Part II (context + blind) and Part III (impact) — that's where a "login form" becomes a confirmed auth bypass.
 
 ---
 
@@ -751,15 +751,37 @@ HIGH-VALUE ATTRIBUTES to match/extract:
 
 # Appendix D — Important Links
 
+**Always-on core (every kit):**
 ```
-PortSwigger — LDAP injection                          https://portswigger.net/web-security/ldap-injection
+PortSwigger — LDAP injection (topic + lab)            https://portswigger.net/web-security/ldap-injection
+PortSwigger Research                                  https://portswigger.net/research
 OWASP — LDAP Injection                                https://owasp.org/www-community/attacks/LDAP_Injection
-OWASP WSTG — Testing for LDAP Injection (WSTG-INPV-06) https://owasp.org/www-project-web-security-testing-guide/
+OWASP WSTG — Testing for LDAP Injection (WSTG-INPV-06) https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/06-Testing_for_LDAP_Injection
 OWASP — LDAP Injection Prevention Cheat Sheet         https://cheatsheetseries.owasp.org/cheatsheets/LDAP_Injection_Prevention_Cheat_Sheet.html
 PayloadsAllTheThings — LDAP Injection                 https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/LDAP%20Injection
 HackTricks — LDAP injection                           https://book.hacktricks.xyz/pentesting-web/ldap-injection
-RFC 4515 (string filters) / RFC 4514 (DN) / RFC 4526 (absolute true/false)   https://www.rfc-editor.org/
-CWE-90 (LDAP Injection) / CWE-74 / CWE-287 / CWE-285  https://cwe.mitre.org/data/definitions/90.html
+The Hacker Recipes — Active Directory / LDAP          https://www.thehacker.recipes/
+PentesterLab — LDAP / authentication exercises        https://pentesterlab.com/
+```
+
+**Class-specific research & tradecraft (blind-LDAP + Active Directory chains, §8/§12/§15):**
+```
+Chema Alonso, Palazón, Guzmán, Parada — "LDAP Injection & Blind LDAP Injection" (the seminal blind-LDAP
+    whitepaper, Black Hat Europe 2008 — read this once; the char-by-char oracle clicks afterward)
+                                                      https://www.blackhat.com/presentations/bh-europe-08/Alonso-Parada/Whitepaper/bh-eu-08-alonso-parada-WP.pdf
+SpecterOps — BloodHound (AD attack-path graph)        https://github.com/BloodHoundAD/BloodHound
+harmj0y (Will Schroeder) — Kerberoasting / AS-REP roasting deep-dives   https://blog.harmj0y.net/
+SpecterOps blog — "Roasting" AD (Kerberoast / AS-REP) https://posts.specterops.io/
+windapsearch · ldapdomaindump (post-bind AD enum)     https://github.com/ropnop/windapsearch · https://github.com/dirkjanm/ldapdomaindump
+MITRE ATT&CK — T1087 Account Discovery · T1558.003 Kerberoasting · T1558.004 AS-REP Roasting   https://attack.mitre.org/
+Appliance "authentication bypass" CVEs (Citrix/Fortinet/Pulse — often LDAP/filter logic)   https://nvd.nist.gov/
+```
+
+**Standards & scoring:**
+```
+RFC 4515 (string filters) · RFC 4514 (DN) · RFC 4526 (absolute true/false)   https://www.rfc-editor.org/
+CWE-90 (LDAP Injection) · CWE-74 (Injection) · CWE-287 (auth bypass) · CWE-285 (authorization)   https://cwe.mitre.org/data/definitions/90.html
+CVSS 3.1 calculator                                   https://www.first.org/cvss/calculator/3.1
 ```
 
 ---

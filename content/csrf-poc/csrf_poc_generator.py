@@ -84,9 +84,14 @@ def gen_form(action, params, enctype=None):
 
 
 def gen_get(action, params):
+    import json
     q = urllib.parse.urlencode(params)
     url = f"{action}?{q}" if q else action
-    return (f'<script>window.location="{html.escape(url, quote=True)}";</script>\n'
+    # JS-string context: JSON-encode the URL. Do NOT html.escape here — inside <script> the HTML parser does
+    # NOT decode entities, so html.escape would turn '&' into a literal '&amp;' and corrupt multi-param URLs
+    # (email=..&role=admin -> email=..&amp;role=admin). The <a href> below IS attribute context, so it keeps html.escape.
+    js_url = json.dumps(url).replace("</", "<\\/")   # json.dumps quotes/escapes safely; neutralize any stray </script>
+    return (f'<script>window.location={js_url};</script>\n'
             f'<noscript><a href="{html.escape(url, quote=True)}">continue</a></noscript>')
 
 

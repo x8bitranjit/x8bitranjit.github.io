@@ -47,11 +47,10 @@
 
   function beacon(obj) {
     var body = JSON.stringify(obj);
-    try {
-      navigator.sendBeacon(CFG.collector, body);
-    } catch (e) {
-      new Image().src = CFG.collector + "?d=" + encodeURIComponent(body);
-    }
+    // sendBeacon returns FALSE on failure (it does not throw) — check the return, else fall back to an image GET.
+    var ok = false;
+    try { ok = navigator.sendBeacon(CFG.collector, body); } catch (e) { ok = false; }
+    if (!ok) { new Image().src = CFG.collector + "?d=" + encodeURIComponent(body); }
   }
 
   try { beacon(collect()); } catch (e) { new Image().src = CFG.collector + "?err=" + encodeURIComponent(String(e)); }

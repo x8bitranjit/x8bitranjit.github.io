@@ -214,9 +214,12 @@ endsWith("target.com")            → https://nottarget.com  ·  https://eviltar
 □ Dynamic reflection that also trusts http:// → MITM/downgrade angle on mixed deployments.
 # NOT exploitable (don't over-report): ACAO:* + ACAC:true together (browsers ignore for creds); static correct ACAO.
 ```
-> **References:** PortSwigger *CORS* (Web Security Academy + labs), PayloadsAllTheThings *CORS Misconfiguration*,
-> HackTricks *CORS bypass*, James Kettle / Jordan Milne CORS research, MDN CORS, Hackviser & PentesterLab CORS modules,
-> `s0md3v/Corsy` & `chenjj/CORScanner`.
+> **References:** PortSwigger *CORS* + *Cross-site WebSocket hijacking* (Web Security Academy + labs) and PortSwigger
+> Research *Practical Web Cache Poisoning*; PayloadsAllTheThings *CORS Misconfiguration*; HackTricks *CORS bypass*;
+> OWASP *CORS OriginHeaderScrutiny* + WSTG *Testing CORS*; James Kettle / Jordan Milne CORS & cache research; Christian
+> Schneider's *Cross-Site WebSocket Hijacking*; the WHATWG *Fetch* spec (CORS protocol) + W3C *Private Network Access*;
+> MDN CORS; PentesterLab CORS modules; disclosed HackerOne/Bugcrowd "CORS → account takeover" writeups; `s0md3v/Corsy`
+> & `chenjj/CORScanner`. Anchor severity to CWE-942 / CWE-346 (+ CWE-1385 for CSWSH).
 
 ---
 

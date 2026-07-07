@@ -764,16 +764,43 @@ A state-changing action →
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
 
-```
-PortSwigger — CSRF (Web Security Academy)          https://portswigger.net/web-security/csrf
-PortSwigger — SameSite cookies & CSRF              https://portswigger.net/web-security/csrf/bypassing-samesite-cookie-restrictions
-OWASP — CSRF Prevention Cheat Sheet                https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
-PayloadsAllTheThings — CSRF                         https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/CSRF%20Injection
-web.dev — SameSite cookies explained               https://web.dev/articles/samesite-cookies-explained
-CWE-352 (CSRF)                                      https://cwe.mitre.org/data/definitions/352.html
-```
+**Primary (read these first)**
+- PortSwigger Web Security Academy — *Cross-site request forgery (CSRF)* (theory + labs): https://portswigger.net/web-security/csrf
+- PortSwigger Web Security Academy — *Bypassing SameSite cookie restrictions* (incl. the **SameSite Strict bypass via client-side redirect** & **Lax bypass via method override**, §6.6/§6.7): https://portswigger.net/web-security/csrf/bypassing-samesite-cookie-restrictions
+- OWASP — *CSRF Prevention Cheat Sheet*: https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html
+- OWASP WSTG — *Testing for CSRF* (4.6.5): https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/06-Session_Management_Testing/05-Testing_for_Cross_Site_Request_Forgery
+
+**Payloads, techniques & cheat sheets**
+- PayloadsAllTheThings — *CSRF Injection*: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/CSRF%20Injection
+- HackTricks — *CSRF*: https://book.hacktricks.xyz/pentesting-web/csrf-cross-site-request-forgery
+- PentesterLab — CSRF badges/exercises: https://pentesterlab.com/
+
+**Authoritative specs & browser behaviour (the SameSite ground truth, §2.3/§6)**
+- MDN — *Set-Cookie: SameSite*: https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite
+- web.dev — *SameSite cookies explained*: https://web.dev/articles/samesite-cookies-explained
+- IETF — *RFC 6265bis* (cookies + SameSite): https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis
+- Chromium — *SameSite Updates* (Lax-by-default rollout + the 2-min Lax+POST carve-out, §6.3): https://www.chromium.org/updates/same-site/
+- WHATWG — *Fetch Standard* (request credentials mode / simple-request rules behind §8): https://fetch.spec.whatwg.org/
+
+**Research & talks (the source of the modern bypasses)**
+- PortSwigger Research — *SameSite bypass via client-side redirect* & OAuth `state` CSRF research: https://portswigger.net/research
+- Black Hat / DEF CON — CSRF, SameSite & OAuth-`state` talks; SOHO-router CSRF DNS-hijack case studies (2014–2018)
+
+**Real-world / bug-bounty writeups**
+- Disclosed HackerOne / Bugcrowd reports — search *"CSRF → account takeover"*, *"OAuth state CSRF"*, *"SameSite bypass"*
+- WordPress/plugin CSRF CVEs (frequently chained to stored XSS / settings change)
+
+**Tooling**
+- XSRFProbe (automated CSRF audit/PoC): https://github.com/0xInfection/XSRFProbe
+- Bolt (CSRF scanner): https://github.com/s0md3v/Bolt
+- Burp Suite — *Engagement tools → Generate CSRF PoC*
+
+**CWE / standards to cite**
+- CWE-352 — Cross-Site Request Forgery: https://cwe.mitre.org/data/definitions/352.html
+- CWE-1275 — Sensitive Cookie with Improper SameSite Attribute: https://cwe.mitre.org/data/definitions/1275.html
+- Outcome CWEs to add per impact: CWE-287 (improper authentication / ATO), CWE-384 (session hijacking), CWE-639 (authz bypass)
 
 ---
 

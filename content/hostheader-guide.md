@@ -622,17 +622,34 @@ ALWAYS: prove the SINK impact (poisoned email / cached XSS / internal reach), us
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
 
-```
-PortSwigger — HTTP Host header attacks                https://portswigger.net/web-security/host-header
-PortSwigger — Web cache poisoning                     https://portswigger.net/web-security/web-cache-poisoning
-James Kettle — "Practical Web Cache Poisoning"        https://portswigger.net/research/practical-web-cache-poisoning
-James Kettle — "Cracking the lens" (routing SSRF)     https://portswigger.net/research/cracking-the-lens-targeting-https-hidden-attack-surface
-PayloadsAllTheThings — Host Header Injection          https://github.com/swisskyrepo/PayloadsAllTheThings (Request smuggling/Host)
-OWASP — Host header injection                         https://owasp.org/www-project-web-security-testing-guide/
-CWE-644 (HTTP Headers) / CWE-640 (Password Recovery)  https://cwe.mitre.org/data/definitions/644.html
-```
+**Primary (learn + labs)**
+- PortSwigger Web Security Academy — *HTTP Host header attacks* (theory + labs): https://portswigger.net/web-security/host-header
+- PortSwigger Web Security Academy — *Web cache poisoning*: https://portswigger.net/web-security/web-cache-poisoning
+- PortSwigger Web Security Academy — *Web cache deception* (the §12.2 twin): https://portswigger.net/web-security/web-cache-deception
+- OWASP WSTG — *Testing for Host Header Injection*: https://owasp.org/www-project-web-security-testing-guide/
+- HackTricks — *Host header injection* + *Cache deception*: https://book.hacktricks.xyz/pentesting-web/cache-deception
+- PayloadsAllTheThings — *Request smuggling / Host header*: https://github.com/swisskyrepo/PayloadsAllTheThings
+- PentesterLab — Host-header / cache exercises: https://pentesterlab.com/
+
+**Foundational research & talks (the class-defining work)**
+- **James Kettle (PortSwigger Research) — "Practical Web Cache Poisoning"**: https://portswigger.net/research/practical-web-cache-poisoning
+- **James Kettle — "Cracking the Lens: Targeting HTTP's Hidden Attack-Surface"** (routing-based SSRF via Host, Black Hat/DEF CON 2017): https://portswigger.net/research/cracking-the-lens-targeting-https-hidden-attack-surface
+- **James Kettle — "Web Cache Entanglement"** (advanced cache-key exploitation): https://portswigger.net/research/web-cache-entanglement
+- **Omer Gil — "Web Cache Deception Attack"** (Black Hat USA 2017 — the WCD origin, §12.2).
+- PortSwigger Research index (Host / cache / smuggling): https://portswigger.net/research
+
+**Real-world / bug-bounty writeups**
+- Disclosed HackerOne / Bugcrowd reports — search *"host header → account takeover"*, *"password reset poisoning"*, *"web cache poisoning"*, *"web cache deception"*.
+- **Django `ALLOWED_HOSTS`** misconfig → reset-poisoning of absolute URLs; Rails/Laravel/custom-mailer reset-poisoning.
+
+**Tools**
+- Burp *Param Miner* (unkeyed-header / cache-poisoning detection): https://github.com/PortSwigger/param-miner
+- Burp *HTTP Request Smuggler* (duplicate-Host / `:authority` desync) · Nuclei (`-tags host-header`) · this kit's `poc/` (hosthdr_probe / reset_poison / cache_poison / wcd_test).
+
+**CWE / standards to cite**
+- **CWE-644** (Improper Neutralization of HTTP Headers) · **CWE-640** (Weak Password Recovery) · CWE-444 / CWE-349 (cache / request-interpretation) · CWE-918 (routing SSRF) · CWE-79 (cache-poisoned XSS) · CWE-200 (WCD data exposure): https://cwe.mitre.org/
 
 ---
 

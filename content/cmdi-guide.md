@@ -657,13 +657,29 @@ ALWAYS: prove execution with a benign marker (output / repeated delay / server-s
 # Appendix C — Important Links
 
 ```
+── Academy & standards ──
 PortSwigger — OS command injection                    https://portswigger.net/web-security/os-command-injection
 OWASP — Command Injection                             https://owasp.org/www-community/attacks/Command_Injection
-PayloadsAllTheThings — Command Injection              https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Command%20Injection
-commix (automated)                                    https://github.com/commixproject/commix
-GTFOBins (binaries → shell/exfil)                     https://gtfobins.github.io/
+OWASP WSTG — Testing for Command Injection            https://owasp.org/www-project-web-security-testing-guide/
 HackTricks — Command Injection / argument injection   https://book.hacktricks.xyz/pentesting-web/command-injection
+The Hacker Recipes — OS command injection             https://www.thehacker.recipes/web/inputs/code-injection/os-command-injection
+
+── Research & researchers (advanced chains · appliance RCE · evasion) ──
+Orange Tsai / DEVCORE — RCE chains (often end in cmdi) https://blog.orange.tw/
+Assetnote — appliance/CVE deep-dives (cmdi RCE)        https://blog.assetnote.io/
+Synacktiv — appliance / Pwn2Own RCE                    https://www.synacktiv.com/publications
+Daniel Bohannon — "Invoke-DOSfuscation" (Win cmd/PS)   https://github.com/danielbohannon/Invoke-DOSfuscation
+Bug-bounty writeups (real RCE chains)                  HackerOne Hacktivity · https://github.com/reddelexc/hackerone-reports
+
+── Payloads · tools · escalation ──
+PayloadsAllTheThings — Command Injection + Arg Inj    https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Command%20Injection
+commix (automated)                                    https://github.com/commixproject/commix
+GTFOBins (Unix binary → shell/exfil/priv-esc)         https://gtfobins.github.io/
+LOLBAS (Windows living-off-the-land binaries)         https://lolbas-project.github.io/
+
+── Special sinks & hands-on practice ──
 ImageTragick (ImageMagick RCE)                        https://imagetragick.com/
+PentesterLab (hands-on command-injection modules)     https://pentesterlab.com/
 CWE-78 (OS Command Injection) / CWE-88 (Argument Inj) https://cwe.mitre.org/data/definitions/78.html
 ```
 

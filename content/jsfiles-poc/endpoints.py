@@ -28,7 +28,7 @@ def main():
     ap.add_argument("-o", "--out")
     a = ap.parse_args()
 
-    urls, paths, params, gql, hidden = set(), set(), set(), set(), set()
+    urls, paths, params, gql, hidden, verbs = set(), set(), set(), set(), set(), set()
     for path in walk(a.dir):
         try:
             t = open(path, encoding="utf-8", errors="ignore").read()
@@ -46,6 +46,10 @@ def main():
             params.add(m)
         for kind, name in GQL_RX.findall(t):
             gql.add(f"{kind} {name}")
+        for _all, m_verb, dot_verb in VERB_RX.findall(t):
+            v = (m_verb or dot_verb).upper()
+            if v:
+                verbs.add(v)
         for line in t.splitlines():
             if HIDDEN_RX.search(line):
                 hidden.add(line.strip()[:160])
@@ -58,6 +62,7 @@ def main():
     report += block("API PATHS (IDOR/authz/SSRF/injection targets §14)", paths)
     report += block("ABSOLUTE URLs / hosts", urls)
     report += block("PARAMETERS (fuzz across XSS/SQLi/SSRF/LFI kits)", params)
+    report += block("HTTP VERBS (state-changing endpoints to authz/IDOR/CSRF-test §6)", verbs)
     report += block("GRAPHQL OPERATIONS", gql)
     report += block("HIDDEN-SURFACE HINTS (roles/flags/admin §7)", hidden)
 

@@ -37,7 +37,7 @@ def probe(url, extra, timeout):
         return None, str(e)
     where = []
     if MARK in (r.headers.get("Location") or ""):
-        where.append("Location/redirect (open-redirect/OAuth → §9/§14)")
+        where.append("Location/redirect (open-redirect/OAuth -> §9/§14)")
     body = r.text
     if MARK in body:
         # is it cacheable?
@@ -49,7 +49,7 @@ def probe(url, extra, timeout):
             cache.append("Cache-Control")
         if (r.headers.get("X-Cache") or "").lower().find("hit") >= 0:
             cache.append("X-Cache:hit")
-        tag = " [CACHEABLE → cache poisoning §12]" if cache else ""
+        tag = " [CACHEABLE -> cache poisoning §12]" if cache else ""
         where.append(f"response body{tag}")
         if "canonical" in body.lower() or "og:url" in body.lower():
             where.append("canonical/og links")

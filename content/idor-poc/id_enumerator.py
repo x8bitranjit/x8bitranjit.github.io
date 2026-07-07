@@ -63,14 +63,14 @@ def main():
     codes = {k: v for k, v in seen.items() if isinstance(k, int)}
     print("status distribution:", codes)
     if 200 in codes and (403 in codes or 404 in codes):
-        print("→ Mixed 200 / 403-404: likely an ENUMERATION ORACLE — distinct ids return distinct codes.")
+        print("-> Mixed 200 / 403-404: likely an ENUMERATION ORACLE — distinct ids return distinct codes.")
     if 200 in codes:
-        print("→ 200s across consecutive ids → the id is ENUMERABLE (mass-read potential, guide §11).")
+        print("-> 200s across consecutive ids -> the id is ENUMERABLE (mass-read potential, guide §11).")
     if "total" in seen:
-        print(f"→ Server reported population: X-Total-Count ≈ {seen['total']}  "
+        print(f"-> Server reported population: X-Total-Count ~ {seen['total']}  "
               f"(cite THIS for scale; do NOT scrape it).")
     else:
-        print("→ For scale, find the MAX id or a pagination 'total' field and cite it — "
+        print("-> For scale, find the MAX id or a pagination 'total' field and cite it — "
               "prove the pattern, don't dump real users (guide §25.3).")
 
 

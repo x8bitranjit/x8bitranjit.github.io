@@ -3,11 +3,11 @@
 wcd_test.py — Web Cache Deception tester (HOST_HEADER_INJECTION_TESTING_GUIDE.md §12.2).
 
 WCD: the origin returns the SAME authenticated page for a path with a "static-looking" suffix, and the cache
-caches by extension regardless of auth → a victim's PRIVATE response gets cached at a URL anyone can read.
+caches by extension regardless of auth -> a victim's PRIVATE response gets cached at a URL anyone can read.
 
 This script, given an AUTHENTICATED page URL + your OWN session cookie, appends static suffixes and checks whether
 the response is (a) the private page, (b) CACHED (Age / X-Cache: hit), and (c) READABLE WITHOUT the cookie.
-If all three hold → Web Cache Deception (your own account proves it; never harvest real users).
+If all three hold -> Web Cache Deception (your own account proves it; never harvest real users).
 
 Authorized testing only. Usage:
   python3 wcd_test.py -u https://target/account/info -c "session=YOUROWNCOOKIE" --marker "your-email@x"
@@ -66,8 +66,8 @@ def main():
 
         if priv and leaked:
             print(f"[WCD!] {url}")
-            print(f"       authed→private({r1.status_code}) cache:[{', '.join(ch) or '?'}]  |  unauth→LEAKED({r2.status_code})")
-            print(f"       → the private page is cached and readable WITHOUT auth = Web Cache Deception (High–Critical).")
+            print(f"       authed->private({r1.status_code}) cache:[{', '.join(ch) or '?'}]  |  unauth->LEAKED({r2.status_code})")
+            print(f"       -> the private page is cached and readable WITHOUT auth = Web Cache Deception (High-Critical).")
         elif priv and ch:
             print(f"[maybe] {url}  private+cacheable (cache:[{', '.join(ch)}]) but unauth read not confirmed — retry/warm cache.")
         else:

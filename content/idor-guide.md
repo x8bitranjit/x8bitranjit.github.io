@@ -627,13 +627,31 @@ Swap B's reference into A's authenticated request → result?
 Then: cross-tenant? (§16)  ·  function-level admin? (§10/§13)  ·  blind/second-order? (§17)
 ```
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
+
+**Primary (learn + labs)**
 - **OWASP API Security Top 10** — API1:2023 **BOLA**, API3 **BOPLA/Mass Assignment**, API5 **BFLA**: https://owasp.org/API-Security/
-- **PortSwigger Web Security Academy** — *Access control & IDOR*: https://portswigger.net/web-security/access-control
-- **OWASP WSTG** — Testing for IDOR / Authorization: https://owasp.org/www-project-web-security-testing-guide/
-- **CWE-639** https://cwe.mitre.org/data/definitions/639.html · **CWE-285** /285 · **CWE-863** /863 · **CWE-566** /566 · **CWE-915** (mass-assignment)
-- **Tools** — **Autorize**, **AuthMatrix**, **Auth Analyzer**, **Authz** (Burp authz testing) · **Arjun** / **Param Miner** / **x8** (hidden params) · **kiterunner** (API routes) · **InQL** (GraphQL).
-- **ID-format references** — Hashids (`hashids.org`) & **Sqids** (`sqids.org`) are *encodings, not security*; **Optimus** = Knuth multiplicative bijection (reversible); **UUIDv7/ULID** are timestamp-prefixed (RFC 9562 / `github.com/ulid/spec`); **UUIDv1** node+time prediction ("sandwich attack" — Versprite/Intruder UUID research).
-- **Real cases / patterns** (read the writeups): First American Financial (2019, **885M** docs via sequential id), **T-Mobile API** (2023, BOLA, ~37M), **Optus** (2022, unauth API enumeration), **Peloton API** (2021, BOLA), **USPS Informed Visibility** (2018, ~60M), **Parler** (2021, sequential post ids), **Uber** (2019, account takeover via leaked UUID + IDOR), **GitLab** (multiple BOLA/access-control CVEs), **Bumble/Tinder** (geo-location IDOR), Facebook **Business/Page-role** IDORs. Pattern every time: *find reference → no ownership check → enumerate / write → mass PII / ATO / cross-tenant.*
+- **PortSwigger Web Security Academy** — *Access control vulnerabilities & IDOR* (theory + labs): https://portswigger.net/web-security/access-control
+- **OWASP WSTG** — *Testing for IDOR / Authorization*: https://owasp.org/www-project-web-security-testing-guide/
+- **HackTricks** — *IDOR*: https://book.hacktricks.xyz/pentesting-web/idor
+- **PayloadsAllTheThings** — *Insecure Direct Object References*: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Insecure%20Direct%20Object%20References
+- **PentesterLab** — access-control / authorization badges: https://pentesterlab.com/
+- **Practice targets** — OWASP **crAPI** (https://github.com/OWASP/crAPI) & **VAmPI** (https://github.com/erev0s/VAmPI) — deliberately-vulnerable BOLA/BFLA APIs.
+
+**Tools**
+- **Autorize** (Barak Tawily), **AuthMatrix**, **Auth Analyzer**, **Authz** (Burp authz testing) · **Arjun** / **Param Miner** / **x8** (hidden params) · **kiterunner** (API routes) · **InQL** / **clairvoyance** / **graphw00f** (GraphQL).
+
+**ID-format references**
+- Hashids (`hashids.org`) & **Sqids** (`sqids.org`) are *encodings, not security*; **Optimus** = Knuth multiplicative bijection (reversible); **UUIDv7/ULID** are timestamp-prefixed (RFC 9562 / `github.com/ulid/spec`); **UUIDv1** node+time prediction ("sandwich attack" — Versprite / Intruder UUID research).
+
+**Research, talks & bug-bounty writeups**
+- **Sam Curry et al.** — API BOLA-at-scale research (e.g. the automotive-API / "web hackers vs. the auto industry" mass-BOLA writeups): https://samcurry.net/
+- **Assetnote** — API / access-control research: https://blog.assetnote.io/ · **Black Hat / DEF CON** — API-security & BOLA talks.
+- Disclosed **HackerOne / Bugcrowd** reports — search *"IDOR"*, *"BOLA"*, *"account takeover via IDOR"*, *"cross-tenant"*.
+
+**CWE**
+- **CWE-639** (Authorization Bypass Through User-Controlled Key): https://cwe.mitre.org/data/definitions/639.html · CWE-285 (Improper Authorization) · CWE-863 (Incorrect Authorization) · CWE-566 (Authz Bypass via SQL PK) · CWE-862 (Missing Authorization — BFLA) · CWE-915 (Mass Assignment).
+
+**Real cases / patterns** (read the writeups): First American Financial (2019, **885M** docs via sequential id), **T-Mobile API** (2023, BOLA, ~37M), **Optus** (2022, unauth API enumeration), **Peloton API** (2021, BOLA), **USPS Informed Visibility** (2018, ~60M), **Parler** (2021, sequential post ids), **Uber** (2019, account takeover via leaked UUID + IDOR), **GitLab** (multiple BOLA/access-control CVEs), **Bumble/Tinder** (geo-location IDOR), Facebook **Business/Page-role** IDORs. Pattern every time: *find reference → no ownership check → enumerate / write → mass PII / ATO / cross-tenant.*
 
 > **Authorized testing only.** Two test accounts you own, benign markers, small proof sets, revert writes, respect scope and rate limits. Report **impact** (whose data, how many, read vs write, ATO/RCE), not "I changed an id."

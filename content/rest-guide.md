@@ -297,7 +297,7 @@ black-box; strong in red-team/partner-integration scenarios.)
   `../../Web/SQLi/`, `../../Web/CommandInjection/`, `../../Web/SSTI/`, `../../Web/LDAP/`, `../../Web/LFI/`. JSON body
   fields, query params, and **path segments** are all injectable.
 - **Parameter pollution (HPP):** duplicate params (`?id=1&id=2`, JSON duplicate keys) → parser disagreement → authz/logic bypass.
-- **Wildcards / operators:** `?filter=*`, `?role[$ne]=null` (NoSQL → `../../Web/SQLi/` NoSQLi note), `?sort=` (SQLi in ORDER BY).
+- **Wildcards / operators:** `?filter=*`, `?role[$ne]=null` (NoSQL operator injection → `../../Web/NoSQLi/`), `?sort=` (SQLi in ORDER BY).
 - **Version/format switches:** `.json`/`.xml`/`.csv` extensions, `Accept:` negotiation → different code paths.
 - **Pagination/limit abuse:** `?limit=`/`?page[size]=` huge (API4), negative/zero, `?offset=` to walk data.
 
@@ -398,12 +398,25 @@ Burp **Autorize**/**AuthMatrix** automate exactly this (replay A's traffic with 
 `poc/authz_diff.py` script does a lightweight version.
 
 ## 23. Appendix C — canonical references
-- **OWASP API Security Top 10 (2023)** — the backbone (API1–API10), each with description + CWEs + examples.
+
+**API-specific standards & projects (the backbone)**
+- **OWASP API Security Top 10 (2023)** — API1–API10, each with description + CWEs + examples (the spine of this kit).
 - **OWASP API Security Project**, **OWASP WSTG** (API sections), **OWASP Cheat Sheets** (REST Security, Mass Assignment, Authorization).
-- **PortSwigger Web Security Academy — API testing** (+ labs: mass assignment, server-side param pollution).
-- **HackTricks — "API" / "REST"**, **PayloadsAllTheThings — API / Mass Assignment / IDOR**.
-- Companion kits in this repo (cross-referenced throughout): `../../Web/IDOR/`, `../../Web/JWT/`, `../../Web/SSRF/`,
-  `../../Web/SQLi/`, `../../Web/CORS/`, `../../Web/HostHeader/`, `../../Web/RaceCondition/`, `../../Web/JSFiles/`, `../GraphQL/`.
+
+**Learn / go deeper (API-matched)**
+- **Corey Ball — "Hacking APIs" (No Starch)** + **APIsec University** (free API-hacking courses & labs) — the canonical modern API-hacking curriculum.
+- **Inon Shkedy** — OWASP API Security Top-10 (2023) co-lead; **"31 Days of API Security Tips."**
+- **Katie Paxton-Fear (InsiderPhD)** — API-hacking education / methodology.
+- **PortSwigger Web Security Academy — API testing** (+ labs: mass assignment, server-side parameter pollution) and **PortSwigger Research**.
+- **HackTricks — "API"/"REST"**, **PayloadsAllTheThings — API / Mass Assignment / IDOR**, **The Hacker Recipes**, **PentesterLab** (API badges).
+
+**Research, real-world & practice targets**
+- **Sam Curry et al.** — "Web Hackers vs. The Auto Industry" & web3/SSO **BOLA-at-scale** writeups; **Assetnote** — API attack-surface research.
+- Real breaches/CVEs (cited in-text): GitHub-2012 mass-assignment, Optus/T-Mobile/Peloton/USPS-class BOLA data pulls; bug-bounty **BOLA/BFLA disclosed reports** (every platform).
+- Practice targets: **OWASP crAPI**, **VAmPI**, APIsec University labs.
+
+**Companion kits in this repo** (cross-referenced throughout — the API surface routes into these):
+`../../Web/IDOR/` · `../../Web/JWT/` · `../../Web/SSRF/` · `../../Web/SQLi/` · `../../Web/NoSQLi/` · `../../Web/CommandInjection/` · `../../Web/SSTI/` · `../../Web/LFI/` · `../../Web/LDAP/` · `../../Web/CORS/` · `../../Web/HostHeader/` · `../../Web/RaceCondition/` · `../../Web/FileUpload/` · `../../Web/JSFiles/` · `../../Web/Recon/` · `../GraphQL/` · `../../Mobile/Android/ADB/`.
 
 ---
 

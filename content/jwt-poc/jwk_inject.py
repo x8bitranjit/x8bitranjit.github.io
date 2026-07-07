@@ -71,6 +71,11 @@ def main():
     ap.add_argument("--key", help="private key PEM path (for --x5c with your own cert)")
     args = ap.parse_args()
 
+    # a custom --x5c cert must come with its matching --key, else the embedded cert won't match the signing key
+    if args.x5c and args.x5c != "AUTO" and not args.key:
+        sys.exit("[!] --x5c <cert.pem> needs its matching --key <key.pem> (else the embedded cert won't match the "
+                 "signing key). Use a bare --x5c (no path) to auto-generate a matching self-signed pair.")
+
     header, payload, _ = decode_token(args.token)
     payload = apply_claims(payload, args.claim)
     header.pop("kid", None)

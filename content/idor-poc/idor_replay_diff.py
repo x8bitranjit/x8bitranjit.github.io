@@ -102,7 +102,7 @@ def main():
         is_own = (n1 == n3)
 
     if matches_b and not is_own:
-        print("VERDICT: ✅ IDOR CONFIRMED — A (attacker) received B's (victim) object.")
+        print("VERDICT: IDOR CONFIRMED — A (attacker) received B's (victim) object.")
         print("         A's response == B's own response (minus volatile fields), and != A's own object.")
         print("         -> Escalate: enumerate? auth material in the object? a write verb? (guide §11/§12)")
     elif is_own:

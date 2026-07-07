@@ -67,7 +67,7 @@ def main():
     leads = [m for m in ("POST", "PUT", "PATCH", "DELETE") if m in allowed]
     if leads:
         print(f"  [LEAD] OPTIONS advertises state-changing verb(s): {', '.join(leads)} "
-              "— confirm authz with --allow-destructive on an object YOU own ⭐")
+              "— confirm authz with --allow-destructive on an object YOU own <===")
 
     # 4) ACTIVE verb + override sweep — mutating, so gated behind --allow-destructive (own object only)
     if not a.allow_destructive:
@@ -79,14 +79,14 @@ def main():
     print("\n[*] ACTIVE verb sweep (--allow-destructive; own object only):")
     for m in ("POST", "PUT", "PATCH", "DELETE"):
         sc, ln = send(m, a.url, a.token, timeout=a.timeout)
-        flag = "  [ALLOWED? confirm effect] ⭐" if sc and sc < 400 else ""
+        flag = "  [ALLOWED? confirm effect] <===" if sc and sc < 400 else ""
         print(f"  {m:6}                      -> {sc} ({ln}){flag}")
 
     print("\n[*] method-override (POST + override header/param, bypasses edge rules blocking real DELETE/PUT):")
     for hk, hv in [("X-HTTP-Method-Override", "DELETE"), ("X-HTTP-Method", "DELETE"),
                    ("X-Method-Override", "DELETE"), ("X-HTTP-Method-Override", "PUT")]:
         sc, ln = send("POST", a.url, a.token, {hk: hv}, a.timeout)
-        flag = "  [OVERRIDE WORKED? confirm] ⭐" if sc and sc < 400 else ""
+        flag = "  [OVERRIDE WORKED? confirm] <===" if sc and sc < 400 else ""
         print(f"  POST {hk}: {hv:6} -> {sc} ({ln}){flag}")
     sep = "&" if "?" in a.url else "?"
     sc, ln = send("POST", a.url + sep + "_method=DELETE", a.token, timeout=a.timeout)

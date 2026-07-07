@@ -9,7 +9,7 @@
 - `XSS_REPORT_TEMPLATE.md` — the report skeleton that gets paid
 - `poc/` — ready-to-use impact PoC scripts (cookie/token exfil, blind XSS, keylogger, ATO, internal scan)
 
-> **Companion to the mobile guide.** This follows the same philosophy as `ANDROID_APK_PENTESTING_GUIDE.md`: *find* is Part I–III, *get paid* is Part IV–V. The mobile guide's core lesson — **report impact, not a condition** — is even more brutal for XSS, because `alert(1)` is a *condition*. Triagers see a thousand `alert(1)` screenshots a week. What separates a $50 (or $0 "informative") report from a $5k one is the **escalation** you put under it. Read Part IV before you spend a week fuzzing.
+> **How this guide is structured.** Parts I–III are *find* (recon → context → execution); Parts IV–V are *get paid* (impact → severity → report). The core lesson — **report impact, not a condition** — is more brutal for XSS than almost any bug, because `alert(1)` is a *condition*: triagers see a thousand `alert(1)` screenshots a week. What separates a $50 (or $0 "informative") report from a $5k one is the **escalation** you put under it. Read Part IV before you spend a week fuzzing.
 
 ---
 
@@ -1705,17 +1705,38 @@ Finally: EXECUTION confirmed (alert(document.domain)/collaborator)?  → go to I
 # Appendix C — Important Links
 
 ```
+── Academy & standards ──
 PortSwigger Web Security Academy — XSS    https://portswigger.net/web-security/cross-site-scripting
 PortSwigger XSS cheat sheet               https://portswigger.net/web-security/cross-site-scripting/cheat-sheet
 OWASP XSS Prevention Cheat Sheet          https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html
 OWASP DOM XSS Prevention                  https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html
 OWASP WSTG (XSS testing)                  https://owasp.org/www-project-web-security-testing-guide/
-Google CSP Evaluator                      https://csp-evaluator.withgoogle.com/
-HTML5 Security Cheatsheet (vectors)       https://html5sec.org/
-DOMPurify (and its bypass history)        https://github.com/cure53/DOMPurify
+HackTricks — XSS                          https://book.hacktricks.xyz/pentesting-web/xss-cross-site-scripting
+The Hacker Recipes — XSS                  https://www.thehacker.recipes/web/inputs/xss
+
+── Research & researchers (the deep source for mXSS · DOM · CSP · Trusted Types) ──
+PortSwigger Research (Gareth Heyes)       https://portswigger.net/research   (mXSS, DOM XSS, CSP-bypass, Hackvertor)
+Google Project Zero (browser/client-side) https://googleprojectzero.blogspot.com/
+Cure53 (DOMPurify authors)                https://cure53.de/   ·   DOMPurify + bypass history: https://github.com/cure53/DOMPurify
+Masato Kinugawa (mXSS / browser XSS)      https://mksben.l0.cm/
+SonarSource research (library XSS/mXSS)   https://www.sonarsource.com/blog/
+Black Hat / DEF CON — mutation XSS        Heiderich et al. "mXSS" / "The innerHTML Apocalypse" (mXSS foundational talks)
+Bug-bounty writeups (real ATO chains)     HackerOne Hacktivity · https://github.com/reddelexc/hackerone-reports
+
+── Payloads, cheatsheets, vectors ──
 PayloadsAllTheThings — XSS                https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/XSS%20Injection
+HTML5 Security Cheatsheet (vectors)       https://html5sec.org/
+Awesome XSS                               https://github.com/s0md3v/AwesomeXSS
+
+── Specs (the parsing rules XSS abuses) ──
+WHATWG HTML — parsing / tokenization      https://html.spec.whatwg.org/multipage/parsing.html
+W3C — CSP 3 · Trusted Types               https://w3c.github.io/webappsec-csp/  ·  https://w3c.github.io/trusted-types/
+
+── Tools & hands-on practice ──
+Google CSP Evaluator                      https://csp-evaluator.withgoogle.com/
 Dalfox / XSStrike / kxss / DOM Invader    (see §1)
 XSS Hunter Express (self-host blind XSS)  https://github.com/mandatoryprogrammer/xsshunter-express
+PentesterLab (hands-on XSS exercises)     https://pentesterlab.com/
 CWE-79 / CWE-80 / CWE-116                  https://cwe.mitre.org/
 ```
 

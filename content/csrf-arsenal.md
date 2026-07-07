@@ -205,9 +205,12 @@ python3 -m http.server 8000   # http://localhost:8000/poc.html
 □ CSRF + request smuggling / cache poisoning to deliver same-site (advanced).
 □ "Logout CSRF" + login CSRF combo, GraphQL CSRF (single endpoint, check it accepts non-JSON/GET).
 ```
-> **References:** PortSwigger *CSRF* + *SameSite cookies* (Web Security Academy + labs), OWASP CSRF Prevention Cheat
-> Sheet, PayloadsAllTheThings *CSRF Injection*, HackTricks *CSRF* & *SameSite*, Hackviser & PentesterLab CSRF modules,
-> Chromium SameSite-by-default / Lax+POST docs.
+> **References:** PortSwigger *CSRF* + *Bypassing SameSite restrictions* (Web Security Academy + labs) incl. the
+> *SameSite Strict bypass via client-side redirect* research (§Q); OWASP *CSRF Prevention Cheat Sheet* + WSTG *Testing
+> for CSRF*; PayloadsAllTheThings *CSRF Injection*; HackTricks *CSRF*; PentesterLab CSRF badges; Chromium *SameSite-by-
+> default* / Lax+POST docs + RFC 6265bis; disclosed HackerOne/Bugcrowd "CSRF → account takeover" / "OAuth state"
+> writeups; tooling `XSRFProbe` / `Bolt` / Burp *Generate CSRF PoC*. Anchor severity to CWE-352 (+ CWE-1275 for a weak
+> SameSite attribute).
 
 ---
 

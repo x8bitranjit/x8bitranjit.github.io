@@ -24,8 +24,10 @@
 
   function report(obj) {
     var s = JSON.stringify(obj);
-    try { navigator.sendBeacon(CFG.collector, s); }
-    catch (e) { new Image().src = CFG.collector + "?d=" + encodeURIComponent(s); }
+    // sendBeacon returns FALSE on failure (it does not throw) — check the return, else fall back.
+    var ok = false;
+    try { ok = navigator.sendBeacon(CFG.collector, s); } catch (e) { ok = false; }
+    if (!ok) { new Image().src = CFG.collector + "?d=" + encodeURIComponent(s); }
   }
 
   // Oracle 1: <img>/<script> load|error + timing => host/port existence (works cross-origin)

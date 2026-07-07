@@ -332,15 +332,26 @@ Justify with reach (all users?), interaction (zero/one-click?), and **MFA bypass
 
 Lead with **impact + reproduction**, exactly which validation failed, and the fix. Use the report template. Include: the full authorization request + callback, the tampered value, the accepted response, and the resulting authenticated session (screenshot/`whoami`-equivalent). Map to the OAuth Security BCP (RFC 9700) / OIDC spec clause that's violated — reviewers act faster when you cite the exact requirement.
 
-## 5.5 Real-world references / CVEs
+## 5.5 References & further reading
 
-- **PortSwigger Academy** — OAuth authentication, OpenID, SAML labs (do them all).
-- **Microsoft / Auth0 / Okta** OAuth ATO write-ups; countless HackerOne reports on `redirect_uri` and account-linking CSRF.
-- **SAML comment/canonicalization** — CVE-2018-0489 (ruby-saml), CVE-2017-11427/11428 (OneLogin python/ruby), Duo Labs "Duo Finds SAML Vulnerabilities" (2018).
-- **XSW** — Somorovsky et al. "On Breaking SAML: Be Whoever You Want to Be" (USENIX 2012) — the foundational paper; **SAML Raider** tool.
-- **"Sign in with Apple" ATO** — Bhavuk Jain, 2020 ($100k) — unverified email/JWT issuance.
-- **Facebook/Google OAuth** `redirect_uri` and `state` CSRF disclosures (Egor Homakov's classic OAuth-CSRF posts).
-- **RFC 9700** (OAuth 2.0 Security Best Current Practice) & **RFC 6819** (Threat Model) — the canonical control list to cite.
+**Always-on core:**
+- **PortSwigger Web Security Academy** — OAuth authentication, OpenID Connect, SAML labs (do them all) · **PortSwigger Research** (OAuth/OIDC deep-dives).
+- **HackTricks** — "OAuth to Account takeover", "SAML Attacks" · **The Hacker Recipes** — OAuth / SAML.
+- **PayloadsAllTheThings** — OAuth · SAML Injection · **OWASP** — WSTG (OAuth/SAML testing) + SAML-Security & OAuth Cheat Sheets · **PentesterLab** — OAuth/OIDC/SAML badges.
+- **RFC 9700** (OAuth 2.0 Security BCP — the canonical control list to cite) · **RFC 6749 / 6819** · **OIDC Core** · **SAML 2.0** spec.
+
+**Class-specific research & tooling:**
+- **Frans Rosén (Detectify)** — "Account hijacking using 'dirty dancing' in sign-in OAuth-flows" (2022) — the modern OAuth response-manipulation/ATO research (read this).
+- **Salt Labs** — OAuth-implementation ATO series (Grammarly / Vidio / Bukalapak) · **Michael Stepankin (PortSwigger)** OAuth research.
+- **Somorovsky et al.** — "On Breaking SAML: Be Whoever You Want to Be" (USENIX 2012) — the foundational XSW paper · **SAML Raider** (Burp) · **Cure53 / Compass Security** SAML audits.
+- **Egor Homakov** — classic OAuth-CSRF / `redirect_uri` disclosures (Facebook/Google) · **Sam Curry / Bhavuk Jain** SSO-ATO write-ups.
+
+**CVEs & real-world ATO:**
+- **"Sign in with Apple" ATO** — Bhavuk Jain, 2020 ($100k) — Apple issued a valid JWT for any requested email; SPs trusted it → any-account ATO.
+- **SAML comment/canonicalization** — CVE-2018-0489 (ruby-saml), CVE-2017-11427/11428 (python/ruby OneLogin), Duo Labs "SAML vulnerabilities" family (2018).
+- **Microsoft / Auth0 / Okta** OAuth ATO advisories; countless HackerOne `redirect_uri` + account-linking-CSRF reports.
+
+**Standards & scoring:** CWE-287 / 290 / 347 / 352 / 601 / 918 · CVSS 3.1 calculator (first.org/cvss/calculator/3.1).
 
 ---
 

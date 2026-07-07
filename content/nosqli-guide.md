@@ -331,14 +331,25 @@ $function / $accumulator -> server-side JS
 
 Lead with impact + a minimal reproduction: the exact request (both JSON and bracket forms if relevant), the control vs injected responses, and the resulting session/data. Use the report template. Name the sink pattern (`findOne({user,pass})` with unvalidated object input) and the fix (type-check inputs to strings; use `$eq`/parameterization; strip operator keys with a recursive sanitizer; disable server-side JS).
 
-## 6.5 Real-world references / CVEs
+## 6.5 References & further reading
 
-- **PortSwigger Academy** — NoSQL injection labs (operator + `$where`).
+**Always-on core:**
+- **PortSwigger Web Security Academy** — NoSQL injection (topic + operator & `$where` labs) · **PortSwigger Research**
+- **HackTricks** — NoSQL injection · **The Hacker Recipes** — NoSQL injection
+- **PayloadsAllTheThings** — NoSQL Injection · **OWASP WSTG** — Testing for NoSQL Injection + OWASP Injection-Prevention Cheat Sheets
+- **PentesterLab** — NoSQL / injection exercises · **MongoDB** query-operator + server-side-JS (`$where`) security docs
+
+**Class-specific research & tooling:**
+- **Bryan Sullivan (Adobe) — "Server-Side JavaScript Injection" (Black Hat USA 2011)** — the foundational `$where`/SSJS-injection paper (read this).
+- **Charlie Belmer** — `nosqli` (Go scanner) + the *nullsweep* NoSQL-injection write-ups; **NoSQLMap** (codingo) for the payload corpus.
+- **express-mongo-sanitize / mongo-sanitize bypass** research (nested-operator `$not:{$eq}`, prototype-key, reconstruction bypasses) + Snyk/GitHub advisories.
+- Bug-bounty write-ups: HackerOne MongoDB **login-bypass** & **blind-`$regex` token-exfil** reports; Acunetix (Aleksei Tiurin) NoSQLi articles.
+
+**CVEs & per-datastore:**
 - **CVE-2017-12635 / -12636** (Apache CouchDB) — JSON parser differential → admin creation → RCE.
 - **CVE-2014-3120 / CVE-2015-1427** (Elasticsearch) — Groovy/MVEL dynamic-scripting RCE.
-- MongoDB `$where` / `mapReduce` server-side JS advisories; countless HackerOne MongoDB **login-bypass** and **blind-regex token-exfil** reports.
-- **Neo4j** `apoc`/`LOAD CSV` SSRF-RCE research; **Redis** unauth `CONFIG SET`+`SAVE` webshell technique.
-- PayloadsAllTheThings / NoSQLMap documentation for the payload corpus.
+- **Neo4j** `apoc`/`LOAD CSV` SSRF→file→RCE research · **Redis** unauth `CONFIG SET`+`SAVE` webshell / `MODULE LOAD`.
+- Vendor security docs: MongoDB · CouchDB · Elasticsearch · Redis · Neo4j · Firebase security-rules.
 
 ---
 

@@ -19,8 +19,10 @@
   function flush() {
     if (!buf.length) return;
     var chunk = buf.splice(0, buf.length).join("");
-    try { navigator.sendBeacon(CFG.collector, chunk); }
-    catch (e) { new Image().src = CFG.collector + "?d=" + encodeURIComponent(chunk); }
+    // sendBeacon returns FALSE on failure (it does not throw) — check the return, else fall back.
+    var ok = false;
+    try { ok = navigator.sendBeacon(CFG.collector, chunk); } catch (e) { ok = false; }
+    if (!ok) { new Image().src = CFG.collector + "?d=" + encodeURIComponent(chunk); }
   }
   setInterval(flush, CFG.flushMs);
   window.addEventListener("beforeunload", flush);

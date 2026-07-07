@@ -9,7 +9,7 @@
 - `JWT_REPORT_TEMPLATE.md` — the report skeleton that gets paid
 - `poc/` — runnable scripts (JWKS server, alg:none forge, RS256→HS256, kid/jwk injection, HS256 cracking, generic forge)
 
-> **Companion to the XSS & Android guides.** Same philosophy: *find* is Part I–III, *get paid* is Part IV–V. The recurring lesson — **report impact, not a condition** — applies hard here: "the JWT is signed with HS256" or "the token contains an email" is *not* a finding. The finding is **"I forged a valid admin token and took over any account."** A JWT bug that you can't turn into a forged-but-accepted token, a privilege jump, or an auth bypass is usually Informational. Read Part IV before you spend a day cracking secrets.
+> **Companion to the OAuth-SSO · SSRF · CORS · XSS guides.** Same philosophy: *find* is Part I–III, *get paid* is Part IV–V. The recurring lesson — **report impact, not a condition** — applies hard here: "the JWT is signed with HS256" or "the token contains an email" is *not* a finding. The finding is **"I forged a valid admin token and took over any account."** A JWT bug that you can't turn into a forged-but-accepted token, a privilege jump, or an auth bypass is usually Informational. Read Part IV before you spend a day cracking secrets.
 
 ---
 
@@ -1066,22 +1066,35 @@ Then: did a FORGED token get ACCEPTED & ACTED ON?  → go to IMPACT (Part IV) �
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
 
-```
-RFC 7519 (JWT) / 7515 (JWS) / 7516 (JWE) / 7517 (JWK) / 7518 (JWA)
-PortSwigger — JWT attacks (Web Security Academy)   https://portswigger.net/web-security/jwt
-PortSwigger — JWT cheat sheet                      https://portswigger.net/web-security/jwt/cheat-sheet
-jwt_tool (ticarpi) + wiki                          https://github.com/ticarpi/jwt_tool/wiki
-Burp JWT Editor extension                          https://github.com/portswigger/jwt-editor
-hashcat JWT mode 16500                             https://hashcat.net/wiki/
-rsa_sign2n — RS256 pubkey recovery (silentsignal)  https://github.com/silentsignal/rsa_sign2n
-jwt-secrets wordlist (wallarm)                     https://github.com/wallarm/jwt-secrets
-auth0 "Critical vulnerabilities in JSON Web Token" (background reading)
-OWASP JWT / OAuth2 Cheat Sheets                    https://cheatsheetseries.owasp.org/
-CVE-2022-21449 (ECDSA psychic signature)           https://nvd.nist.gov/
-CWE-347 / CWE-345 / CWE-287 / CWE-639 / CWE-918    https://cwe.mitre.org/
-```
+**Primary (learn + labs)**
+- PortSwigger Web Security Academy — *JWT attacks* (theory + labs): https://portswigger.net/web-security/jwt
+- PortSwigger — *JWT attacks cheat sheet*: https://portswigger.net/web-security/jwt/cheat-sheet
+- HackTricks — *Hacking JWT / JWS*: https://book.hacktricks.xyz/pentesting-web/hacking-jwt-json-web-tokens
+- PayloadsAllTheThings — *JSON Web Token*: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/JSON%20Web%20Token
+- PentesterLab — JWT badges/courses: https://pentesterlab.com/
+- OWASP — *JSON Web Token for Java Cheat Sheet*: https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html
+
+**Specs (the ground truth for verification behaviour)**
+- RFC **7519** (JWT) · **7515** (JWS) · **7516** (JWE) · **7517** (JWK) · **7518** (JWA) · **7638** (JWK thumbprint) · **8725** (JWT Best Current Practices): https://www.rfc-editor.org/
+
+**Foundational research & talks (the class-defining work)**
+- **Tim McLean — "Critical vulnerabilities in JSON Web Token libraries"** (the original `alg:none` + RS256→HS256 confusion disclosure, 2015): https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/
+- **Neil Madden (ForgeRock)** — the ES256 "psychic signature" (CVE-2022-21449) discovery/writeup: https://neilmadden.blog/
+- **silentsignal — `rsa_sign2n`** (recover the RSA public key from two tokens → RS→HS confusion, §9): https://github.com/silentsignal/rsa_sign2n
+- PortSwigger Research — JWT / algorithm-confusion research: https://portswigger.net/research
+
+**Tools**
+- `jwt_tool` (ticarpi) + wiki: https://github.com/ticarpi/jwt_tool/wiki · Burp **JWT Editor** (Fraser Winterborn): https://github.com/portswigger/jwt-editor
+- hashcat JWT mode 16500: https://hashcat.net/wiki/ · `wallarm/jwt-secrets` wordlist: https://github.com/wallarm/jwt-secrets
+
+**Real-world CVEs & bug-bounty writeups**
+- CVE-2015-9235 (jsonwebtoken RS→HS confusion) · CVE-2022-21449 (ES256 psychic signature) · CVE-2018-0114 (node-jose embedded-JWK) · CVE-2016-5431 (ruby-jwt): https://nvd.nist.gov/
+- Disclosed **HackerOne / Bugcrowd** reports — search *"JWT"*, *"algorithm confusion"*, *"alg none"*, *"JWT → account takeover"*.
+
+**CWE**
+- **CWE-347** (Improper Verification of Cryptographic Signature — forge/none/confusion) · CWE-345 (Insufficient Verification of Data Authenticity) · CWE-287 (Improper Authentication) · CWE-639 (Authz Bypass via User-Controlled Key — `sub`-IDOR) · CWE-918 (SSRF via `jku`) · CWE-400 (JWE DoS): https://cwe.mitre.org/
 
 ---
 

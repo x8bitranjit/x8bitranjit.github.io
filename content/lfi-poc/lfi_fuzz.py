@@ -24,6 +24,7 @@ SIGNATURES = [
     ("win.ini",            re.compile(r"\[fonts\]|\[extensions\]", re.I)),
     ("php-source(b64)",    re.compile(r"^[A-Za-z0-9+/]{120,}={0,2}\s*$", re.M)),
     ("php-open-tag",       re.compile(r"<\?php")),
+    ("data://-RCE(LFIPOC)", re.compile(r"LFIPOC")),   # the --wrappers data:// probe EXECUTED (allow_url_include on) -> RCE
     ("/etc/hosts",         re.compile(r"127\.0\.0\.1\s+localhost")),
     ("environ",            re.compile(r"PATH=|HOSTNAME=|HOME=/")),
     ("web.config",         re.compile(r"<configuration>|connectionStrings", re.I)),

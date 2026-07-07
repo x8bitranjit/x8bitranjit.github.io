@@ -669,26 +669,34 @@ ALWAYS: validate live (read-only), prove impact on your OWN assets, name the imp
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
 
-```
-LinkFinder (endpoints from JS)            https://github.com/GerbenJavado/LinkFinder
-xnLinkFinder                              https://github.com/xnl-h4ck3r/xnLinkFinder
-JSluice (endpoints+secrets from JS)       https://github.com/BishopFox/jsluice
-unwebpack-sourcemap (.map recovery)       https://github.com/rarecoil/unwebpack-sourcemap
-webcrack (webpack/obfuscator deobfuscate) https://github.com/j4k0xb/webcrack
-synchrony (deobfuscator)                  https://github.com/relative/synchrony
-TruffleHog (verified secrets)             https://github.com/trufflesecurity/trufflehog
-gitleaks                                  https://github.com/gitleaks/gitleaks
-Burp DOM Invader (DOM-XSS/postMessage)    https://portswigger.net/burp/documentation/desktop/tools/dom-invader
-PortSwigger — DOM-based XSS               https://portswigger.net/web-security/dom-based
-PortSwigger — Prototype pollution         https://portswigger.net/web-security/prototype-pollution
-PortSwigger — Web Cache / source-map disclosure & "Stealing secrets from JS"
-PayloadsAllTheThings — Prototype Pollution https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Prototype%20Pollution
-HackTricks — PostMessage / Prototype pollution / secret hunting  ·  Hackviser & PentesterLab JS/DOM modules
-SecLists (keys/patterns)                  https://github.com/danielmiessler/SecLists
-CWE-798 / CWE-79 / CWE-1321 / CWE-540 / CWE-200   https://cwe.mitre.org/
-```
+**Primary (learn + labs)**
+- PortSwigger Web Security Academy — *DOM-based XSS*: https://portswigger.net/web-security/dom-based
+- PortSwigger Web Security Academy — *Prototype pollution*: https://portswigger.net/web-security/prototype-pollution
+- PortSwigger Research — JS-sourced secrets, source-map exposure, DOM-XSS & prototype-pollution gadgets: https://portswigger.net/research
+- OWASP WSTG — *Information Gathering / Review Webpage Content for Information Leakage*: https://owasp.org/www-project-web-security-testing-guide/
+- OWASP — *Secrets Management Cheat Sheet*: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
+- PayloadsAllTheThings — *Prototype Pollution*: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Prototype%20Pollution
+- HackTricks — *PostMessage* / *Prototype Pollution* / secret-hunting · Hackviser & PentesterLab JS/DOM modules.
+
+**Tools**
+- LinkFinder: https://github.com/GerbenJavado/LinkFinder · xnLinkFinder: https://github.com/xnl-h4ck3r/xnLinkFinder · **JSluice** (endpoints+secrets, BishopFox): https://github.com/BishopFox/jsluice
+- webcrack (webpack/obfuscator deobfuscate): https://github.com/j4k0xb/webcrack · synchrony: https://github.com/relative/synchrony · unwebpack-sourcemap: https://github.com/rarecoil/unwebpack-sourcemap
+- TruffleHog (verified secrets): https://github.com/trufflesecurity/trufflehog · gitleaks: https://github.com/gitleaks/gitleaks
+- Burp **DOM Invader** (DOM-XSS/postMessage): https://portswigger.net/burp/documentation/desktop/tools/dom-invader · SecLists: https://github.com/danielmiessler/SecLists · harvest: katana / gau / waybackurls / subjs / hakrawler.
+
+**Research & talks (the class-defining work)**
+- **BishopFox** — *JSluice* / mining JS at scale: https://bishopfox.com/blog
+- **cure53** — DOMPurify & sanitizer/**mXSS** advisories (match the sanitizer version you find in the bundle): https://cure53.de/#publications
+- **tomnomnom** — JS-recon tooling & talks (the gau/waybackurls/unfurl/meg ecosystem): https://github.com/tomnomnom · plus 0xacb / other JS-secret-hunting writeups.
+- **Assetnote** — source-map / secret / JS research: https://blog.assetnote.io/ · **Google Project Zero** — client-side / browser research: https://googleprojectzero.blogspot.com/
+
+**Real-world / bug-bounty writeups**
+- Disclosed HackerOne / Bugcrowd reports — search *"secret in JS"*, *"source map exposure"*, *"DOM XSS"*, *"exposed AWS key"*, *"open Firebase database"*.
+
+**CWE**
+- **CWE-798** (Hardcoded Credentials) · **CWE-540** (Source Code Info Leak) · **CWE-200** (Info Exposure) · **CWE-79** (DOM XSS) · **CWE-1321** (Prototype Pollution) · CWE-639 / CWE-862 (broken authz via a hidden endpoint): https://cwe.mitre.org/
 
 ---
 

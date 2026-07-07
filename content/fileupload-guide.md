@@ -926,28 +926,39 @@ ALWAYS: prove impact with a BENIGN MARKER / OOB ping; confirm SERVING CONTEXT be
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
 
-```
-OWASP — Unrestricted File Upload                 https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload
-OWASP WSTG — Upload tests                         https://owasp.org/www-project-web-security-testing-guide/
-OWASP — File Upload Cheat Sheet                   https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
-PortSwigger — File upload vulnerabilities         https://portswigger.net/web-security/file-upload
-PortSwigger — Flawed file-type validation (lab)   https://portswigger.net/web-security/file-upload#flawed-file-type-validation
-PayloadsAllTheThings — Upload Insecure Files      https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Upload%20Insecure%20Files
-HackTricks — File Upload                          https://book.hacktricks.xyz/pentesting-web/file-upload
-Hackviser — File Upload module                    https://hackviser.com/ (file upload labs)
-PentesterLab — File Upload / Web for Pentester    https://pentesterlab.com/exercises (Upload, Web for Pentester)
-fuxploider / Upload_Bypass / Burp Upload Scanner  https://github.com/almandin/fuxploider · https://github.com/sAjibuu/Upload_Bypass
-ImageTragick (CVE-2016-3714)                      https://imagetragick.com/
-ImageMagick arbitrary file read (CVE-2022-44268)  https://nvd.nist.gov/vuln/detail/CVE-2022-44268
-Ghostscript RCE (CVE-2018-16509 / CVE-2023-36664) https://nvd.nist.gov/vuln/detail/CVE-2023-36664
-exiftool RCE (CVE-2021-22204)                     https://nvd.nist.gov/vuln/detail/CVE-2021-22204
-jQuery-File-Upload RCE (CVE-2018-9206)            https://nvd.nist.gov/vuln/detail/CVE-2018-9206
-FFmpeg SSRF/file-read (HLS .m3u8 / "compressed")  https://github.com/neex/ffmpeg-avi-m3u-xbin
-MIME / magic-number references                    https://www.iana.org/assignments/media-types · https://en.wikipedia.org/wiki/List_of_file_signatures
-CWE-434 / 611 / 918 / 22 / 79 / 502               https://cwe.mitre.org/
-```
+**Primary (learn + labs + defense)**
+- OWASP — *Unrestricted File Upload*: https://owasp.org/www-community/vulnerabilities/Unrestricted_File_Upload
+- OWASP — *File Upload Cheat Sheet* (the canonical defense list): https://cheatsheetseries.owasp.org/cheatsheets/File_Upload_Cheat_Sheet.html
+- OWASP WSTG — *Testing for Unexpected/Malicious File Types*: https://owasp.org/www-project-web-security-testing-guide/
+- PortSwigger Web Security Academy — *File upload vulnerabilities* (topic + labs incl. flawed type validation / `.htaccess` / polyglot / race): https://portswigger.net/web-security/file-upload
+- PayloadsAllTheThings — *Upload Insecure Files*: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Upload%20Insecure%20Files
+- HackTricks — *File Upload*: https://book.hacktricks.xyz/pentesting-web/file-upload
+- PentesterLab — *File Upload / Web for Pentester*: https://pentesterlab.com/exercises · Hackviser — file-upload labs: https://hackviser.com/
+
+**Foundational research & talks (where these techniques come from)**
+- **Ange Albertini / Corkami** — polyglot file formats (the canonical reference for the §8 polyglots): https://github.com/corkami/pocs · https://github.com/corkami/mitra
+- **Sam Thomas — "It's a PHP Unserialization Vulnerability Jim, but Not as We Know It"** (Black Hat USA 2018) — `phar://` deserialization via file ops (cross-ref `../Deserialization/`).
+- **Snyk — Zip Slip** (2018) — arbitrary file write via archive extraction: https://security.snyk.io/research/zip-slip-vulnerability
+- **ImageTragick** (CVE-2016-3714, ImageMagick delegate RCE): https://imagetragick.com/
+- **neex — FFmpeg HLS/AVI SSRF & local file read**: https://github.com/neex/ffmpeg-avi-m3u-xbin
+- **Assetnote** (appliance/upload CVE deep-dives): https://blog.assetnote.io/ · **SonarSource / Sonar Research** (source-level upload & parser bugs): https://www.sonarsource.com/blog/
+- **Cure53** (SVG / DOMPurify sanitization — the §13 SVG-XSS angle): https://cure53.de/#publications
+- **Google Project Zero** (image/parser memory-safety CVEs — ImageMagick/GraphicsMagick/libraw): https://googleprojectzero.blogspot.com/
+- **Black Hat / DEF CON** — ImageTragick, FFmpeg-HLS, `phar`, polyglot & upload-WAF-bypass talks.
+
+**Real-world CVEs & bug-bounty writeups**
+- ImageMagick file read (CVE-2022-44268) · Ghostscript RCE (CVE-2018-16509 / CVE-2023-36664 `%pipe%`) · exiftool RCE (CVE-2021-22204) · jQuery-File-Upload RCE (CVE-2018-9206) · Tomcat PUT/JSP (CVE-2017-12615/12617) · ColdFusion FCKeditor (CVE-2009-2265): https://nvd.nist.gov/
+- Disclosed **HackerOne / Bugcrowd** reports — search *"file upload → RCE"*, *"SVG stored XSS"*, *"XXE via DOCX"*, *"import-from-URL SSRF → metadata"*; endless WordPress-plugin *arbitrary file upload* CVEs (wpscan / Exploit-DB).
+
+**Tools**
+- fuxploider: https://github.com/almandin/fuxploider · Upload_Bypass: https://github.com/sAjibuu/Upload_Bypass
+- Burp *Upload Scanner* (NCC) + *HTTP Request Smuggler* (multipart parsing) · Nuclei (`-tags fileupload,imagemagick,exiftool,xxe`) · exiftool · ysoserial / ysoserial.net (deser-via-upload).
+
+**Standards / references**
+- MIME / magic numbers: https://www.iana.org/assignments/media-types · https://en.wikipedia.org/wiki/List_of_file_signatures
+- **CWE-434** (Unrestricted Upload) · CWE-611 (XXE) · CWE-918 (SSRF) · CWE-22 (path traversal / Zip Slip) · CWE-79 (stored XSS) · CWE-502 (deserialization): https://cwe.mitre.org/
 
 ---
 

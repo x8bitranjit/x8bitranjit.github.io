@@ -296,15 +296,33 @@ in business terms ("unauthenticated RCE via the session cookie"). **Redact**, pr
 The pattern persists because **deserializing untrusted data is fundamentally dangerous** and libraries keep exposing it.
 
 ## 18. Appendix — canonical references
-- **PortSwigger Web Security Academy — Insecure deserialization** (topic + PHP/Java/Ruby labs, custom gadget chains).
-- **HackTricks — Deserialization** (Java/.NET/PHP/Python/Ruby/Node pages), **PayloadsAllTheThings — Insecure
-  Deserialization**, **PentesterLab** (Java Serialize / PHP object injection / .NET badges).
-- **Tools:** `ysoserial` (Java), `ysoserial.net` (.NET/ViewState), `PHPGGC` (PHP + phar), `marshalsec` (JNDI/JSON/
-  SnakeYAML servers), **GadgetProbe** (Java classpath), Freddy (Burp — Java/.NET deser scanner).
-- **OWASP** — **A08:2021 Software & Data Integrity Failures**, **Deserialization Cheat Sheet**; **CWE-502** (Deserialization
-  of Untrusted Data), CWE-915 (mass-assign-adjacent), CWE-918 (SSRF chain).
-- Companion kits: `../XXE/` + `../LFI/` (leak machineKey/source), `../FileUpload/` (phar/pickle polyglot upload),
-  `../JWT/` (token signing), `../SSRF/` (URLDNS/JNDI escalation); Log4Shell/JNDI lives here + is cross-referenced.
+
+**Primary (learn + labs)**
+- **PortSwigger Web Security Academy — Insecure deserialization** (topic + PHP/Java/Ruby labs, custom gadget chains): https://portswigger.net/web-security/deserialization
+- **HackTricks — Deserialization** (per-language Java/.NET/PHP/Python/Ruby/Node): https://book.hacktricks.xyz/pentesting-web/deserialization
+- **PayloadsAllTheThings — Insecure Deserialization**: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Insecure%20Deserialization
+- **PentesterLab** — Java Serialize / PHP object injection / .NET badges: https://pentesterlab.com/
+- **GrrrDog — Java-Deserialization-Cheat-Sheet** (the canonical community reference): https://github.com/GrrrDog/Java-Deserialization-Cheat-Sheet
+
+**Foundational research & talks (where these techniques come from)**
+- **Frohoff & Lawrence — "Marshalling Pickles: how deserializing objects will ruin your day"** (AppSecCali 2015) — the talk that launched `ysoserial` and the Java-deser era.
+- **Alvaro Muñoz (pwntester) & Oleksandr Mirosh — "Friday the 13th: JSON Attacks"** (Black Hat / DEF CON 2017) — JSON/.NET/Java polymorphic deserialization (Json.NET `$type`, Fastjson `@type`, Jackson).
+- **Moritz Bechler — "Java Unmarshaller Security"** (marshalsec whitepaper) — SnakeYAML/Fastjson/JNDI gadget servers: https://github.com/mbechler/marshalsec
+- **Sam Thomas — "It's a PHP Unserialization Vulnerability Jim, but Not as We Know It"** (Black Hat USA 2018) — the `phar://` deserialization vector.
+- **Synacktiv** — deserialization / Java / .NET research & advisories: https://www.synacktiv.com/publications
+- **SonarSource / Sonar Research** — source-level deserialization & injection deep-dives: https://www.sonarsource.com/blog/
+
+**Tools**
+- `ysoserial` (Java): https://github.com/frohoff/ysoserial · `ysoserial.net` (.NET/ViewState): https://github.com/pwntester/ysoserial.net
+- `PHPGGC` (PHP POP chains + phar): https://github.com/ambionics/phpggc · `marshalsec` (JNDI/JSON/SnakeYAML servers): https://github.com/mbechler/marshalsec
+- **GadgetProbe** (Java classpath fingerprint) · **Freddy** (Burp — Java/.NET deser scanner).
+
+**Real-world CVEs & writeups**
+- CVE families: Apache Commons Collections (2015), Oracle WebLogic T3/JNDI (CVE-2015-4852 …), Telerik `CVE-2019-18935`, Laravel `CVE-2018-15133`, Fastjson/Jackson `@type`, Rails `CVE-2013-0156`; plus disclosed **HackerOne/Bugcrowd "deserialization → RCE / unauthenticated ViewState RCE / phar RCE"** reports.
+- **OWASP** — **A08:2021 Software & Data Integrity Failures** + **Deserialization Cheat Sheet**.
+- **CWE-502** (Deserialization of Untrusted Data), CWE-915 (mass-assign-adjacent), CWE-918 (SSRF chain), CWE-287 (auth bypass).
+
+**Companion kits**: `../XXE/` + `../LFI/` (leak machineKey/source), `../FileUpload/` (phar/pickle polyglot upload), `../JWT/` (token signing), `../SSRF/` (URLDNS/JNDI escalation), `../PrototypePollution/` (Node deser overlap); Log4Shell/JNDI lives here + is cross-referenced.
 
 ---
 

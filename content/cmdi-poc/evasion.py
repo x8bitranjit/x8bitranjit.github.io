@@ -63,7 +63,7 @@ def main():
         print(f"## keyword '{kw}' blocked -> split it")
         for v in split_keyword(kw):
             print("   " + cmd.replace(kw, v, 1))
-        print("   " + cmd.replace(kw, glob_path("/bin/" + kw).replace("/bin", "/???"), 1) + "   (glob in PATH)")
+        print("   " + cmd.replace(kw, "/???/" + glob_path("/" + kw).lstrip("/"), 1) + "   (glob in PATH, e.g. /???/c?t)")
         print()
 
     # slash evasion

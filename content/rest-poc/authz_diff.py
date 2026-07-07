@@ -71,16 +71,16 @@ def main():
         def mark(code, length, base_code, base_len):
             if code in SUCCESS and base_code in SUCCESS:
                 # same success family; similar length => very likely same resource served
-                sim = "≈" if isinstance(length, int) and isinstance(base_len, int) and abs(length - base_len) <= max(50, base_len * 0.1) else "~"
+                sim = "~=" if isinstance(length, int) and isinstance(base_len, int) and abs(length - base_len) <= max(50, base_len * 0.1) else "~"
                 return f"{code}{sim}"
             return str(code)
 
         flag = ""
         if sa in SUCCESS and sb in SUCCESS:
-            flag += "  [BOLA/BFLA? B got success] ⭐"
+            flag += "  [BOLA/BFLA? B got success] <==="
             leads += 1
         if sa in SUCCESS and sn in SUCCESS:
-            flag += "  [MISSING-AUTH? no-token success] ⭐"
+            flag += "  [MISSING-AUTH? no-token success] <==="
             leads += 1
         print(f"  {method:6} {path:40} A={sa}({la}) B={mark(sb,lb,sa,la)} none={mark(sn,ln_,sa,la)}{flag}")
 

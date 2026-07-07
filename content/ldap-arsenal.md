@@ -172,7 +172,9 @@ adminCount=1          protected/privileged         distinguishedName   the DN
   test the same fields but report it as its own bug.
 ```
 > **References:** PortSwigger *LDAP injection*, OWASP *LDAP Injection* + WSTG-INPV-06 + *LDAP Injection Prevention Cheat Sheet*,
-> PayloadsAllTheThings *LDAP Injection*, HackTricks *LDAP injection*, RFC 4515/4514/4526.
+> PayloadsAllTheThings *LDAP Injection*, HackTricks *LDAP injection*, The Hacker Recipes *Active Directory*,
+> Chema Alonso et al. *"LDAP Injection & Blind LDAP Injection"* (Black Hat EU 2008 — the blind-LDAP paper),
+> SpecterOps *BloodHound* + harmj0y *Kerberoast/AS-REP*, RFC 4515/4514/4526. (Full link list: guide Appendix D.)
 
 ---
 

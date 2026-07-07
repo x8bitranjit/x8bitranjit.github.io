@@ -472,7 +472,7 @@ but with the right kit: `../../Web/SQLi/`, `../../Web/CommandInjection/`, `../..
 ### Q82. What is NoSQL operator injection in an API?
 Sending an **operator object** where a scalar is expected: `{"password":{"$ne":null}}`, `{"role":{"$gt":""}}`,
 `{"$where":"..."}`. MongoDB-style backends evaluate it → auth bypass / over-match. Classic on JSON login endpoints.
-(See the NoSQLi note in `../../Web/SQLi/`.)
+(Full technique — operator vs syntax injection, blind extraction, per-datastore — in `../../Web/NoSQLi/`.)
 
 ### Q83. What is content-type confusion?
 Sending a body in a different type than declared/expected — JSON as `text/plain` (to dodge CSRF/JSON-only checks), JSON

@@ -6,7 +6,7 @@ It takes a legitimate write request (your own object) and injects hidden privile
 role/isAdmin/isVerified/price/balance/credits/... in camelCase, snake_case, and nested forms — then (optionally)
 re-GETs the object to prove the field actually PERSISTED (echo in the write response is NOT proof; §7.2/§17).
 
-Discipline: target YOUR OWN object. A stuck privileged field is a LEAD → confirm it has EFFECT (you can now reach an
+Discipline: target YOUR OWN object. A stuck privileged field is a LEAD -> confirm it has EFFECT (you can now reach an
 admin function / your balance changed / price is 0). Non-destructive; clean up.
 
 Usage:
@@ -115,7 +115,7 @@ def main():
                     if fk.split(".")[-1].lower() == k.lower() and str(fv).lower() == str(v).lower() and prevflat.get(fk) != fv:
                         stuck.append(f"{fk}={fv}")
             if stuck:
-                tag = "  [PERSISTED] ⭐ " + ", ".join(sorted(set(stuck))[:6])
+                tag = "  [PERSISTED] <=== " + ", ".join(sorted(set(stuck))[:6])
             prevflat = aflat                                # advance baseline so the NEXT combo is attributed correctly
         print(f"   {name:16} -> {r.status_code}{tag}")
         if a.delay:

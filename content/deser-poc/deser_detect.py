@@ -43,19 +43,19 @@ def classify(s):
     if re.match(r'^\s*[Oa]:\d+:', text) or re.search(r'[abOs]:\d+:[{"]', text):
         hits.append(("PHP serialize()", "PHPGGC (framework POP chain) / object tampering / phar", "text: O:/a:/s: pattern"))
     if "__HALT_COMPILER" in text or text[:4] in ("PK\x03\x04",):
-        hits.append(("PHP phar archive", "phpggc -p phar → file-op on phar:// triggers deserialize", "phar/zip magic"))
+        hits.append(("PHP phar archive", "phpggc -p phar -> file-op on phar:// triggers deserialize", "phar/zip magic"))
     if "_$$ND_FUNC$$_" in text:
         hits.append(("Node node-serialize", "IIFE payload {\"rce\":\"_$$ND_FUNC$$_function(){...}()\"}", "_$$ND_FUNC$$_ marker"))
     if "!!python/object" in text:
         hits.append(("Python PyYAML (unsafe)", "!!python/object/apply:os.system [\"id\"]", "!!python/object tag"))
     if '"@type"' in text:
-        hits.append(("Java Fastjson", "@type JdbcRowSetImpl → JNDI (marshalsec)", '"@type" key'))
+        hits.append(("Java Fastjson", "@type JdbcRowSetImpl -> JNDI (marshalsec)", '"@type" key'))
     if '"@class"' in text:
-        hits.append(("Java Jackson (polymorphic)", "@class gadget → JNDI/SpEL", '"@class" key'))
+        hits.append(("Java Jackson (polymorphic)", "@class gadget -> JNDI/SpEL", '"@class" key'))
     if '"$type"' in text:
         hits.append((".NET Json.NET (TypeNameHandling)", "$type ObjectDataProvider gadget", '"$type" key'))
     if re.search(r"!ruby/object|!ruby/hash", text):
-        hits.append(("Ruby YAML (Psych)", "!ruby/object gadget → RCE", "!ruby/object tag"))
+        hits.append(("Ruby YAML (Psych)", "!ruby/object gadget -> RCE", "!ruby/object tag"))
 
     # binary-signature serializers (raw / base64 / gzip)
     for label, b in as_bytes_candidates(s):
@@ -69,6 +69,10 @@ def classify(s):
             hits.append(("Python pickle (proto 0 text)", "pickle __reduce__ (poc/pickle_poc.py)", f"{label}: proto-0 opcodes"))
         if b[:2] == b"\x04\x08":
             hits.append(("Ruby Marshal", "Marshal universal gadget", f"{label}: 04 08"))
+        if b[:2] == b"\xff\x01":
+            hits.append((".NET ViewState (LosFormatter/ObjectStateFormatter)",
+                         "ysoserial.net -p ViewState (no MAC, or leaked machineKey via ../XXE//../LFI/)",
+                         f"{label}: FF 01 (LosFormatter; base64 starts /wEP)"))
     return hits
 
 

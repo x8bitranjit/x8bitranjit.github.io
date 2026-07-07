@@ -27,7 +27,7 @@ INBAND = [
     f";echo {MARK}#", f"'\necho {MARK}\n'", f"\"&&echo {MARK}&&\"",
     f'";echo {MARK};"', f"';echo {MARK};'", f") ;echo {MARK}; echo $(",   # double / single / inside-$()
     ";id", "|id", "`id`", "$(id)",
-    # Windows — cmd.exe separators + ^/"" splitting (§14.1); Linux payloads silent ≠ safe
+    # Windows — cmd.exe separators + ^/"" splitting (§14.1); Linux payloads silent != safe
     f"&echo {MARK}", f"|echo {MARK}", f"&&echo {MARK}", f"& echo {MARK}",
     "&whoami", "|whoami", "&ver", "&echo %OS%", f"&e^cho {MARK}",
 ]

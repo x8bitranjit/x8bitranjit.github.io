@@ -9,7 +9,7 @@
 - `RECON_NOTES_TEMPLATE.md` — the asset inventory + finding tracker you keep per program
 - `scripts/` — a runnable recon pipeline (enumerate → resolve → probe → mine JS → takeover-check → monitor)
 
-> **Companion to the XSS & JWT guides.** Same philosophy: don't collect data, collect **attack surface that converts to impact**. Recon is the single highest-leverage skill in bug bounty because **you can't exploit what you never found**, and the assets *other hunters never found* are where the unduplicated, high-paying bugs live. But recon also wastes more time than any other phase — this guide is ruthless about **what to skip**.
+> **Companion to every exploitation kit — Recon is the hub that feeds them all.** It routes each finding to the class that turns it into a payout (XSS · JWT/OAuth-SSO · IDOR/API · SSRF · CORS · FileUpload · subdomain-takeover — see the §23 matrix). Same impact-first philosophy as the XSS & JWT guides: don't collect data, collect **attack surface that converts to impact**. Recon is the single highest-leverage skill in bug bounty because **you can't exploit what you never found**, and the assets *other hunters never found* are where the unduplicated, high-paying bugs live. But recon also wastes more time than any other phase — this guide is ruthless about **what to skip**.
 
 ---
 
@@ -961,8 +961,10 @@ ALWAYS, in parallel: set MONITORING (§27) so new assets hit Tier-1 checks withi
 # Appendix C — Important Links
 
 ```
-ProjectDiscovery tools (subfinder/dnsx/httpx/naabu/katana/nuclei)  https://github.com/projectdiscovery
+── TOOLS ──────────────────────────────────────────────────────────────────────
+ProjectDiscovery (subfinder/dnsx/httpx/naabu/katana/nuclei/asnmap/tlsx/notify)  https://github.com/projectdiscovery
 OWASP Amass                                                        https://github.com/owasp-amass/amass
+tomnomnom (gau/waybackurls/gf/anew/unfurl/qsreplace — the glue)    https://github.com/tomnomnom
 SecLists (wordlists)                                               https://github.com/danielmiessler/SecLists
 Assetnote wordlists / commonspeak2                                 https://wordlists.assetnote.io
 crt.sh (certificate transparency)                                  https://crt.sh
@@ -971,11 +973,31 @@ gf + gf-patterns (route URLs to bug classes)                       https://githu
 trufflehog / gitleaks (secret scanning)                            https://github.com/trufflesecurity/trufflehog
 jsluice / subjs / getJS (JS analysis)                              https://github.com/BishopFox/jsluice
 graphw00f / clairvoyance / InQL (GraphQL)                          https://github.com/dolevf/graphw00f
-subzy / subjack / nuclei-takeovers (subdomain takeover)            https://github.com/LukaSikic/subzy
+subzy / subjack / nuclei-takeovers (subdomain takeover)            https://github.com/PentestPad/subzy
 cloud_enum / s3scanner (cloud buckets)                             https://github.com/initstring/cloud_enum
 notify (alerting for monitoring)                                   https://github.com/projectdiscovery/notify
-PortSwigger Web Security Academy (exploitation after recon)        https://portswigger.net/web-security
+
+── METHODOLOGY & RESEARCH (recon-matched) ─────────────────────────────────────
+Jason Haddix — "The Bug Hunter's Methodology" (TBHM) — the recon canon  https://github.com/jhaddix/tbhm
+NahamSec — recon education / bug-bounty recon content              https://www.youtube.com/@NahamSec
+reconFTW (all-in-one recon reference pipeline to compare against)  https://github.com/six2dez/reconftw
+Assetnote research (recon depth, wordlist theory, CVE deep-dives)  https://www.assetnote.io/resources
+ProjectDiscovery blog (subfinder/nuclei/httpx methodology)        https://blog.projectdiscovery.io
+Intigriti / HackerOne recon guides + disclosed reports (learn what pays)  https://www.intigriti.com/researchers/blog
+Orange Tsai (proxy/parser/SSRF attack surface — recon-adjacent)   https://blog.orange.tw
+
+── ALWAYS-ON (cross-class references) ─────────────────────────────────────────
+PortSwigger Web Security Academy + Research (exploit after recon)  https://portswigger.net/web-security
+OWASP WSTG — Information Gathering (WSTG-INFO)                      https://owasp.org/www-project-web-security-testing-guide
+HackTricks — Pentesting Methodology / Recon                        https://book.hacktricks.xyz
+The Hacker Recipes — recon / infrastructure                        https://www.thehacker.recipes
+PayloadsAllTheThings                                               https://github.com/swisskyrepo/PayloadsAllTheThings
+PentesterLab (hands-on recon modules)                              https://pentesterlab.com
 ```
+
+> These are the **references-block standard** for the Recon kit: the tool set you run, the recon-matched
+> methodology/research (TBHM · NahamSec · reconFTW · Assetnote · ProjectDiscovery · Orange Tsai), and the
+> always-on cross-class anchors. The `RECON_ARSENAL.md` and `Recon_Zero_to_Expert.md` carry the same set.
 
 ---
 

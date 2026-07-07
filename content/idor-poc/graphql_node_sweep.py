@@ -57,7 +57,7 @@ def main():
 
     print(f"\n-- {hits}/{args.count} node ids returned data.")
     if hits > 1:
-        print("→ Multiple distinct ids resolve via node(id:) → BOLA: aliases/batching scale this")
+        print("-> Multiple distinct ids resolve via node(id:) -> BOLA: aliases/batching scale this")
         print("  (see API/GraphQL/ for batching, introspection, and write mutations).")
     print("Cite population from a list query total or the max id — do NOT scrape real users (guide §25.3).")
 

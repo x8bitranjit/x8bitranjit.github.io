@@ -5,9 +5,9 @@ jwe_dos_token.py — build a JWE "p2c bomb" header to test PBES2 resource-exhaus
 
 PBES2 key-wrap JWE derives the wrapping key with PBKDF2 using an ATTACKER-CONTROLLED iteration
 count ("p2c" in the header). A token with p2c = 100,000,000 forces the verifier to run that many
-PBKDF2 rounds PER verification → multi-second CPU hang per request. This script only constructs the
+PBKDF2 rounds PER verification -> multi-second CPU hang per request. This script only constructs the
 JWE *protected header* + a minimal token shape so you can demonstrate the per-request cost; it does NOT
-flood. Show the ratio (tiny token → huge work) on ONE request, then stop. CWE-400.
+flood. Show the ratio (tiny token -> huge work) on ONE request, then stop. CWE-400.
 
 Do NOT sustain this against production. Authorized testing only.
 

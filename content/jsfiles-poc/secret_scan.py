@@ -47,8 +47,7 @@ def scan_text(text, name, allow_low):
     out = []
     for rname, rx, sev in RULES:
         if sev == "LOW" and not allow_low:
-            # still record but flag clearly; many programs reject these
-            pass
+            continue   # suppress public-by-design keys by default (Maps/Firebase/Stripe-pub/Sentry); --all includes them
         for m in re.finditer(rx, text):
             val = m.group(0)
             # entropy gate for the generic rule to cut placeholders

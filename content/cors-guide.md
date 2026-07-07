@@ -756,18 +756,48 @@ ALWAYS: prove the cross-origin READ in a real browser with your OWN accounts, na
 
 ---
 
-# Appendix C — Important Links
+# Appendix C — Important Links & References
 
-```
-PortSwigger — CORS (Web Security Academy)           https://portswigger.net/web-security/cors
-OWASP — CORS / Origin policy                         https://owasp.org/www-community/attacks/CORS_OriginHeaderScrutiny
-PayloadsAllTheThings — CORS                          https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/CORS%20Misconfiguration
-Corsy (scanner)                                      https://github.com/s0md3v/Corsy
-CORScanner                                           https://github.com/chenjj/CORScanner
-MDN — CORS                                           https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
-CWE-942 (Permissive Cross-domain Policy)             https://cwe.mitre.org/data/definitions/942.html
-CWE-346 (Origin Validation Error)                    https://cwe.mitre.org/data/definitions/346.html
-```
+**Primary (read these first)**
+- PortSwigger Web Security Academy — *Cross-origin resource sharing (CORS)* (theory + labs): https://portswigger.net/web-security/cors
+- PortSwigger Web Security Academy — *Cross-site WebSocket hijacking*: https://portswigger.net/web-security/websockets/cross-site-websocket-hijacking
+- OWASP — *CORS OriginHeaderScrutiny*: https://owasp.org/www-community/attacks/CORS_OriginHeaderScrutiny
+- OWASP WSTG — *Testing Cross Origin Resource Sharing*: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/11-Client-side_Testing/07-Testing_Cross_Origin_Resource_Sharing
+- MDN — *Cross-Origin Resource Sharing (CORS)*: https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS
+
+**Payloads, techniques & cheat sheets**
+- PayloadsAllTheThings — *CORS Misconfiguration*: https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/CORS%20Misconfiguration
+- HackTricks — *CORS bypass*: https://book.hacktricks.xyz/pentesting-web/cors-bypass
+- OWASP HTML5 Security Cheat Sheet (CORS section): https://cheatsheetseries.owasp.org/cheatsheets/HTML5_Security_Cheat_Sheet.html
+- PentesterLab — CORS exercises/badges: https://pentesterlab.com/
+
+**Authoritative specs (the ground truth for origin/validation logic)**
+- WHATWG — *Fetch Standard*, §HTTP CORS protocol (how the browser really decides ACAO/ACAC): https://fetch.spec.whatwg.org/#http-cors-protocol
+- RFC 6454 — *The Web Origin Concept* (what "origin" is: scheme+host+port): https://www.rfc-editor.org/rfc/rfc6454
+- W3C/WICG — *Private Network Access* (PNA — the §10.5 public→private control): https://wicg.github.io/private-network-access/
+
+**Research & talks (the source of the advanced techniques)**
+- James Kettle / PortSwigger Research — *Practical Web Cache Poisoning* (reflected-ACAO + `Vary` cache angles, §10.4): https://portswigger.net/research/practical-web-cache-poisoning
+- PortSwigger Research index (CORS, cache poisoning, smuggling): https://portswigger.net/research
+- Christian Schneider — *Cross-Site WebSocket Hijacking* (the canonical CSWSH writeup, §13.3): http://www.christian-schneider.net/CrossSiteWebSocketHijacking.html
+- Jordan Milne / Evan Johnson — CORS origin-reflection misconfiguration research
+- Black Hat / DEF CON — web-cache-poisoning & WebSocket-security talks (Kettle et al.)
+
+**Real-world / bug-bounty writeups**
+- Disclosed HackerOne / Bugcrowd reports — search *"CORS misconfiguration → account takeover"* / *"sensitive data exposure via CORS"*
+- James Kettle cache-poisoning disclosures (reflected ACAO served from a shared cache)
+
+**Tooling**
+- Corsy: https://github.com/s0md3v/Corsy
+- CORScanner: https://github.com/chenjj/CORScanner
+- Nuclei — cors templates (`-tags cors`): https://github.com/projectdiscovery/nuclei-templates
+- Burp *Param Miner* — unkeyed-header / cache-poisoning detection: https://github.com/PortSwigger/param-miner
+
+**CWE / standards to cite**
+- CWE-942 — Permissive Cross-domain Policy with Untrusted Domain: https://cwe.mitre.org/data/definitions/942.html
+- CWE-346 — Origin Validation Error: https://cwe.mitre.org/data/definitions/346.html
+- CWE-1385 — Missing Origin Validation in WebSockets (CSWSH): https://cwe.mitre.org/data/definitions/1385.html
+- Outcome CWEs to add per impact: CWE-200 (information exposure), CWE-384 (session hijacking), CWE-352 (CSRF chain)
 
 ---
 
