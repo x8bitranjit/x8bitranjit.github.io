@@ -16,6 +16,10 @@ Usage:
 """
 import argparse, re, sys
 try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console
+except Exception:
+    pass
+try:
     import requests
     requests.packages.urllib3.disable_warnings()  # noqa
 except ImportError:
@@ -53,9 +57,9 @@ def report(label, r):
     err = ERR_RE.search(r.text)
     tag = ""
     if MARK in r.text:
-        tag += "  [ENTITY REFLECTED] ⭐ internal entity expanded → in-band; try file read"
+        tag += "  [ENTITY REFLECTED] * internal entity expanded -> in-band; try file read"
     if "root:x:0:0" in r.text or re.search(r"^[^\r\n]*:[x*]:\d+:\d+:", r.text, re.M):
-        tag += "  [FILE READ] ⭐⭐ /etc/passwd-style content in response!"
+        tag += "  [FILE READ] ** /etc/passwd-style content in response!"
     if err:
         tag += f"  [XML-ERROR ~{err.group(0)!r}] parser reached (maybe error-based)"
     print(f"   {label:22} status={r.status_code} len={len(r.text)}{tag}")

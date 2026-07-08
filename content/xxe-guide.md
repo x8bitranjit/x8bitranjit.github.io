@@ -319,13 +319,25 @@ SAFE-PoC discipline.
 - The pattern never dies because **new formats keep being XML** and parsers ship insecure defaults.
 
 ## 21. Appendix — canonical references
-- **PortSwigger Web Security Academy — XXE injection** (topic + 9 labs: file read, SSRF, blind OOB, error-based,
-  XInclude, SVG upload, content-type, local-DTD, repurposing).
-- **HackTricks — XXE / XEE**, **PayloadsAllTheThings — XXE Injection**, **PentesterLab — XML Attacks / XXE**.
-- **OWASP** — WSTG "Testing for XML Injection", **XXE Prevention Cheat Sheet**, Top-10 (was A4:2017).
-- **CWE-611** (Improper Restriction of XML External Entity Reference), CWE-776 (entity expansion), CWE-918 (SSRF chain).
-- Companion kits: `../SSRF/` (metadata/RCE escalation), `../FileUpload/` (SVG/OOXML XXE payloads), `../LFI/` (php://filter),
-  `../Recon/`; API: `../../API/REST/` (content-type switch), and SAML lives with the coming OAuth/SSO kit.
+
+**Core methodology**
+- **PortSwigger Web Security Academy — XXE injection** (topic + 9 labs: file read, SSRF, blind OOB, error-based, XInclude,
+  SVG upload, content-type, local-DTD, repurposing): https://portswigger.net/web-security/xxe
+- **HackTricks — XXE / XEE**; **PayloadsAllTheThings — XXE Injection**; **PentesterLab — XML Attacks / XXE**.
+- **OWASP** — WSTG "Testing for XML Injection"; **XXE Prevention Cheat Sheet**; Top-10 (was A4:2017).
+
+**Class-defining research**
+- **Timothy Morgan & Omar Al Ibrahim** — "XML Schema, DTD, and Entity Attacks: A Compendium of Known Techniques" (VSR, 2014)
+  — the canonical XXE paper (parameter-entity OOB, error-based, and local-DTD reuse techniques).
+- **PortSwigger Research** — blind XXE via external DTDs + parameter entities, and error-based / local-DTD exfiltration.
+
+**Standards**
+- **CWE-611** (Improper Restriction of XML External Entity Reference) · **CWE-776** (entity expansion / billion laughs) ·
+  **CWE-918** (SSRF chain) · **CVSS 3.1** calculator: https://www.first.org/cvss/calculator/3.1
+
+**Companion kits**
+- `../SSRF/` (metadata/RCE escalation) · `../FileUpload/` (SVG/OOXML XXE payloads) · `../LFI/` (php://filter source read) ·
+  `../Recon/` · `../../API/REST/` (content-type switch) · `../OAuth/` (**SAML XXE** — SSO assertion parsers reading external entities).
 
 ---
 

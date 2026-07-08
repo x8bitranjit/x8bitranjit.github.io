@@ -13,6 +13,10 @@ Authorized testing only. Schema mapping is read-only recon — but only against 
 """
 import argparse, json, re, sys
 try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console
+except Exception:
+    pass
+try:
     import requests
 except ImportError:
     sys.exit("pip install requests")
@@ -53,7 +57,7 @@ def main():
         errs = data.get("errors")
         if errs:
             print("server said:", errs[0].get("message"))
-        print("→ Recover the schema via field suggestions / clairvoyance / graphw00f (guide §6):")
+        print("-> Recover the schema via field suggestions / clairvoyance / graphw00f (guide §6):")
         print("  clairvoyance -o schema.json", args.url)
         return
 

@@ -1,7 +1,7 @@
 # XPath / XQuery Injection — Zero to Expert (100 Q&A)
 
 **Author:** x8bitranjit
-Study companion + field reference. Advanced guide — pair with OWASP/PortSwigger XPath notes, HackTricks, PayloadsAllTheThings, and the W3C XPath function reference. **Sibling of SQLi/[LDAP](#/ldap/guide)** — same query-injection engine, XML flavor. Impact ceiling = auth bypass · full XML dump · file/SSRF · XQuery RCE.
+Study companion + field reference. Advanced guide — pair with OWASP/PortSwigger XPath notes, HackTricks, PayloadsAllTheThings, and the W3C XPath function reference. **Sibling of SQLi/[LDAP](../LDAP/)** — same query-injection engine, XML flavor. Impact ceiling = auth bypass · full XML dump · file/SSRF · XQuery RCE.
 
 ---
 
@@ -11,7 +11,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q2. What is XPath?** A language for selecting nodes from an XML document (`//user[name='bob']`). Apps use it to authenticate against XML credential stores, query native XML databases, and select SAML/config nodes.
 
-**Q3. How is XPath injection like SQL/LDAP injection?** Same root cause — untrusted input concatenated into a query language. You break out of a string literal and inject logic/functions. The blind-extraction engine is the same as [LDAP](#/ldap/guide) and [NoSQL Injection](#/nosqli/guide).
+**Q3. How is XPath injection like SQL/LDAP injection?** Same root cause — untrusted input concatenated into a query language. You break out of a string literal and inject logic/functions. The blind-extraction engine is the same as [../LDAP/](../LDAP/) and [../NoSQLi/](../NoSQLi/).
 
 **Q4. What's the impact ceiling?** Authentication bypass, full XML-store disclosure (all users/passwords blind), file read + SSRF (XPath 2.0 `doc`/`unparsed-text`), and RCE via XQuery on native XML DBs.
 
@@ -25,7 +25,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q9. Why does `and` vs `or` precedence matter?** In XPath, `and` binds tighter than `or`, so `name='' or '1'='1' and password='...'` parses as `name='' or ('1'='1' and password='...')` — but the simplest bypass leaves a trailing `or '1'='1'` that dominates the whole predicate as true.
 
-**Q10. Is XPath injection the same as XXE?** No. XXE ([XXE](#/xxe/guide)) injects a DOCTYPE/entity into an XML **input document**. XPath injection injects into the **query** run against an XML document. Different bug, different fix.
+**Q10. Is XPath injection the same as XXE?** No. XXE ([../XXE/](../XXE/)) injects a DOCTYPE/entity into an XML **input document**. XPath injection injects into the **query** run against an XML document. Different bug, different fix.
 
 ---
 
@@ -45,7 +45,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q17. What's XSLT injection's relationship?** XSLT (`xsl:value-of select="$input"`) is a cousin — user input in an XSLT `select` is XPath-injectable, and XSLT engines add their own `document()`/extension RCE vectors.
 
-**Q18. Can XPath injection appear in SAML?** Yes — SPs that select assertion attributes/NameID via an XPath built from input can be injected ([OAuth/SSO/SAML](#/oauth/guide) SAML section).
+**Q18. Can XPath injection appear in SAML?** Yes — SPs that select assertion attributes/NameID via an XPath built from input can be injected ([../OAuth/](../OAuth/) SAML section).
 
 **Q19. What source patterns are red flags?** String concatenation into an XPath: `"//user[name='" + u + "']"`, `xPath.compile(base + input)`, or building a predicate from `req.query`.
 
@@ -137,7 +137,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q55. `doc()` vs `unparsed-text()` — when to use which?** `doc()` for URLs/SSRF and XML content; `unparsed-text()` for arbitrary (non-XML) local files. Both are XPath 2.0+.
 
-**Q56. How do you reach cloud metadata via XPath?** `doc('http://169.254.169.254/latest/meta-data/…')` on a 2.0 engine → IAM creds (chain [SSRF](#/ssrf/guide)).
+**Q56. How do you reach cloud metadata via XPath?** `doc('http://169.254.169.254/latest/meta-data/…')` on a 2.0 engine → IAM creds (chain [../SSRF/](../SSRF/)).
 
 **Q57. What is XQuery injection?** Injection into an XQuery expression (native XML DBs). FLWOR and module imports let you go beyond selection to call **extension functions** — potentially RCE. CWE-652.
 
@@ -201,11 +201,11 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q81. Turn a boolean oracle into a full breach.** Enumerate `count(//user)`, then extract every `//user[i]` field char-by-char → dump all usernames/passwords → offline crack or direct login → mass ATO.
 
-**Q82. Chain XPath with SSRF.** On 2.0, `doc('http://internal/…')` reaches internal services / cloud metadata → IAM creds → infra pivot ([SSRF](#/ssrf/guide)).
+**Q82. Chain XPath with SSRF.** On 2.0, `doc('http://internal/…')` reaches internal services / cloud metadata → IAM creds → infra pivot ([../SSRF/](../SSRF/)).
 
 **Q83. Chain XPath with file read.** `unparsed-text('file:///…/web.config')` leaks secrets/keys → forge tokens/sessions elsewhere.
 
-**Q84. Relationship to LDAP/NoSQLi kits?** All three are query-injection with a blind char-by-char extraction engine — the same methodology and tooling shape transfer directly ([LDAP](#/ldap/guide), [NoSQL Injection](#/nosqli/guide)).
+**Q84. Relationship to LDAP/NoSQLi kits?** All three are query-injection with a blind char-by-char extraction engine — the same methodology and tooling shape transfer directly ([../LDAP/](../LDAP/), [../NoSQLi/](../NoSQLi/)).
 
 **Q85. Chain XPath auth bypass → ATO.** Bypass login as admin, then perform privileged actions / read other users — full account/tenant compromise.
 
@@ -251,4 +251,4 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 - Compare password **hashes in code**, not inside the XPath.
 - **Disable** `doc()`/`document()`/`unparsed-text()`/external access; prefer an XPath 1.0 evaluator.
 - Native XML DBs: **disable extension modules** (`proc:*`/`xdmp:*`/`util:eval`/`file:*`), least privilege.
-- Same query-injection defenses as [LDAP](#/ldap/guide)/[NoSQL Injection](#/nosqli/guide): validate structure, don't trust input as query syntax.
+- Same query-injection defenses as [../LDAP/](../LDAP/)/[../NoSQLi/](../NoSQLi/): validate structure, don't trust input as query syntax.

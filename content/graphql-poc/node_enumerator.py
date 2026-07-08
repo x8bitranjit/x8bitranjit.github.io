@@ -13,6 +13,10 @@ range tiny and cite the population from a list/total — do not scrape real PII 
 """
 import argparse, base64, json, sys
 try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console
+except Exception:
+    pass
+try:
     import requests
 except ImportError:
     sys.exit("pip install requests")
@@ -71,11 +75,11 @@ def main():
 
     print(f"\n-- {hits}/{args.count} ids returned data.")
     if hits > 1:
-        print("→ Multiple distinct ids resolved → likely BOLA. Confirm with the TWO-ACCOUNT test")
+        print("-> Multiple distinct ids resolved -> likely BOLA. Confirm with the TWO-ACCOUNT test")
         print("  (this token = A; check one of the returned ids belongs to your account B). guide §7/§18")
-        print("→ Scale: use aliases to fetch many in one request; cite population from a list total.")
+        print("-> Scale: use aliases to fetch many in one request; cite population from a list total.")
     elif hits == 1:
-        print("→ Only your own object resolved — confirm whether others are accessible (try B's id).")
+        print("-> Only your own object resolved — confirm whether others are accessible (try B's id).")
 
 
 if __name__ == "__main__":

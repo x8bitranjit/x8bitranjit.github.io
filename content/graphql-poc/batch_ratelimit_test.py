@@ -15,6 +15,10 @@ Authorized testing only. Do NOT brute real users. The point is the MEASURED bypa
 """
 import argparse, json, sys
 try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console
+except Exception:
+    pass
+try:
     import requests
 except ImportError:
     sys.exit("pip install requests")
@@ -76,12 +80,12 @@ def main():
 
     print(f"operations processed in ONE request: {processed} / {args.count}")
     if processed > 1:
-        print("→ The server processed MULTIPLE operations in a single HTTP request.")
+        print("-> The server processed MULTIPLE operations in a single HTTP request.")
         print("  IF a per-HTTP-request rate limit exists on this operation, it is BYPASSED by batching")
         print("  (guide §9). To show the security impact, batch a sensitive op (login/otp) on YOUR OWN")
-        print("  account and show N attempts processed where the per-request limit is 1/5 → brute → ATO.")
+        print("  account and show N attempts processed where the per-request limit is 1/5 -> brute -> ATO.")
     else:
-        print("→ Only one operation processed — batching may be disabled/capped (good defense).")
+        print("-> Only one operation processed — batching may be disabled/capped (good defense).")
 
 
 if __name__ == "__main__":

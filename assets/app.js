@@ -165,6 +165,30 @@ const DOCS = {
   'rest/checklist':{ doc:'content/rest-checklist.md', title:'REST API — Testing Checklist',   chips:['API','Per-endpoint'] },
   'rest/poc':      { doc:'content/rest-poc.md',       title:'REST API — PoC Scripts',         chips:['API','Runnable scripts'] },
   'rest/qa':       { doc:'content/rest-qa.md',        title:'REST API — Zero to Expert (Q&A)',chips:['API','Study · 100+ Q'] },
+
+  'webcache/guide':    { doc:'content/webcache-guide.md',     title:'Web Cache Poisoning & Deception — Testing Guide',       chips:['Web','Critical: cache poisoning / ATO'] },
+  'webcache/arsenal':  { doc:'content/webcache-arsenal.md',   title:'Web Cache Poisoning & Deception — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'webcache/checklist':{ doc:'content/webcache-checklist.md', title:'Web Cache Poisoning & Deception — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'webcache/poc':      { doc:'content/webcache-poc.md',       title:'Web Cache Poisoning & Deception — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'webcache/qa':       { doc:'content/webcache-qa.md',        title:'Web Cache Poisoning & Deception — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'jndi/guide':    { doc:'content/jndi-guide.md',     title:'JNDI Injection & Log4Shell — Testing Guide',       chips:['Web','Critical: unauth RCE'] },
+  'jndi/arsenal':  { doc:'content/jndi-arsenal.md',   title:'JNDI Injection & Log4Shell — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'jndi/checklist':{ doc:'content/jndi-checklist.md', title:'JNDI Injection & Log4Shell — Testing Checklist',   chips:['Web','Per-input'] },
+  'jndi/poc':      { doc:'content/jndi-poc.md',       title:'JNDI Injection & Log4Shell — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'jndi/qa':       { doc:'content/jndi-qa.md',        title:'JNDI Injection & Log4Shell — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'ato/guide':    { doc:'content/ato-guide.md',     title:'Account Takeover — Testing Guide',       chips:['Web','Critical: account takeover'] },
+  'ato/arsenal':  { doc:'content/ato-arsenal.md',   title:'Account Takeover — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'ato/checklist':{ doc:'content/ato-checklist.md', title:'Account Takeover — Testing Checklist',   chips:['Web','Per-flow'] },
+  'ato/poc':      { doc:'content/ato-poc.md',       title:'Account Takeover — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'ato/qa':       { doc:'content/ato-qa.md',        title:'Account Takeover — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'depconfusion/guide':    { doc:'content/depconfusion-guide.md',     title:'Dependency Confusion — Testing Guide',       chips:['Web','Critical: supply-chain RCE'] },
+  'depconfusion/arsenal':  { doc:'content/depconfusion-arsenal.md',   title:'Dependency Confusion — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'depconfusion/checklist':{ doc:'content/depconfusion-checklist.md', title:'Dependency Confusion — Testing Checklist',   chips:['Web','Per-dependency'] },
+  'depconfusion/poc':      { doc:'content/depconfusion-poc.md',       title:'Dependency Confusion — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'depconfusion/qa':       { doc:'content/depconfusion-qa.md',        title:'Dependency Confusion — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
 };
 
 /* Per-script code pages: click a script on a PoC index → its own page showing the source.
@@ -303,6 +327,26 @@ registerCode('rest','rest-poc','REST API',[
   ['api_discover','api_discover.py','python'], ['authz_diff','authz_diff.py','python'],
   ['massassign_fuzz','massassign_fuzz.py','python'], ['method_tamper','method_tamper.py','python'],
 ], ['API','PoC script']);
+registerCode('webcache','webcache-poc','Web Cache Poisoning & Deception',[
+  ['cache_detect','cache_detect.py','python'],
+  ['poison_probe','poison_probe.py','python'],
+  ['deception_probe','deception_probe.py','python'],
+]);
+registerCode('jndi','jndi-poc','JNDI Injection & Log4Shell',[
+  ['payload_gen','payload_gen.py','python'],
+  ['jndi_probe','jndi_probe.py','python'],
+  ['callback_listener','callback_listener.py','python'],
+]);
+registerCode('ato','ato-poc','Account Takeover',[
+  ['reset_token_analyzer','reset_token_analyzer.py','python'],
+  ['reset_poison_probe','reset_poison_probe.py','python'],
+  ['otp_bruteforce','otp_bruteforce.py','python'],
+]);
+registerCode('depconfusion','depconfusion-poc','Dependency Confusion',[
+  ['manifest_scan','manifest_scan.py','python'],
+  ['claimable_check','claimable_check.py','python'],
+  ['benign_callback_pkg','benign_callback_pkg.py','python'],
+]);
 
 const RECON_PAGES = [
   { label:'Web Recon Guide',      route:'recon/guide' },
@@ -388,20 +432,27 @@ const PROTOTYPE_PAGES  = kitPages('prototype');
 const REST_PAGES       = kitPages('rest');
 const XPATH_PAGES      = kitPages('xpath');
 const XXE_PAGES        = kitPages('xxe');
+const WEBCACHE_PAGES     = kitPages('webcache');
+const JNDI_PAGES         = kitPages('jndi');
+const ATO_PAGES          = kitPages('ato');
+const DEPCONFUSION_PAGES = kitPages('depconfusion');
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
   { kind:'section', label:'Web', open:true, items:[
     { label:'Recon', kit:true, pages:RECON_PAGES },   // pinned to the top of Web
+    { label:'Account Takeover', kit:true, pages:ATO_PAGES },
     { label:'Clickjacking', soon:true },
     { label:'Command Injection', kit:true, pages:CMDI_PAGES },
     { label:'CORS', kit:true, pages:CORS_PAGES },
     { label:'CSRF', kit:true, pages:CSRF_PAGES },
+    { label:'Dependency Confusion', kit:true, pages:DEPCONFUSION_PAGES },
     { label:'File Upload', kit:true, pages:FILEUPLOAD_PAGES },
     { label:'Host Header Injection', kit:true, pages:HOSTHEADER_PAGES },
     { label:'IDOR / BOLA', kit:true, pages:IDOR_PAGES },
     { label:'Insecure Deserialization', kit:true, pages:DESER_PAGES },
     { label:'JavaScript Files', kit:true, pages:JSFILES_PAGES },
+    { label:'JNDI Injection & Log4Shell', kit:true, pages:JNDI_PAGES },
     { label:'JWT', kit:true, pages:JWT_PAGES },
     { label:'LDAP', kit:true, pages:LDAP_PAGES },
     { label:'LFI', kit:true, pages:LFI_PAGES },
@@ -414,6 +465,7 @@ const NAV = [
     { label:'SQL Injection', kit:true, pages:SQLI_PAGES },
     { label:'SSRF', kit:true, pages:SSRF_PAGES },
     { label:'SSTI', kit:true, pages:SSTI_PAGES },
+    { label:'Web Cache Poisoning & Deception', kit:true, pages:WEBCACHE_PAGES },
     { label:'WebSocket', kit:true, pages:WEBSOCKET_PAGES },
     { label:'XPath Injection', kit:true, pages:XPATH_PAGES },
     { label:'XSS', kit:true, pages:XSS_PAGES },
@@ -432,6 +484,10 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'Dependency Confusion',    route:'depconfusion/guide', date:'Jul 2026' },
+  { label:'Account Takeover',        route:'ato/guide',          date:'Jul 2026' },
+  { label:'JNDI / Log4Shell',        route:'jndi/guide',         date:'Jul 2026' },
+  { label:'Web Cache Poisoning',     route:'webcache/guide',     date:'Jul 2026' },
   { label:'XPath Injection',         route:'xpath/guide',      date:'Jul 2026' },
   { label:'Prototype Pollution',     route:'prototype/guide',  date:'Jul 2026' },
   { label:'NoSQL Injection',         route:'nosqli/guide',     date:'Jul 2026' },

@@ -9,7 +9,7 @@
 - `SSTI_REPORT_TEMPLATE.md` — the report skeleton that gets paid
 - `poc/` — runnable tooling (SSTI detector with differential FP-gating, engine fingerprinter, RCE payload builder)
 
-> **Companion to the Command-Injection / XSS / LFI / SSRF / JS-files guides.** SSTI is a **top-tier RCE class**: when user input is evaluated as a template expression, you go from "my name renders" to "**`{{...}}` runs `id` on the server.**" The two mistakes hunters make: (1) reporting **`{{7*7}}=49`** without proving it's *server-side evaluation* (it can be a coincidence, a client-side framework, or plain reflection) — that gets closed; and (2) stopping at `49` instead of identifying the **engine** and walking the object chain to **RCE**. Read §4 (confirm + differentiate) and Part III (engine → RCE) before you celebrate a `49`.
+> **Companion to the Command-Injection · XSS · LFI · SSRF guides** (SSTI's real chains — OS-exec, CSTI-vs-XSS, sandboxed file-read, engine-fetch→metadata). SSTI is a **top-tier RCE class**: when user input is evaluated as a template expression, you go from "my name renders" to "**`{{...}}` runs `id` on the server.**" The two mistakes hunters make: (1) reporting **`{{7*7}}=49`** without proving it's *server-side evaluation* (it can be a coincidence, a client-side framework, or plain reflection) — that gets closed; and (2) stopping at `49` instead of identifying the **engine** and walking the object chain to **RCE**. Read §4 (confirm + differentiate) and Part III (engine → RCE) before you celebrate a `49`.
 
 ---
 
@@ -683,13 +683,24 @@ ALWAYS: differentiate from CSTI/coincidence; identify the engine; prove RCE with
 # Appendix C — Important Links
 
 ```
+# Core methodology (always consult)
 PortSwigger — Server-side template injection           https://portswigger.net/web-security/server-side-template-injection
-PayloadsAllTheThings — SSTI                            https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Template%20Injection
-tplmap / SSTImap (automated)                           https://github.com/vladko312/SSTImap
-HackTricks — SSTI                                      https://book.hacktricks.xyz/pentesting-web/ssti-server-side-template-injection
-James Kettle — "Server-Side Template Injection" paper  https://portswigger.net/research/server-side-template-injection
-Jinja2 / Twig / Freemarker / ERB docs                 (engine official docs)
-CWE-1336 (SSTI) / CWE-94 (Code Injection)             https://cwe.mitre.org/data/definitions/1336.html
+OWASP WSTG — Testing for Server-Side Template Injection https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/18-Testing_for_Server-side_Template_Injection
+HackTricks — SSTI (per-engine payloads)                https://book.hacktricks.xyz/pentesting-web/ssti-server-side-template-injection
+PayloadsAllTheThings — SSTI (per-engine)               https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/Server%20Side%20Template%20Injection
+The Hacker Recipes — SSTI                              https://www.thehacker.recipes/web/inputs/ssti
+PentesterLab — SSTI exercises                          https://pentesterlab.com/
+
+# Class-defining research (SSTI = James Kettle's discipline)
+James Kettle — "Server-Side Template Injection: RCE for the modern webapp" (BlackHat 2015)
+                                                       https://portswigger.net/research/server-side-template-injection
+tplmap / SSTImap (automated detect+exploit; verify by hand) https://github.com/vladko312/SSTImap
+Jinja2 / Twig / Freemarker / Velocity / ERB — official engine docs (object chains + sandbox model)
+
+# Standards
+CWE-1336 (Server-Side Template Injection)              https://cwe.mitre.org/data/definitions/1336.html
+CWE-94 (Improper Control of Code Generation)           https://cwe.mitre.org/data/definitions/94.html
+CVSS 3.1 calculator (SSTI→RCE ≈ 9.8 Critical)          https://www.first.org/cvss/calculator/3.1
 ```
 
 ---

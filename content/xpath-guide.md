@@ -5,7 +5,7 @@
 **Impact ceiling:** **Authentication bypass** · **full XML-document blind extraction** (dump every user/password) · **file read + SSRF** (XPath 2.0/3.0 `doc()`/`unparsed-text()`) · **RCE** (XQuery injection on native XML DBs).
 **Primary CWE:** CWE-643 (Improper Neutralization of Data within XPath Expressions) · CWE-652 (XQuery Injection).
 
-> ⚠️ **Advanced guide.** Get the basics first from **PortSwigger / OWASP — XPath Injection**, **OWASP Testing Guide (Testing for XPath Injection)**, **HackTricks — XPath injection**, **PayloadsAllTheThings/XPATH Injection**, and the **W3C XPath function reference**. This is the **sibling of SQLi and [LDAP](#/ldap/guide)** — same query-injection mindset, different (XML) query language. If you've done the LDAP kit, the blind-extraction engine here is the same shape.
+> ⚠️ **Advanced guide.** Get the basics first from **PortSwigger / OWASP — XPath Injection**, **OWASP Testing Guide (Testing for XPath Injection)**, **HackTricks — XPath injection**, **PayloadsAllTheThings/XPATH Injection**, and the **W3C XPath function reference**. This is the **sibling of SQLi and [../LDAP/](../LDAP/)** — same query-injection mindset, different (XML) query language. If you've done the LDAP kit, the blind-extraction engine here is the same shape.
 
 ---
 
@@ -42,7 +42,7 @@ Why it pays **High/Critical**:
 
 - **XML-based authentication** — credentials stored in `users.xml`, login runs an XPath match.
 - **Native XML databases** — eXist-db, BaseX, MarkLogic, Sedna, Tamino (queried with XPath/**XQuery**).
-- **SAML** — some SPs select assertion attributes/NameID via XPath (injectable if built from input) — see [OAuth/SSO/SAML](#/oauth/guide).
+- **SAML** — some SPs select assertion attributes/NameID via XPath (injectable if built from input) — see [../OAuth/](../OAuth/).
 - **XML config / catalog lookups** — product catalogs, menus, permissions in XML.
 - **SOAP / XML APIs** — server selects nodes from the request/DB via XPath.
 - **XSLT** — `xsl:value-of select="$userinput"` style injection (XSLT injection is a close cousin).
@@ -132,7 +132,15 @@ password = ' or '1'='1
 " or "1"="1
 ```
 
-**Union (`|`) breakout** — XPath's `|` unions node-sets; injecting `']|//user|a[LDAP](#/ldap/guide) and [NoSQL Injection](#/nosqli/guide):
+**Union (`|`) breakout** — XPath's `|` unions node-sets; injecting `']|//user|a['`-style payloads can return nodes outside the intended predicate (e.g. every `//user`), bypassing the filter and sometimes disclosing extra nodes.
+
+→ **Impact:** authenticated session with **no valid password** → often admin → High/Critical.
+
+---
+
+# PART IV — Blind data extraction (the LDAP-model engine → full dump)
+
+When you can't see data but have a **boolean oracle** (login ok/nok, record present/absent, status/length diff), reconstruct the whole XML document. This is the same char-by-char engine as [../LDAP/](../LDAP/) and [../NoSQLi/](../NoSQLi/):
 
 ## 4.1 Structure discovery
 ```
@@ -198,7 +206,7 @@ On eXist-db / BaseX / MarkLogic / Sedna, the query language is **XQuery**, and i
 FLWOR (`for/let/where/return`) and module imports let you pivot from data theft to **command execution**. Match the payload to the specific XML DB (BaseX `proc:system`, MarkLogic `xdmp:spawn`/`xdmp:document-load`, eXist `util:eval`/`file:*`).
 
 ## 5.5 XPath injection vs XXE (don't confuse them)
-- **XXE** ([XXE](#/xxe/guide)) = you control the **XML input document** and inject a **DOCTYPE/entity**.
+- **XXE** ([../XXE/](../XXE/)) = you control the **XML input document** and inject a **DOCTYPE/entity**.
 - **XPath injection** = you control a **value concatenated into the query** that runs *against* an XML document.
 Different root cause, different fix — though both can reach file-read/SSRF, and a target may have both.
 
@@ -210,12 +218,12 @@ Different root cause, different fix — though both can reach file-read/SSRF, an
 |-----------|---------|----------|
 | `' or '1'='1` changes login | Auth bypass → land as first/admin user | Critical/High |
 | Boolean oracle on any param | `substring`/`string-length`/`count` → dump the whole XML store (all creds) | Critical/High |
-| XPath 2.0 (`doc()` works) | `doc('http://oob')` → SSRF/OOB; metadata → cloud creds (→ [SSRF](#/ssrf/guide)) | High/Critical |
+| XPath 2.0 (`doc()` works) | `doc('http://oob')` → SSRF/OOB; metadata → cloud creds (→ [../SSRF/](../SSRF/)) | High/Critical |
 | `unparsed-text()` works | Read `/etc/passwd`, app config, keys | High |
 | Native XML DB (BaseX/MarkLogic/eXist) | XQuery extension fn → RCE | Critical |
 | Verbose XPath errors | Error-based extraction (faster than blind) | High |
 
-**Chains:** [LDAP](#/ldap/guide) & [NoSQL Injection](#/nosqli/guide) (same blind engine/mindset), [SSRF](#/ssrf/guide) (`doc()` metadata), [XXE](#/xxe/guide) (sibling XML bug on the same endpoint), [OAuth/SSO/SAML](#/oauth/guide) (SAML XPath), auth-bypass → ATO.
+**Chains:** [../LDAP/](../LDAP/) & [../NoSQLi/](../NoSQLi/) (same blind engine/mindset), [../SSRF/](../SSRF/) (`doc()` metadata), [../XXE/](../XXE/) (sibling XML bug on the same endpoint), [../OAuth/](../OAuth/) (SAML XPath), auth-bypass → ATO.
 
 ---
 
@@ -256,20 +264,32 @@ Different root cause, different fix — though both can reach file-read/SSRF, an
 
 ## 7.4 Reporting
 
-Lead with impact + a minimal reproduction: the exact injected value (both quote contexts if relevant), the control vs injected responses, and the result (session/data/file). Use the report template. Name the sink (`//user[name='"+input+"']` built by string concatenation) and the fix (parameterize with variable binding / `XPathVariableResolver`; validate+escape; least-privileged, non-XQuery engine).
+Lead with impact + a minimal reproduction: the exact injected value (both quote contexts if relevant), the control vs injected responses, and the result (session/data/file). Use [XPATH_REPORT_TEMPLATE.md](XPATH_REPORT_TEMPLATE.md). Name the sink (`//user[name='"+input+"']` built by string concatenation) and the fix (parameterize with variable binding / `XPathVariableResolver`; validate+escape; least-privileged, non-XQuery engine).
 
-## 7.5 Real-world references / CVEs
+## 7.5 References & further reading
 
-- **OWASP / PortSwigger** — XPath Injection (blind + error-based).
-- **xcat** (Tom Forbes) — the reference XPath-injection extraction tool (blind + OOB via `doc()`).
-- Classic advisories on XML-auth bypass; **BaseX/eXist-db/MarkLogic** XQuery RCE research; SAML XPath issues.
-- PayloadsAllTheThings / OWASP Testing Guide for the payload corpus and function reference.
+**Core methodology**
+- PortSwigger — XPath injection (blind + error-based) + Web Security Academy labs: https://portswigger.net/web-security/xpath-injection
+- OWASP WSTG — Testing for XPath Injection: https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/07-Input_Validation_Testing/09-Testing_for_XPath_Injection
+- HackTricks — XPath injection: https://book.hacktricks.xyz/pentesting-web/xpath-injection
+- PayloadsAllTheThings — XPATH Injection (payload corpus): https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/XPATH%20Injection
+- PentesterLab — XML/XPath injection exercises: https://pentesterlab.com/
+- W3C — XPath & XQuery function reference (the version/function map that decides your escalation): https://www.w3.org/TR/xpath-functions/
+
+**Class-specific tools & research**
+- **xcat** (Tom Forbes) — the reference blind-XPath extraction tool (boolean + OOB via `doc()`, file read, XPath 1.0/2.0): https://github.com/orf/xcat
+- Native XML-DB **XQuery RCE** research — BaseX `proc:system`, eXist-db `util:eval`/`file:*`, MarkLogic `xdmp:*` (match the engine's extension-function catalog before firing).
+- **SAML** XPath assertion/NameID-selection issues (see [../OAuth/](../OAuth/)); classic XML-authentication-bypass advisories.
+
+**Standards**
+- **CWE-643** (Improper Neutralization of Data within an XPath Expression) · **CWE-652** (Improper Neutralization of Data within an XQuery Expression): https://cwe.mitre.org/data/definitions/643.html
+- **CVSS 3.1** (auth-bypass / XQuery-RCE ≈ 9–10 Critical): https://www.first.org/cvss/calculator/3.1
 
 ---
 
 ## Companion files
-- **[Attack Arsenal](#/xpath/arsenal)** — payloads + functions + tools.
-- **[Testing Checklist](#/xpath/checklist)** — phase-by-phase + auto-reject.
-- **the report template** — report skeleton.
-- **[Zero to Expert (Q&A)](#/xpath/qa)** — 100-question study + field reference.
-- **[PoC Scripts](#/xpath/poc)** — `xpath_fuzz.py` (detect + auth-bypass, control-baselined) · `xpath_blind.py` (count/length/substring char-by-char) · `xcat_cheat.md`.
+- **[XPATH_ARSENAL.md](XPATH_ARSENAL.md)** — payloads + functions + tools.
+- **[XPATH_CHECKLIST.md](XPATH_CHECKLIST.md)** — phase-by-phase + auto-reject.
+- **[XPATH_REPORT_TEMPLATE.md](XPATH_REPORT_TEMPLATE.md)** — report skeleton.
+- **[XPath_Zero_to_Expert.md](XPath_Zero_to_Expert.md)** — 100-question study + field reference.
+- **[poc/](poc/)** — `xpath_fuzz.py` (detect + auth-bypass, control-baselined) · `xpath_blind.py` (count/length/substring char-by-char) · `xcat_cheat.md`.

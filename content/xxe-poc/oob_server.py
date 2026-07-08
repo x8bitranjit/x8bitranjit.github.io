@@ -18,6 +18,10 @@ Usage:
   #   <r>trigger</r>
 """
 import argparse, base64, sys
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # never crash a cp1252 console on exfil'd file bytes
+except Exception:
+    pass
 import urllib.parse as up
 from http.server import BaseHTTPRequestHandler, HTTPServer
 

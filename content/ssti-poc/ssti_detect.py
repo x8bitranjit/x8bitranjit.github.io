@@ -64,8 +64,7 @@ def main():
         if ":" in h:
             k, v = h.split(":", 1); a.headers[k.strip()] = v.strip()
 
-    # literal-control: does {{...}} come back literally (= reflection, not eval)?
-    literal_payload = f"{{{{{A}*{B}}}}}"
+    # literal-control: does the input come back literally (= reflection, not eval)?
     literal_body = send(a, "STSSTI_LITERAL_MARKER_(7*7)")
     reflected_literal = "(7*7)" in literal_body
 

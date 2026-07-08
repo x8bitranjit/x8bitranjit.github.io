@@ -15,7 +15,9 @@ copy-paste arsenal, a checklist, runnable PoC scripts, and a "Zero to Expert" Q&
 > actually pays. If a payload or step isn't clear, go read the fundamentals for that class first.
 
 > Pick a topic from the sidebar → **Web**, **API**, or **Mobile**. Recon is pinned to the top; every other
-> class is alphabetical. The library is growing — new classes are added regularly.
+> class is alphabetical. **30+ in-depth classes** across **Web** and **API** (Mobile on the way) — the library
+> grows regularly. **Newest:** Web Cache Poisoning & Deception, JNDI Injection & Log4Shell, Account Takeover,
+> and Dependency Confusion.
 
 ---
 
