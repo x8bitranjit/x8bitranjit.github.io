@@ -166,6 +166,16 @@ A)  curl -s "https://t/account/x.css"  -H "Cookie: session=YOURS"     → your p
 B)  curl -s "https://t/account/x.css"                                 → SAME marker with NO cookie = deception PROVEN
 ```
 
+**Endpoint discovery — find the cacheable-sensitive routes first (Guide §14.1):**
+```
+# for each authed page: does appending a static suffix STILL return your private data + flip to a HIT?
+for p in account profile settings billing orders messages api/me dashboard; do
+  curl -s -D- -o/dev/null "https://t/$p/x.css" -H "Cookie: session=YOURS" | grep -Ei "^(HTTP|age|cf-cache-status|x-cache)"
+done
+# 200 + your private body + HIT-on-repeat = deception-prone. Password-reset landing pages are prime (token in body).
+```
+**CDN tendency (fingerprint via §0, then test each row — Guide §13):** Cloudflare = static-extension list + Cache Deception Armor (Content-Type must match the ext → use a `;`/encoded-delimiter row); Akamai/CloudFront = extension + path pattern (`;` and `%3f`/`%23`/`%2f` win); Varnish/Fastly = VCL-defined, test everything.
+
 ---
 
 ## 6. What to grep for in a deception hit (rate the severity, Guide §18)

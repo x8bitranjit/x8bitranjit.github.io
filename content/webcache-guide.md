@@ -296,6 +296,14 @@ The origin serves a **dynamic, authenticated** page (`/account`, `/settings`, `/
 The lure can be any low-interaction vector (a link, an <img>/<iframe> to the URL, an email). What leaks: names, emails, addresses, **CSRF tokens**, **API keys in the page**, **session surrogates**, **password-reset links** — often enough for **ATO**.
 > **If this → then that:** requesting `/private-page/x.css` **with your session** returns your private data AND it comes back on a **second request without the session** → **Web Cache Deception confirmed** → rate by what's in the body (CSRF token/PII = High; session/reset token/API key = **Critical/ATO**).
 
+## 12.1 Real-world deception — the cases that defined it
+
+**Web Cache Deception (Omer Gil, Black Hat USA 2017 — the origin of the class).** The technique was born on **PayPal**: a logged-in user who visited `https://www.paypal.com/myaccount/home/ex.css` was served their **own account page** — the server ignored the `/ex.css` suffix and routed back to `/myaccount/home` — and the CDN, seeing a `.css` extension, **cached that authenticated HTML**. Anyone who then requested the same URL read the victim's cached account page (name, email, transaction data). One decorative suffix turned a private page into a public one. This is still the mental model to hold: **origin ignores the suffix → cache stores by the suffix.**
+
+**"Web Cache Deception Escalates!" (Mirheidari, Golinelli, Onarlioglu, Kirda, Kruegel — USENIX Security 2022).** A large-scale study (≈340 high-traffic sites) proved the attack is far broader than the naive `/page.css` trick: it is fundamentally about **URL-parsing discrepancies** between origin and cache. They showed that **path parameters** (`;`), **encoded delimiters** (`%3f %23 %2f %00 %0a`), and **path-normalization** differences reach sensitive endpoints the naive suffix cannot — and that many sites "protected" against classic WCD were still exploitable through a delimiter the **origin truncates but the cache keys**. WCD stays a **regularly-paid bounty finding** on portals, banking, and SaaS because that origin↔cache parsing mismatch is easy to reintroduce.
+
+> **Takeaway:** don't stop at `/account.css`. When the naive suffix is blocked (a Content-Type check or Cloudflare's Cache Deception Armor), the **delimiter matrix in §13 is what still lands** — that expansion *is* the 2022 research.
+
 ---
 
 # 13. The delimiter / path-confusion matrix (origin vs cache parsing)
@@ -315,6 +323,25 @@ Segment tricks:      /account/%2e%2e/account.css   ; /static/..%2f account (dir-
 Dot/normalize:       /account/.css   /account/./x.css
 ```
 For each: does the origin still return **your private content**, and does the response become a **cache HIT** on a second (session-less) request? A "yes/yes" is a confirmed deception primitive.
+
+**Read every row as origin-parsing × cache-keying — that product *is* the bug:**
+
+| Delimiter class | What the ORIGIN does (→ returns private page) | What the CACHE does (→ stores it) | Example |
+|---|---|---|---|
+| **Static suffix** `.css`/`.js`/… | routes `/account/x.css` back to `/account` (extra segment ignored) | extension is on the cacheable-static list | `/account/x.css` |
+| **Path parameter** `;` | Tomcat/Spring/Java treat `;matrix` params as *not* part of the path → serve `/account` | keeps the whole string, sees `.css` at the end | `/account;x.css` |
+| **Encoded `?`** `%3f` | URL-decodes, truncates the "query" → `/account` | does **not** decode; keys the literal `…%3f.css` | `/account%3f.css` |
+| **Encoded `#`** `%23` | decodes to a fragment, drops the rest → `/account` | keys the literal string incl. `.css` | `/account%23.css` |
+| **Encoded `/`** `%2f` | normalizes `%2f`→`/` *after* routing → `/account` | keys `%2f` literally | `/account%2f.css` |
+| **Newline / null** `%0a` `%00` | truncates the path at the control char → `/account` | keys the full literal | `/account%0a.css` |
+| **Directory rule** | dynamic page routed "under" a static dir via `..%2f` | trusts `/static/*` `/assets/*` as always-cacheable | `/static/..%2faccount` |
+
+**CDN tendencies — fingerprint first (arsenal §0), then verify per row (don't assume):**
+- **Cloudflare** caches by a **static file-extension list**; **Cache Deception Armor** (when enabled) refuses to cache if the response `Content-Type` doesn't match the extension → the naive `.css` is blocked, but a delimiter that makes the origin emit a static `Content-Type`, or an encoded form Armor doesn't normalize, can still land.
+- **Akamai / CloudFront** commonly cache on **extension + path pattern** → the path-parameter (`;`) and encoded-delimiter rows are the usual winners.
+- **Varnish / Fastly** are **VCL-defined** — behavior is whatever the operator wrote; test every row.
+- There is **no universal answer**: the exploitable row is the one where *this* origin still returns your private body **and** *this* cache flips it to a session-less HIT.
+
 > **If this → then that:** `/account` is `no-store` but `/account%3f.css` (origin drops everything after the decoded `?`, cache keys the `.css`) returns your private page **and** caches it → deception via **delimiter discrepancy** → try every row above; the one that both **preserves private content** *and* **flips to a cache HIT** is your exploit.
 
 ---
@@ -333,6 +360,24 @@ No-cache header ignored:  some CDNs cache a "static-looking" URL EVEN IF the ori
 ```
 > **If this → then that:** `.css` doesn't cache but `.js` does (different CDN rule) → switch suffix. The origin sets `no-store` but the URL still caches → that's the **CDN's static rule overriding origin intent** — the exact misconfig behind most real-world deception; report it as such with the remediation (cache only by `Content-Type`, honor `Cache-Control`, enable "Cache Deception Armor").
 
+## 14.1 Finding deception-prone endpoints (discovery)
+
+You need an endpoint that (a) returns **private, per-user data** in the body, (b) is served **200** on a **loosely-routed path** (extra segment/suffix ignored), and (c) sits behind a cache that stores by URL shape. Hunt for:
+- **Authenticated GET pages that render PII/tokens:** `/account`, `/profile`, `/settings`, `/billing`, `/orders`, `/messages`, `/api/me`, `/api/v*/user`, `/dashboard`, and **password-reset landing pages** (they carry the reset token in the page).
+- **Loose routing:** append `/x.css` (then each §13 delimiter) and check the page **still returns your data with 200** — not a 404 or a redirect to login. That "ignores the suffix" behavior is the precondition; without it there's no deception.
+- **Cacheability tells:** the crafted URL comes back with a HIT tell (`Age` rising, `CF-Cache-Status: HIT`, `X-Cache: HIT`) on a second request — *even though* the base `/account` is `no-store`. Loop the matrix with `poc/deception_probe.py`.
+
+## 14.2 Defenses — and why deception still happens
+
+| Control | What it does | Why it can still fail |
+|---|---|---|
+| **Cache by `Content-Type`, not URL suffix** | store only true `text/css`/`image/*` responses | an origin that emits `text/html` for `/account.css` is safe — until a delimiter makes it emit a static Content-Type |
+| **Honor `Cache-Control: no-store/private`** | the origin's intent wins | the classic root cause is the **CDN static rule overriding the origin** — audit that the CDN actually obeys it |
+| **Cloudflare Cache Deception Armor** | refuses to cache when extension ≠ Content-Type | encoded-delimiter / path-parameter rows Armor doesn't normalize can bypass it — test them |
+| **Never cache authenticated responses** (`Vary: Cookie`, only cache `Set-Cookie`-free) | user-specific pages never enter a shared cache | one endpoint that drops the cookie requirement re-exposes it |
+
+> The recurring root cause: **the cache's "this looks static" heuristic overrides the origin's "this is private" intent.** Report deception as *that* misconfiguration, and recommend: cache by Content-Type, honor `Cache-Control`, enable Deception Armor, and serve authenticated pages `no-store, private`.
+
 ---
 
 # 15. Confirm & steal the victim's authenticated response (two-account model)
@@ -349,6 +394,18 @@ Prove it safely and unambiguously with **your own** two identities:
 ```
 `poc/deception_probe.py` automates the two-request (with-session / without-session) confirmation against a marker you supply.
 > **If this → then that:** Session B sees Session A's marker → you have **cross-user data theft from the cache**. If the body contains a **reusable auth artifact** (bearer/CSRF/reset token) → escalate to **ATO** and lead the report with that.
+
+## 15.1 From leak to takeover — what each cached artifact buys you
+
+| What's in the cached body | Escalation | Ceiling |
+|---|---|---|
+| **Session token / JWT / bearer** (in a `<script>`, JSON, or header) | replay it as the victim | **ATO (Critical)** |
+| **Password-reset link/token** (on a reset landing page) | complete the reset → own the account | **ATO (Critical)** |
+| **CSRF token** | pair with a CSRF PoC → state-changing action **as the victim** (email/password change) | **High → ATO** |
+| **API key / signed URL** in the page | call the API / fetch the object as the victim | **High/Critical** |
+| **PII** (name, email, address, balance, KYC) | cross-user disclosure; each seeded key = another victim | **High** |
+
+Widen the blast radius honestly: one deception primitive on a high-traffic authenticated route means **every lured victim (or whoever's page the cache already stored) leaks** — state that population in the report, but **prove it with your own two accounts only** (§20).
 
 ---
 

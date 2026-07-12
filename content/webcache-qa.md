@@ -205,7 +205,7 @@ Key everything that changes the response (or don't reflect request-controlled da
 ## E. Deception exploitation (61–78)
 
 **61. Describe the classic deception attack.**
-Lure a logged-in victim to `https://target/account/nonexistent.css`; the origin serves their `/account` page (ignoring the suffix), the CDN caches it (sees `.css`), and the attacker then fetches that URL to read the victim's cached private page.
+Lure a logged-in victim to `https://target/account/nonexistent.css`; the origin serves their `/account` page (ignoring the suffix), the CDN caches it (sees `.css`), and the attacker then fetches that URL to read the victim's cached private page. This is exactly the attack **Omer Gil** debuted on **PayPal** at Black Hat USA 2017 (`/myaccount/home/ex.css` → cached authenticated account page), which coined the term "Web Cache Deception."
 
 **62. Why does the origin serve the private page for `/account/x.css`?**
 Path-normalization/routing: the origin maps `/account/anything` (or truncates at a delimiter) back to `/account`, still authenticated via the victim's cookie.
