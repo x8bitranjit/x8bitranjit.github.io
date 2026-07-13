@@ -189,6 +189,24 @@ const DOCS = {
   'depconfusion/checklist':{ doc:'content/depconfusion-checklist.md', title:'Dependency Confusion — Testing Checklist',   chips:['Web','Per-dependency'] },
   'depconfusion/poc':      { doc:'content/depconfusion-poc.md',       title:'Dependency Confusion — PoC Scripts',         chips:['Web','Runnable scripts'] },
   'depconfusion/qa':       { doc:'content/depconfusion-qa.md',        title:'Dependency Confusion — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'openredir/guide':    { doc:'content/openredir-guide.md',     title:'Open Redirect — Testing Guide',       chips:['Web','High: OAuth token theft / DOM-XSS'] },
+  'openredir/arsenal':  { doc:'content/openredir-arsenal.md',   title:'Open Redirect — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'openredir/checklist':{ doc:'content/openredir-checklist.md', title:'Open Redirect — Testing Checklist',   chips:['Web','Per-endpoint'] },
+  'openredir/poc':      { doc:'content/openredir-poc.md',       title:'Open Redirect — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'openredir/qa':       { doc:'content/openredir-qa.md',        title:'Open Redirect — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'subtakeover/guide':    { doc:'content/subtakeover-guide.md',     title:'Subdomain Takeover — Testing Guide',       chips:['Web','Critical: DNS/mail control / ATO'] },
+  'subtakeover/arsenal':  { doc:'content/subtakeover-arsenal.md',   title:'Subdomain Takeover — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'subtakeover/checklist':{ doc:'content/subtakeover-checklist.md', title:'Subdomain Takeover — Testing Checklist',   chips:['Web','Per-subdomain'] },
+  'subtakeover/poc':      { doc:'content/subtakeover-poc.md',       title:'Subdomain Takeover — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'subtakeover/qa':       { doc:'content/subtakeover-qa.md',        title:'Subdomain Takeover — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
+
+  'pathtraversal/guide':    { doc:'content/pathtraversal-guide.md',     title:'Path / Directory Traversal — Testing Guide',       chips:['Web','Critical: file-write RCE / secret read'] },
+  'pathtraversal/arsenal':  { doc:'content/pathtraversal-arsenal.md',   title:'Path / Directory Traversal — Attack Arsenal',      chips:['Web','Copy-paste'] },
+  'pathtraversal/checklist':{ doc:'content/pathtraversal-checklist.md', title:'Path / Directory Traversal — Testing Checklist',   chips:['Web','Per-sink'] },
+  'pathtraversal/poc':      { doc:'content/pathtraversal-poc.md',       title:'Path / Directory Traversal — PoC Scripts',         chips:['Web','Runnable scripts'] },
+  'pathtraversal/qa':       { doc:'content/pathtraversal-qa.md',        title:'Path / Directory Traversal — Zero to Expert (Q&A)',chips:['Web','Study · 100+ Q'] },
 };
 
 /* Per-script code pages: click a script on a PoC index → its own page showing the source.
@@ -347,6 +365,21 @@ registerCode('depconfusion','depconfusion-poc','Dependency Confusion',[
   ['claimable_check','claimable_check.py','python'],
   ['benign_callback_pkg','benign_callback_pkg.py','python'],
 ]);
+registerCode('openredir','openredir-poc','Open Redirect',[
+  ['redirect_payloads','redirect_payloads.py','python'],
+  ['openredir_fuzz','openredir_fuzz.py','python'],
+  ['token_catcher','token_catcher.py','python'],
+]);
+registerCode('subtakeover','subtakeover-poc','Subdomain Takeover',[
+  ['fingerprints','fingerprints.py','python'],
+  ['subtakeover_scan','subtakeover_scan.py','python'],
+  ['claim_proof','claim_proof.py','python'],
+]);
+registerCode('pathtraversal','pathtraversal-poc','Path / Directory Traversal',[
+  ['pt_read_fuzz','pt_read_fuzz.py','python'],
+  ['zipslip_build','zipslip_build.py','python'],
+  ['write_probe','write_probe.py','python'],
+]);
 
 const RECON_PAGES = [
   { label:'Web Recon Guide',      route:'recon/guide' },
@@ -436,6 +469,9 @@ const WEBCACHE_PAGES     = kitPages('webcache');
 const JNDI_PAGES         = kitPages('jndi');
 const ATO_PAGES          = kitPages('ato');
 const DEPCONFUSION_PAGES = kitPages('depconfusion');
+const OPENREDIR_PAGES    = kitPages('openredir');
+const SUBTAKEOVER_PAGES  = kitPages('subtakeover');
+const PATHTRAVERSAL_PAGES = kitPages('pathtraversal');
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
@@ -458,6 +494,8 @@ const NAV = [
     { label:'LFI', kit:true, pages:LFI_PAGES },
     { label:'NoSQL Injection', kit:true, pages:NOSQLI_PAGES },
     { label:'OAuth / SSO / SAML', kit:true, pages:OAUTH_PAGES },
+    { label:'Open Redirect', kit:true, pages:OPENREDIR_PAGES },
+    { label:'Path / Directory Traversal', kit:true, pages:PATHTRAVERSAL_PAGES },
     { label:'Prototype Pollution', kit:true, pages:PROTOTYPE_PAGES },
     { label:'Race Condition', kit:true, pages:RACECONDITION_PAGES },
     { label:'Request Smuggling', kit:true, pages:SMUGGLING_PAGES },
@@ -465,6 +503,7 @@ const NAV = [
     { label:'SQL Injection', kit:true, pages:SQLI_PAGES },
     { label:'SSRF', kit:true, pages:SSRF_PAGES },
     { label:'SSTI', kit:true, pages:SSTI_PAGES },
+    { label:'Subdomain Takeover', kit:true, pages:SUBTAKEOVER_PAGES },
     { label:'Web Cache Poisoning & Deception', kit:true, pages:WEBCACHE_PAGES },
     { label:'WebSocket', kit:true, pages:WEBSOCKET_PAGES },
     { label:'XPath Injection', kit:true, pages:XPATH_PAGES },
@@ -484,6 +523,9 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'Path / Directory Traversal', route:'pathtraversal/guide', date:'Jul 2026' },
+  { label:'Subdomain Takeover',      route:'subtakeover/guide',  date:'Jul 2026' },
+  { label:'Open Redirect',           route:'openredir/guide',    date:'Jul 2026' },
   { label:'Dependency Confusion',    route:'depconfusion/guide', date:'Jul 2026' },
   { label:'Account Takeover',        route:'ato/guide',          date:'Jul 2026' },
   { label:'JNDI / Log4Shell',        route:'jndi/guide',         date:'Jul 2026' },
