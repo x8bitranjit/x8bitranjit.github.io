@@ -5,6 +5,7 @@ const DOCS = {
   'about':        { doc:'content/about.md',        title:'About',                    chips:[] },
 
   'owasp-web/ref':    { doc:'content/owasp-web-top10.md',    title:'OWASP Top 10 (2021) — Web — In-Depth Reference & Kit Map', chips:['OWASP','Umbrella · kit map'] },
+  'owasp-api/ref':    { doc:'content/owasp-api-top10.md',    title:'OWASP API Security Top 10 (2023) — In-Depth Reference & Kit Map', chips:['OWASP','API · kit map'] },
   'owasp-mobile/ref': { doc:'content/owasp-mobile-top10.md', title:'OWASP Mobile Top 10 (2024) — In-Depth Reference',          chips:['OWASP','Mobile reference'] },
   'owasp-llm/ref':    { doc:'content/owasp-llm-top10.md',    title:'OWASP Top 10 for LLM Applications (2025) — In-Depth Reference', chips:['OWASP','AI / LLM reference'] },
 
@@ -481,6 +482,7 @@ const NAV = [
   { kind:'home', route:'about', label:'About' },
   { kind:'section', label:'OWASP Top 10', open:false, items:[
     { label:'Web — Top 10 (2021)', route:'owasp-web/ref' },
+    { label:'API — Security Top 10 (2023)', route:'owasp-api/ref' },
     { label:'Mobile — Top 10 (2024)', route:'owasp-mobile/ref' },
     { label:'LLM Apps — Top 10 (2025)', route:'owasp-llm/ref' },
   ]},
@@ -533,6 +535,7 @@ const NAV = [
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
   { label:'OWASP LLM Top 10 (2025)',  route:'owasp-llm/ref',      date:'Jul 2026' },
+  { label:'OWASP API Top 10 (2023)',  route:'owasp-api/ref',      date:'Jul 2026' },
   { label:'OWASP Mobile Top 10 (2024)',route:'owasp-mobile/ref',  date:'Jul 2026' },
   { label:'OWASP Web Top 10 (2021)',  route:'owasp-web/ref',      date:'Jul 2026' },
   { label:'Path / Directory Traversal', route:'pathtraversal/guide', date:'Jul 2026' },
