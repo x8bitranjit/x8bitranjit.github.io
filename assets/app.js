@@ -480,7 +480,7 @@ const PATHTRAVERSAL_PAGES = kitPages('pathtraversal');
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
-  { kind:'section', label:'OWASP Top 10', open:false, items:[
+  { kind:'section', label:'OWASP Top 10', open:true, items:[
     { label:'Web — Top 10 (2021)', route:'owasp-web/ref' },
     { label:'API — Security Top 10 (2023)', route:'owasp-api/ref' },
     { label:'Mobile — Top 10 (2024)', route:'owasp-mobile/ref' },
