@@ -4,6 +4,10 @@
 const DOCS = {
   'about':        { doc:'content/about.md',        title:'About',                    chips:[] },
 
+  'owasp-web/ref':    { doc:'content/owasp-web-top10.md',    title:'OWASP Top 10 (2021) — Web — In-Depth Reference & Kit Map', chips:['OWASP','Umbrella · kit map'] },
+  'owasp-mobile/ref': { doc:'content/owasp-mobile-top10.md', title:'OWASP Mobile Top 10 (2024) — In-Depth Reference',          chips:['OWASP','Mobile reference'] },
+  'owasp-llm/ref':    { doc:'content/owasp-llm-top10.md',    title:'OWASP Top 10 for LLM Applications (2025) — In-Depth Reference', chips:['OWASP','AI / LLM reference'] },
+
   'recon/guide':    { doc:'content/recon-guide.md',     title:'Recon — Web Recon Guide',    chips:['Web','Attack surface'] },
   'recon/arsenal':  { doc:'content/recon-arsenal.md',   title:'Recon — Arsenal',            chips:['Web','Copy-paste'] },
   'recon/checklist':{ doc:'content/recon-checklist.md', title:'Recon — Checklist',          chips:['Web','Per-target'] },
@@ -475,6 +479,11 @@ const PATHTRAVERSAL_PAGES = kitPages('pathtraversal');
 
 const NAV = [
   { kind:'home', route:'about', label:'About' },
+  { kind:'section', label:'OWASP Top 10', open:false, items:[
+    { label:'Web — Top 10 (2021)', route:'owasp-web/ref' },
+    { label:'Mobile — Top 10 (2024)', route:'owasp-mobile/ref' },
+    { label:'LLM Apps — Top 10 (2025)', route:'owasp-llm/ref' },
+  ]},
   { kind:'section', label:'Web', open:true, items:[
     { label:'Recon', kit:true, pages:RECON_PAGES },   // pinned to the top of Web
     { label:'Account Takeover', kit:true, pages:ATO_PAGES },
@@ -523,6 +532,9 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'OWASP LLM Top 10 (2025)',  route:'owasp-llm/ref',      date:'Jul 2026' },
+  { label:'OWASP Mobile Top 10 (2024)',route:'owasp-mobile/ref',  date:'Jul 2026' },
+  { label:'OWASP Web Top 10 (2021)',  route:'owasp-web/ref',      date:'Jul 2026' },
   { label:'Path / Directory Traversal', route:'pathtraversal/guide', date:'Jul 2026' },
   { label:'Subdomain Takeover',      route:'subtakeover/guide',  date:'Jul 2026' },
   { label:'Open Redirect',           route:'openredir/guide',    date:'Jul 2026' },
