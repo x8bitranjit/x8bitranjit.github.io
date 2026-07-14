@@ -5,9 +5,13 @@ const DOCS = {
   'about':        { doc:'content/about.md',        title:'About',                    chips:[] },
 
   'owasp-web/ref':    { doc:'content/owasp-web-top10.md',    title:'OWASP Top 10 (2021) — Web — In-Depth Reference & Kit Map', chips:['OWASP','Umbrella · kit map'] },
+  'owasp-web/qa':     { doc:'content/owasp-web-qa.md',       title:'OWASP Top 10 (2021) — Web — Zero to Expert (Q&A)', chips:['OWASP','Study · Interview · 120 Q'] },
   'owasp-api/ref':    { doc:'content/owasp-api-top10.md',    title:'OWASP API Security Top 10 (2023) — In-Depth Reference & Kit Map', chips:['OWASP','API · kit map'] },
+  'owasp-api/qa':     { doc:'content/owasp-api-qa.md',       title:'OWASP API Security Top 10 (2023) — Zero to Expert (Q&A)', chips:['OWASP','Study · Interview · 104 Q'] },
   'owasp-mobile/ref': { doc:'content/owasp-mobile-top10.md', title:'OWASP Mobile Top 10 (2024) — In-Depth Reference',          chips:['OWASP','Mobile reference'] },
+  'owasp-mobile/qa':  { doc:'content/owasp-mobile-qa.md',    title:'OWASP Mobile Top 10 (2024) — Zero to Expert (Q&A)', chips:['OWASP','Study · Interview · 101 Q'] },
   'owasp-llm/ref':    { doc:'content/owasp-llm-top10.md',    title:'OWASP Top 10 for LLM Applications (2025) — In-Depth Reference', chips:['OWASP','AI / LLM reference'] },
+  'owasp-llm/qa':     { doc:'content/owasp-llm-qa.md',       title:'OWASP Top 10 for LLM Applications (2025) — Zero to Expert (Q&A)', chips:['OWASP','Study · Interview · 102 Q'] },
 
   'recon/guide':    { doc:'content/recon-guide.md',     title:'Recon — Web Recon Guide',    chips:['Web','Attack surface'] },
   'recon/arsenal':  { doc:'content/recon-arsenal.md',   title:'Recon — Arsenal',            chips:['Web','Copy-paste'] },
@@ -481,10 +485,22 @@ const PATHTRAVERSAL_PAGES = kitPages('pathtraversal');
 const NAV = [
   { kind:'home', route:'about', label:'About' },
   { kind:'section', label:'OWASP Top 10', open:true, items:[
-    { label:'Web — Top 10 (2021)', route:'owasp-web/ref' },
-    { label:'API — Security Top 10 (2023)', route:'owasp-api/ref' },
-    { label:'Mobile — Top 10 (2024)', route:'owasp-mobile/ref' },
-    { label:'LLM Apps — Top 10 (2025)', route:'owasp-llm/ref' },
+    { label:'Web — Top 10 (2021)', kit:true, pages:[
+      { label:'Reference & Kit Map', route:'owasp-web/ref' },
+      { label:'Zero to Expert (Q&A)', route:'owasp-web/qa' },
+    ]},
+    { label:'API — Security Top 10 (2023)', kit:true, pages:[
+      { label:'Reference & Kit Map', route:'owasp-api/ref' },
+      { label:'Zero to Expert (Q&A)', route:'owasp-api/qa' },
+    ]},
+    { label:'Mobile — Top 10 (2024)', kit:true, pages:[
+      { label:'Reference', route:'owasp-mobile/ref' },
+      { label:'Zero to Expert (Q&A)', route:'owasp-mobile/qa' },
+    ]},
+    { label:'LLM Apps — Top 10 (2025)', kit:true, pages:[
+      { label:'Reference', route:'owasp-llm/ref' },
+      { label:'Zero to Expert (Q&A)', route:'owasp-llm/qa' },
+    ]},
   ]},
   { kind:'section', label:'Web', open:true, items:[
     { label:'Recon', kit:true, pages:RECON_PAGES },   // pinned to the top of Web
@@ -534,6 +550,8 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'OWASP Q&A — Web/API/Mobile/LLM', route:'owasp-web/qa', date:'Jul 2026' },
+  { label:'OWASP LLM Top 10 — Q&A',   route:'owasp-llm/qa',       date:'Jul 2026' },
   { label:'OWASP LLM Top 10 (2025)',  route:'owasp-llm/ref',      date:'Jul 2026' },
   { label:'OWASP API Top 10 (2023)',  route:'owasp-api/ref',      date:'Jul 2026' },
   { label:'OWASP Mobile Top 10 (2024)',route:'owasp-mobile/ref',  date:'Jul 2026' },
