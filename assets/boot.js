@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  var K = 'x8_v';
+  var K = 'x8_v2';
   var H = '7b6bda4bd020350b0cfbc0cebddaf255e4e39a4c9a219dc0a4ad6576513cacea';
 
   try { if (sessionStorage.getItem(K) === '1') return; } catch (e) {}
