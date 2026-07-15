@@ -4,8 +4,10 @@
 const DOCS = {
   'about':        { doc:'content/about.md',        title:'About',                    chips:[] },
 
-  'owasp-web/ref':    { doc:'content/owasp-web-top10.md',    title:'OWASP Top 10 (2021) — Web — In-Depth Reference & Kit Map', chips:['OWASP','Umbrella · kit map'] },
-  'owasp-web/qa':     { doc:'content/owasp-web-qa.md',       title:'OWASP Top 10 (2021) — Web — Zero to Expert (Q&A)', chips:['OWASP','Study · Interview · 120 Q'] },
+  'owasp-web-2025/ref': { doc:'content/owasp-web-top10-2025.md', title:'OWASP Top 10:2025 — Web — In-Depth Reference & Kit Map', chips:['OWASP','2025 · kit map'] },
+  'owasp-web-2025/qa':  { doc:'content/owasp-web-qa-2025.md',    title:'OWASP Top 10:2025 — Web — Zero to Expert (Q&A)', chips:['OWASP','2025 · Interview · 114 Q'] },
+  'owasp-web/ref':    { doc:'content/owasp-web-top10.md',    title:'OWASP Top 10 (2021) — Web — In-Depth Reference & Kit Map', chips:['OWASP','2021 · kit map'] },
+  'owasp-web/qa':     { doc:'content/owasp-web-qa.md',       title:'OWASP Top 10 (2021) — Web — Zero to Expert (Q&A)', chips:['OWASP','2021 · Interview · 120 Q'] },
   'owasp-api/ref':    { doc:'content/owasp-api-top10.md',    title:'OWASP API Security Top 10 (2023) — In-Depth Reference & Kit Map', chips:['OWASP','API · kit map'] },
   'owasp-api/qa':     { doc:'content/owasp-api-qa.md',       title:'OWASP API Security Top 10 (2023) — Zero to Expert (Q&A)', chips:['OWASP','Study · Interview · 104 Q'] },
   'owasp-mobile/ref': { doc:'content/owasp-mobile-top10.md', title:'OWASP Mobile Top 10 (2024) — In-Depth Reference',          chips:['OWASP','Mobile reference'] },
@@ -485,6 +487,10 @@ const PATHTRAVERSAL_PAGES = kitPages('pathtraversal');
 const NAV = [
   { kind:'home', route:'about', label:'About' },
   { kind:'section', label:'OWASP Top 10', open:true, items:[
+    { label:'Web — Top 10 (2025)', kit:true, pages:[
+      { label:'Reference & Kit Map', route:'owasp-web-2025/ref' },
+      { label:'Zero to Expert (Q&A)', route:'owasp-web-2025/qa' },
+    ]},
     { label:'Web — Top 10 (2021)', kit:true, pages:[
       { label:'Reference & Kit Map', route:'owasp-web/ref' },
       { label:'Zero to Expert (Q&A)', route:'owasp-web/qa' },
@@ -550,6 +556,8 @@ const NAV = [
 /* ---- Recently Updated (Chirpy-style right panel) ---- */
 /* one entry per TOPIC (kit) — just the main name + date; links to the kit's guide */
 const RECENT = [
+  { label:'OWASP Web Top 10:2025 (new edition)', route:'owasp-web-2025/ref', date:'Jul 2026' },
+  { label:'OWASP Web Top 10:2025 — Q&A', route:'owasp-web-2025/qa', date:'Jul 2026' },
   { label:'OWASP Q&A — Web/API/Mobile/LLM', route:'owasp-web/qa', date:'Jul 2026' },
   { label:'OWASP LLM Top 10 — Q&A',   route:'owasp-llm/qa',       date:'Jul 2026' },
   { label:'OWASP LLM Top 10 (2025)',  route:'owasp-llm/ref',      date:'Jul 2026' },
