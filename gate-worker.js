@@ -1,19 +1,17 @@
-// Cloudflare Pages Function — edge access gate for the whole site.
-// Runs BEFORE any static file is served, so unauthenticated visitors never
-// receive index.html / app.js / content. Real security (unlike client-side JS):
-//   - the token is a Cloudflare secret (env.SITE_TOKEN), never in the repo
-//   - a valid login sets an HMAC-signed, HttpOnly, Secure cookie
-//   - fail-closed: if the secrets aren't configured, nobody gets in
+// Cloudflare Worker — edge access gate for the static site (Workers Assets).
+// Runs BEFORE any file is served (wrangler assets.run_worker_first = true), so an
+// unauthenticated visitor never receives index.html / app.js / content — real
+// security, unlike the old client-side boot.js gate.
 //
-// Required environment variables (set in Cloudflare Pages → Settings → Env vars, as "Secret"):
+// Required Worker environment variables (Settings -> Variables and Secrets, as "Secret"):
 //   SITE_TOKEN      the access token you hand out (what people type to enter)
 //   SESSION_SECRET  a DIFFERENT long random string; signs the session cookie
 //
-// Rotate the token      → change SITE_TOKEN     (old token stops working)
-// Log everyone out now   → change SESSION_SECRET (all cookies become invalid)
+// Rotate the token      -> change SITE_TOKEN     (old token stops working)
+// Log everyone out now   -> change SESSION_SECRET (all cookies become invalid)
 
 const COOKIE = "x8session";
-const MAX_AGE = 60 * 60 * 24 * 7; // session lifetime: 7 days
+const MAX_AGE = 60 * 60 * 24 * 7; // 7 days
 
 async function hmac(key, data) {
   const k = await crypto.subtle.importKey(
@@ -24,8 +22,7 @@ async function hmac(key, data) {
   return btoa(String.fromCharCode(...new Uint8Array(sig)));
 }
 
-// constant-time string compare (avoids timing leaks)
-function safeEqual(a, b) {
+function safeEqual(a, b) { // constant-time compare
   if (typeof a !== "string" || typeof b !== "string" || a.length !== b.length) return false;
   let out = 0;
   for (let i = 0; i < a.length; i++) out |= a.charCodeAt(i) ^ b.charCodeAt(i);
@@ -42,7 +39,7 @@ async function validSession(secret, val) {
   const dot = val.lastIndexOf(".");
   if (dot < 1) return false;
   const exp = val.slice(0, dot), sig = val.slice(dot + 1);
-  if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false; // expired / malformed
+  if (!/^\d+$/.test(exp) || Number(exp) < Date.now()) return false;
   return safeEqual(sig, await hmac(secret, exp));
 }
 
@@ -52,12 +49,10 @@ function getCookie(request, name) {
   return m ? decodeURIComponent(m[1]) : null;
 }
 
-// Self-contained login page, themed to match the site (dark navy + gold).
-// No external assets, so it works even though the real site is still gated.
 function loginPage(msg) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="referrer" content="no-referrer"><title>x8bitranjit · Access</title>
+<meta name="referrer" content="no-referrer"><title>x8bitranjit &middot; Access</title>
 <style>
 :root{--bg:#0c1426;--panel:#12203c;--edge:#1a2949;--gold:#cdab46;--gold2:#e3c463;--link:#8ab4f8;--text:#dfe3ec}
 *{box-sizing:border-box}
@@ -80,7 +75,7 @@ button:hover{filter:brightness(1.06)}
   <input id="t" name="token" type="password" autofocus autocomplete="off" spellcheck="false">
   <p class="err">${msg || ""}</p>
   <button type="submit">Enter</button>
-  <p class="foot">x8bitranjit · security knowledge base</p>
+  <p class="foot">x8bitranjit &middot; security knowledge base</p>
 </form></body></html>`;
 }
 
@@ -97,41 +92,46 @@ function htmlResponse(body, status) {
   });
 }
 
-export async function onRequest(context) {
-  const { request, env, next } = context;
-  const url = new URL(request.url);
+export default {
+  async fetch(request, env) {
+    const url = new URL(request.url);
 
-  // Fail-closed: if the gate isn't configured, let NO ONE in.
-  if (!env.SITE_TOKEN || !env.SESSION_SECRET) {
-    return htmlResponse(loginPage("Access gate not configured yet."), 503);
+    // Fail-closed: no secrets configured -> nobody gets in.
+    if (!env.SITE_TOKEN || !env.SESSION_SECRET) {
+      return htmlResponse(loginPage("Access gate not configured yet."), 503);
+    }
+
+    // Don't serve the gate's own source files.
+    if (url.pathname === "/gate-worker.js" || url.pathname === "/wrangler.jsonc") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    // 1) Token submission
+    if (url.pathname === "/__auth" && request.method === "POST") {
+      let token = "";
+      try { token = (await request.formData()).get("token") || ""; } catch (_) {}
+      const ok = safeEqual(
+        await hmac(env.SESSION_SECRET, token),
+        await hmac(env.SESSION_SECRET, env.SITE_TOKEN)
+      );
+      if (!ok) return htmlResponse(loginPage("Wrong token — try again."), 401);
+      const session = await makeSession(env.SESSION_SECRET);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          "Location": "/",
+          "Cache-Control": "no-store",
+          "Set-Cookie": `${COOKIE}=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`
+        }
+      });
+    }
+
+    // 2) Valid session -> serve the real (identical) static site
+    if (await validSession(env.SESSION_SECRET, getCookie(request, COOKIE))) {
+      return env.ASSETS.fetch(request);
+    }
+
+    // 3) Everything else -> the gate. No site bytes leak to the unauthenticated.
+    return htmlResponse(loginPage(""), 401);
   }
-
-  // 1) Token submission
-  if (url.pathname === "/__auth" && request.method === "POST") {
-    let token = "";
-    try { token = (await request.formData()).get("token") || ""; } catch (_) {}
-    // compare HMACs of both sides → constant-time, never touches the raw secret
-    const ok = safeEqual(
-      await hmac(env.SESSION_SECRET, token),
-      await hmac(env.SESSION_SECRET, env.SITE_TOKEN)
-    );
-    if (!ok) return htmlResponse(loginPage("Wrong token — try again."), 401);
-    const session = await makeSession(env.SESSION_SECRET);
-    return new Response(null, {
-      status: 302,
-      headers: {
-        "Location": "/",
-        "Cache-Control": "no-store",
-        "Set-Cookie": `${COOKIE}=${encodeURIComponent(session)}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${MAX_AGE}`
-      }
-    });
-  }
-
-  // 2) Valid session → serve the real (identical) site
-  if (await validSession(env.SESSION_SECRET, getCookie(request, COOKIE))) {
-    return next();
-  }
-
-  // 3) Everything else → the gate. No site bytes leak to the unauthenticated.
-  return htmlResponse(loginPage(""), 401);
-}
+};
