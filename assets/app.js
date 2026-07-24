@@ -819,9 +819,24 @@ function enhanceChecklist(root){
   ['All severities','Critical','High','Medium','Low','Info'].forEach(o=>{
     const op=document.createElement('option'); op.value = o==='All severities'?'':o.toLowerCase(); op.textContent=o; sev.appendChild(op);
   });
+  const dl = document.createElement('button');
+  dl.type='button'; dl.className='cl-dl'; dl.textContent='↓ CSV'; dl.title='Download this checklist as CSV (respects the current filter)';
   const count = el('span','cl-count');
-  bar.appendChild(search); if(sevIdx>=0) bar.appendChild(sev); bar.appendChild(count);
+  bar.appendChild(search); if(sevIdx>=0) bar.appendChild(sev); bar.appendChild(dl); bar.appendChild(count);
   scroll.parentNode.insertBefore(bar, scroll);
+  // ---- CSV export (built from the on-screen, cleaned table; visible rows only) ----
+  const cellText = node => { const c=node.cloneNode(true); c.querySelectorAll('br').forEach(br=>br.replaceWith('\n')); return c.textContent.replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').trim(); };
+  const csvCell  = s => /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
+  dl.addEventListener('click', ()=>{
+    const head = ths.map(t=>csvCell(cellText(t))).join(',');
+    const lines = rows.filter(tr=>tr.style.display!=='none').map(tr=>Array.from(tr.cells).map(td=>csvCell(cellText(td))).join(','));
+    const csv = '﻿' + [head, ...lines].join('\r\n');   // BOM so Excel reads UTF-8
+    const url = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+    const name = (document.title.split(' ·')[0]||'checklist').replace(/[^\w.-]+/g,'_').replace(/^_+|_+$/g,'') || 'checklist';
+    const a = document.createElement('a'); a.href=url; a.download=name+'.csv';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url), 1500);
+  });
   function apply(){
     const q = search.value.trim().toLowerCase(), s = sev.value;
     let shown=0;
