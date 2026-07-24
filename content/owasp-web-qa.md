@@ -38,6 +38,8 @@
 # §0 — THE FRAMEWORK ITSELF
 
 ### Q1. What is the OWASP Top 10, and what is it *not*?
+> *Plain version:* it's a "most common ways web apps get hacked" list, grouped into **10 big buckets** — not 10 exact bugs. Don't tick it like a checklist: each bucket is a whole *family*, and you test every member of it.
+
 An **awareness document** ranking the ten most critical web-application security **risk categories**, refreshed ~every 3–4 years (current stable: **2021**). It is **not** a standard, not a checklist, and not a list of individual vulnerabilities — each entry is a broad *category* that many concrete vuln-classes fall under. Treating it as "ten bugs to check" is the #1 beginner mistake; it's ten *families*, and you test every member.
 
 ### Q2. How is the 2021 list ranked, and why does that matter?
@@ -57,6 +59,8 @@ A01 Broken Access Control · A02 Cryptographic Failures · A03 Injection · A04 
 **XSS** merged into **A03 Injection** (client-side injection). **XXE** merged into **A05 Security Misconfiguration** (a parser-config problem). Both are still real bugs with their own deep kits here (`XSS/`, `XXE/`) — they just lost standalone Top-10 slots.
 
 ### Q6. Risk category vs vulnerability class vs CWE vs CVE?
+> *Plain version:* four zoom levels. **Category** = the OWASP bucket ("Injection"). **Class** = a specific kind of bug ("SQL injection"). **CWE** = an ID for that *type* of weakness ("CWE-89"). **CVE** = one *actual* hole found in one real product ("CVE-2021-44228" = Log4Shell). Real product-instance → weakness-type → family bucket.
+
 **Risk category** (A03 Injection) = the OWASP bucket. **Vulnerability class** (SQL injection) = a concrete bug kind. **CWE** (CWE-89) = the weakness *type* ID. **CVE** (CVE-2021-44228) = a specific *instance* in a specific product. A CVE is an instance of a CWE; the CWE falls under an OWASP category.
 
 ### Q7. How do you use the Top 10 as a *method*, not memorization?
@@ -88,6 +92,8 @@ Yes — OWASP maintains **API Security (2023)**, **Mobile (2024)**, **LLM Applic
 **Core**
 
 ### Q13. What is Broken Access Control and what are its sub-types?
+> *Plain version:* "logged in" is not the same as "allowed to touch *this*." Broken access control = the app checks the first and forgets the second, so you reach other people's data (horizontal) or admin-only features (vertical). It's #1 because it's everywhere and pays big.
+
 Users acting outside intended permissions. Sub-types: **IDOR/BOLA** (object-level), **missing function-level authz / BFLA**, **vertical** (user→admin) and **horizontal** (user→other user) escalation, **forced browsing**, **metadata/JWT/cookie** manipulation for authz, **CORS-enabled** cross-origin read, **path-based** bypass. → kits: `IDOR/`, `JWT/`, `CORS/`, `PathTraversal/`, `LFI/`.
 
 ### Q14. IDOR vs BOLA — same thing?
@@ -191,6 +197,8 @@ CWE-259/261 (hardcoded/weak-protected password), CWE-319 (cleartext transmission
 **Core**
 
 ### Q38. What is injection, and what unifies the class?
+> *Plain version:* your input sneaks out of the "data" lane and into the "commands" lane, so an engine downstream (database, shell, template, browser) runs it. The cure is always the same idea: keep code and data in separate lanes so input can never change the *structure* of what runs.
+
 Untrusted input is interpreted as **code/command/query** by a downstream interpreter because data and control share one string. The unifying fix is **separation of code and data** (parameterization / safe APIs / context-aware encoding) so input can never change *structure*.
 
 ### Q39. Which concrete classes live under A03 and which kits own them?
@@ -262,6 +270,8 @@ A **WAF** is a bypassable edge filter matching known patterns — it doesn't fix
 **Core**
 
 ### Q57. What is Insecure Design in one line?
+> *Plain version:* the difference between "built it wrong" (a coding bug) and "built the wrong thing" (a design flaw). If there's simply no rate limit *by design* on password reset, no amount of input-cleaning fixes it — the plan itself has to change. That's A04.
+
 A **missing or ineffective security control at the design level** — the flaw is in *what was designed*, not a coding mistake, so it can't be patched with input handling; it needs a design change (threat modeling, secure patterns, abuse-case testing). New in 2021.
 
 ### Q58. The canonical example distinguishing A04 from an implementation bug?
@@ -426,6 +436,8 @@ CWE-287 (improper authentication), CWE-384 (session fixation), CWE-307 (improper
 Code/infrastructure failing to protect against **integrity violations** — trusting unverified sources/plugins/data, auto-updates without integrity checks, **insecure deserialization** (folded in), **CI/CD** compromise. Introduced to capture the rise of **software supply-chain** + deserialization risk under one integrity theme.
 
 ### Q93. Why is insecure deserialization the headline?
+> *Plain version:* "deserializing" = rebuilding a live object out of saved bytes. If those bytes come from an attacker, the rebuild step can be steered into running their code (a "gadget chain"). That's why it's the RCE headline of this bucket — the app runs code it never meant to.
+
 Deserializing attacker-controlled data can instantiate arbitrary objects and trigger **gadget chains → RCE**. It's an integrity failure — the app trusts a serialized blob it can't verify. Per-language: Java `ObjectInputStream` (ysoserial), PHP `unserialize`/phar (PHPGGC), .NET `BinaryFormatter`/ViewState (ysoserial.net), Python `pickle`, Ruby `Marshal`, Node `node-serialize`. → `Deserialization/`.
 
 **How to test**
@@ -490,6 +502,8 @@ Log security-relevant events (auth, authz, input failures, high-value actions) w
 **Core**
 
 ### Q105. What is SSRF and why its own 2021 slot?
+> *Plain version:* you hand the server a URL and it goes and fetches it *for you*. Since the server lives inside the trusted network, it can reach internal-only spots — most famously the cloud "metadata" address that spits out the server's master keys. You're borrowing the server's trusted position.
+
 The server is induced to make **requests to attacker-chosen destinations** (fetches a URL/host/resource server-side). It earned a slot (community survey) because modern cloud/microservice apps constantly fetch URLs, and the **cloud-metadata** angle made it a reliable Critical.
 
 ### Q106. Why is SSRF the "cloud-era Critical"?

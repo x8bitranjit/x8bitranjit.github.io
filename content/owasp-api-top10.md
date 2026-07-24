@@ -18,6 +18,8 @@
 >
 > **Where the money is (memorize):** ① **API1 BOLA → other users' objects → mass data breach — Critical** → ② **API5 BFLA → admin functions as low-priv → privesc/takeover — Critical** → ③ **API3 BOPLA → mass-assignment privesc / excessive-data over-read — High–Critical** → ④ **API2 broken auth → ATO** → ⑤ **API7 SSRF → cloud metadata → RCE/cloud takeover — Critical** → ⑥ **API6 business-flow abuse — High (context)** → ⑦ **API4 resource consumption → DoS/denial-of-wallet + brute enabler** → ⑧ **API8 misconfig / API9 inventory / API10 unsafe-consumption — High→context.**
 
+> 🔰 **In plain words — what the "API Top 10" is, and why it's a separate list from the Web one:** an **API** is the *machine door* to an app — no web page, no buttons, just direct requests that return data or perform actions (it's what a phone app or a site's JavaScript talks to behind the scenes). This is OWASP's list of the *ten most common ways APIs get abused*. It's separate from the Web Top 10 because APIs bleed differently: they hand you the object IDs and the admin endpoints **directly**, so the #1 problem is always the same — the server forgets to check *"is this actually yours / are you even allowed to call this?"* Same rule as ever: this page tells you *what to worry about*; the kits tell you *what to type*.
+
 ---
 
 ## Table of Contents
@@ -66,6 +68,8 @@
 
 **What it is.** The API exposes object identifiers (in the path, query, body, or headers) and fails to verify that the **authenticated caller is authorized for that specific object**. Change the ID → access someone else's object. This is the API-native name for **IDOR**, and it is the **#1 most common and impactful API vulnerability** — APIs hand out object references directly, so a missing per-object check is immediately exploitable.
 
+> *In plain words:* BOLA = **IDOR for APIs**. The API lets you name an object by its ID (`/orders/123`) and forgets to check that order is *yours* — so change 123 to 124 and read a stranger's order. It's #1 because APIs hand out IDs directly and this ownership check is the single most commonly-missing thing.
+
 **Why it pays / impact.** **Mass data breach** and **cross-tenant access**: iterate `/api/users/{id}`, `/orders/{id}`, `/accounts/{id}/statements` → read/modify every user's data; horizontal (other users) and cross-tenant (other customers). Often trivially automatable → bulk PII/financial exfiltration. Consistently the top source of Critical API findings and real-world breaches.
 
 **How to test (+ the kit that owns it).**
@@ -92,6 +96,8 @@
 
 **What it is.** Weaknesses in **confirming the caller's identity** — the API's authentication mechanisms (login, tokens, API keys, session, credential recovery) are implemented incorrectly, letting attackers assume other identities. Includes weak/leaked API keys, JWT flaws, credential stuffing exposure (no rate limit/lockout), weak password/reset flows, and token mismanagement.
 
+> *In plain words:* the "who are you?" check is broken — guessable API keys, forgeable tokens, unlimited login tries, hijackable reset flows. It's the front gate: get past it and you're whoever you want to be. (Same idea as the Web auth bucket, just reached over an API.)
+
 **Why it pays / impact.** **Account takeover** and **impersonation** at the identity layer: forge/steal a token → act as any user; brute/stuff credentials with no rate limit → mass ATO; weak reset → hijack; a leaked long-lived API key → full backend access. The entry gate — break it and everything behind it is yours.
 
 **How to test (+ the kit that owns it).**
@@ -117,6 +123,8 @@
 # API3:2023 — Broken Object Property Level Authorization (BOPLA)
 
 **What it is.** The API fails to authorize access at the **property (field) level** — a merge of the old "Excessive Data Exposure" and "Mass Assignment." Two directions: **over-reading** (the response returns object properties the caller shouldn't see — the API dumps the whole object and expects the client to filter) and **over-writing** (the caller can *set* properties they shouldn't — mass-assign `role`/`isAdmin`/`balance`/`verified` by adding them to the request body).
+
+> *In plain words:* the API checks *which object* you can touch, but not *which fields*. Two flavours: it **hands back** fields you shouldn't see (a password hash the app hides only on-screen), or it **lets you set** fields you shouldn't — add `"isAdmin":true` to the save request and become an admin. "Mass assignment" = the app blindly saves whatever fields you send it.
 
 **Why it pays / impact.** **Privilege escalation** (mass-assign `isAdmin:true`, `role:admin`, `account_type:premium` → become admin / unlock paid features), **price/limit tampering** (set `price:0`, `discount:100`), **state forgery** (`verified:true`, `approved:true`), and **sensitive-data disclosure** (the response leaks internal fields — password hashes, other users' PII, internal flags, tokens — because the API returns the full object). High-to-Critical, and easy to miss because the request/response look normal.
 
@@ -146,6 +154,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 
 **What it is.** The API serves requests **without limiting the resources they consume** — no rate limits, no request-size/response-size caps, no query-complexity limits, no quotas/spend caps — so a client can drive excessive CPU/memory/bandwidth/storage/third-party-cost. Formerly "Lack of Resources & Rate Limiting."
 
+> *In plain words:* the API never says "that's enough." No cap on how fast, how big, or how expensive your requests are — so you can knock it over (DoS), run up its cloud bill (denial-of-wallet), or — the sneaky one — brute-force passwords/OTPs because nothing stops you trying a million times.
+
 **Why it pays / impact.** **DoS** (resource exhaustion downs the service), **denial-of-wallet** (each request costs money — third-party API calls, SMS/email sends, compute — unbounded = unbounded bill), and — the frequently-overlooked security impact — **rate-limiting absence is the enabler for API1/API2 attacks** (BOLA enumeration, credential stuffing, OTP/token brute-force all require volume). Also **amplification** (small request → huge work: pagination `limit=99999999`, deep GraphQL nesting, expensive filters/exports).
 
 **How to test (+ the kit that owns it).**
@@ -173,6 +183,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 
 **What it is.** The API fails to enforce authorization on **functions/operations** — a user can invoke endpoints or actions **above their privilege level** (admin functions, other roles' operations) or use **HTTP methods** they shouldn't. Where BOLA is "whose *object*," BFLA is "which *function*." Includes reaching admin/privileged endpoints as a normal user and **verb/method tampering**.
 
+> *In plain words:* BOLA was "whose *object*"; BFLA is "which *function*." A normal user calls an **admin-only** endpoint (`/admin/promote`) and the server just does it, because it never checked your rank. There's no hidden button stopping you — you call the endpoint directly.
+
 **Why it pays / impact.** **Privilege escalation** and **admin takeover**: call `/api/admin/*`, `/api/users/{id}/promote`, `/api/internal/*` as a low-priv (or unauthenticated) user → create admins, delete data, change roles, access management functions → full application compromise. There's no UI hiding the endpoint — if the server doesn't check role, you're in.
 
 **How to test (+ the kit that owns it).**
@@ -199,6 +211,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 
 **What it is.** The API exposes a **sensitive business flow** (purchase, booking, reservation, comment/review, referral, voting, ticket-buy, withdrawal) **without compensating for automated/excessive use** — the individual requests are all "valid," but the *flow* can be abused at scale in a way that harms the business. New in 2023; the "business logic at scale" category. The flaw is a *missing anti-automation/design* control, not a broken request.
 
+> *In plain words:* every single request is legit — the abuse is doing it **a million times with bots**. Buy every concert ticket to scalp them, farm a referral bonus with 10,000 fake accounts, stack coupons. Nothing is "hacked"; the flow just has no brakes against automation.
+
 **Why it pays / impact.** **Business/financial harm** from automated abuse: **scalping/hoarding** (bots buy all limited stock — tickets, sneakers, GPUs → resale), **inventory/DoS-of-business** (reserve everything, never pay), **referral/coupon/loyalty abuse** (mass-create accounts to farm rewards), **review/vote manipulation**, **spam**, **gift-card/credit draining**. Not a "hack" in the injection sense — it's the intended flow, weaponized by automation. Impact is real money; severity is context-driven.
 
 **How to test (+ the kit that owns it).**
@@ -223,6 +237,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 # API7:2023 — Server-Side Request Forgery (SSRF)
 
 **What it is.** The API **fetches a remote resource from a client-supplied URI without validating it**, so the server can be induced to send requests to attacker-chosen destinations. APIs are especially SSRF-prone because modern features constantly fetch URLs: webhooks, "import from URL," URL previews, file/image fetch-by-URL, SSO/OIDC metadata & JWKS URLs, PDF/screenshot generators, and third-party integrations.
+
+> *In plain words:* you give the API a URL and it fetches it *for you* from inside the network — so you reach internal-only spots like the cloud metadata address that hands out master keys. APIs are especially prone because they're forever fetching URLs (webhooks, "import from URL", link previews).
 
 **Why it pays / impact.** The **cloud-era Critical**: SSRF → **cloud metadata** (`169.254.169.254`) → IAM credentials → **cloud account takeover / RCE**; SSRF → **internal services** (admin panels, Redis, Elasticsearch, databases, other internal APIs) → RCE/lateral movement; internal **port scan** / info disclosure; **blind SSRF** → OOB confirmation → chain. APIs' webhook/URL-fetch features make this one of the highest-value modern API bugs.
 
@@ -250,6 +266,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 # API8:2023 — Security Misconfiguration
 
 **What it is.** Insecure or default configuration anywhere in the API stack — servers, gateways, frameworks, cloud — including missing security hardening, unnecessary features/HTTP methods enabled, **permissive CORS**, missing/misapplied security headers, verbose error messages leaking stack traces/internals, unpatched systems, missing TLS, and improper handling of untrusted input at the transport/parsing layer (content-type/HPP confusion).
+
+> *In plain words:* the API works, it was just **set up** sloppily — a too-generous CORS rule that lets any website read your data, error pages spilling stack traces, dangerous HTTP methods left on, no TLS. The bug isn't in the code; it's in the settings.
 
 **Why it pays / impact.** Ranges from info-leak to full compromise: **verbose errors** → stack traces/secrets/internal paths; **permissive CORS** (reflected origin + credentials) → cross-origin theft of authenticated API data; **missing headers** → clickjacking/MIME/enabler bugs; enabled dangerous methods (TRACE/PUT) → tampering; **content-type confusion / HTTP Parameter Pollution** → filter/parser bypass; unpatched components → known-CVE exploitation; no TLS → interception.
 
@@ -279,6 +297,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 
 **What it is.** The organization lacks an accurate, current inventory of its **API endpoints and versions**, and of the **data flows** to third parties — so **shadow APIs** (undocumented/forgotten), **deprecated/legacy versions** (`/v1` still live and unpatched), **debug/test/staging** endpoints, and **exposed non-production hosts** persist unmonitored. Formerly "Improper Assets Management." The un-inventoried endpoint is the un-patched, un-monitored one.
 
+> *In plain words:* the company lost track of its own doors. An old `/v1` API is still live and still has the bug that `/v2` fixed; a forgotten staging server holds real data. This bucket rarely *is* the bug — it's where you *find* everyone else's bugs, on the endpoint nobody remembers exists.
+
 **Why it pays / impact.** **The old/shadow endpoint has the bug the new one fixed.** A deprecated `/v1` that skips a later authz fix; a debug endpoint with no auth; a staging host with prod data and weak controls; an undocumented internal API reachable externally. Improper inventory doesn't cause a class of exploit by itself — it **exposes every other category on forgotten surface** (BOLA/BFLA/auth bugs that were "fixed" only on `/v2`). Reconnaissance turns this into the entry point.
 
 **How to test (+ the kit that owns it).**
@@ -305,6 +325,8 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 # API10:2023 — Unsafe Consumption of APIs
 
 **What it is.** The application **trusts data received from other APIs** (third-party/partner/upstream services it *consumes*) more than user input, and applies weaker security to those integrations — following redirects blindly, not validating/sanitizing upstream responses, no timeouts, processing upstream data unsafely. The risk flips the usual direction: the danger comes from the **services you call**, not just the clients that call you.
+
+> *In plain words:* the usual danger is the *users* talking to your API. This flips it: your API also **calls other** APIs (payment, KYC, a partner) and trusts their answers blindly. If one of those upstreams is malicious or hijacked, its poisoned response walks straight into your app. Treat data from services you *call* as untrusted too.
 
 **Why it pays / impact.** A **compromised or malicious upstream/third-party API** (or a MITM/redirect into one) feeds your app data that it processes unsafely → **injection** (upstream response → SQLi/XSS/deserialization in your app), **SSRF/redirect chaining** (blindly following an upstream redirect to an internal target), **data poisoning**, or **secondary compromise** propagated from the partner. This is the API-integration face of supply-chain risk — your security is only as strong as the services you trust.
 

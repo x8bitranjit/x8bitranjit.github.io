@@ -38,12 +38,16 @@
 # §0 — THE FRAMEWORK & WHAT CHANGED 2021→2025
 
 ### Q1. What is the OWASP Top 10:2025 and what is it *not*?
+> *Plain version:* it's a "most common ways web apps get hacked" list, grouped into **10 buckets** — not 10 exact bugs. This is the newest (8th) edition. Don't tick it like a checklist: each bucket is a whole *family*, and you test every member.
+
 The **8th installment** of OWASP's awareness document ranking the ten most critical web-application security **risk categories**. It is **not** a standard, not a checklist, not a list of individual bugs — each entry is a broad *category* several concrete vuln-classes fall under. Treating it as "ten bugs" is the beginner mistake; it's ten *families*, and you test every member.
 
 ### Q2. Name the 2025 Top 10 in order.
 A01 Broken Access Control · A02 Security Misconfiguration · A03 Software Supply Chain Failures · A04 Cryptographic Failures · A05 Injection · A06 Insecure Design · A07 Authentication Failures · A08 Software or Data Integrity Failures · A09 Security Logging & Alerting Failures · A10 Mishandling of Exceptional Conditions.
 
 ### Q3. What changed from 2021 → 2025? (the #1 interview question right now)
+> *Plain version:* three things to remember. **SSRF stopped being its own item** and joined A01; a **new "Supply Chain" bucket (A03)** appeared for bad/borrowed code; and a **new "Exceptional Conditions" bucket (A10)** appeared for how apps behave when they crash. Everything else just shuffled rank.
+
 - **SSRF (2021 A10) merged into A01 Broken Access Control** — SSRF is an access-control violation; it's no longer standalone.
 - **A03 Software Supply Chain Failures is NEW** — it *expands* 2021's A06 "Vulnerable and Outdated Components" into the whole supply chain (deps, CI/CD, malicious packages, vendor compromise). It was **#1 in the community survey** and had the **highest incidence (5.72%)**.
 - **A10 Mishandling of Exceptional Conditions is NEW** — error/exception handling, fail-open, transaction rollback (24 CWEs).
@@ -52,6 +56,8 @@ A01 Broken Access Control · A02 Security Misconfiguration · A03 Software Suppl
 - Repositioned down: A04 Crypto (#2→#4), A05 Injection (#3→#5), A06 Insecure Design (#4→#6). **A01 stays #1.**
 
 ### Q4. Where did SSRF go, and why does that placement make sense?
+> *Plain version:* SSRF is "make the server fetch something it shouldn't." That's really just *reaching something you're not allowed to* — the same idea behind all the other access-control bugs — so OWASP filed it under A01 instead of giving it its own slot. The attack itself didn't change.
+
 Into **A01 Broken Access Control**. It makes sense because SSRF is fundamentally the *server accessing a resource it shouldn't* on the attacker's behalf — an access-control failure at the server-fetch boundary. So in 2025 you test SSRF as part of A01, though the technique (and this repo's `SSRF/` kit) is unchanged.
 
 ### Q5. What happened to 2021's "Vulnerable and Outdated Components"?
@@ -193,6 +199,8 @@ CWE-16 (configuration), CWE-2, **CWE-611** (XXE), CWE-548 (directory listing), C
 **Core**
 
 ### Q38. What is A03 (new in 2025) and what does it cover?
+> *Plain version:* you didn't build most of your app — you assembled other people's libraries, tools and update pipelines. This new bucket is about that borrowed stuff going bad: an old library with a public hole, or an outright **malicious** package you installed by mistake. It's new, it's #3, and it's the cheapest way in.
+
 Vulnerabilities *or malicious changes* in **third-party code, tools, and dependencies** — across building, distributing, and updating software. Covers unpatched/unmaintained deps, **malicious packages** (typosquatting, **dependency confusion**), compromised vendors, weak **CI/CD** security, and inadequate change management. It **expands** 2021's "Vulnerable and Outdated Components."
 
 ### Q39. Why is A03 ranked so high (new, at #3)?
@@ -278,6 +286,8 @@ CWE-259/261, CWE-319 (cleartext transmission), CWE-321 (hardcoded key), CWE-326/
 **Core**
 
 ### Q57. What is injection, and what unifies the class?
+> *Plain version:* your input sneaks out of the "data" lane into the "commands" lane, and something downstream runs it. The one cure: keep code and data in separate lanes so input can't change the *structure* of what runs. (Same bucket as always — it just moved from #3 to #5.)
+
 Untrusted input interpreted as **code/command/query** by a downstream interpreter because data and control share one string. The unifying fix is **separation of code and data** (parameterization / safe APIs / context-aware encoding). Was **A03 in 2021, dropped to #5** in 2025 — still **holds XSS**.
 
 ### Q58. Which concrete classes live under A05 and which kits own them?
@@ -477,6 +487,8 @@ Log security-relevant events with context + integrity; centralize + monitor + **
 **Core**
 
 ### Q100. What is A10 (new in 2025)?
+> *Plain version:* this new bucket asks a simple question — when something **goes wrong** (bad input, a crash, a half-finished payment), does the app stay safe? Unsafe apps "fail open" (an error accidentally lets you in), leak internal details in the error page, or leave transactions half-done. You test it by *breaking* things on purpose.
+
 Failing to **prevent, detect, and respond to unusual/unpredictable situations** — improper error/exception handling, missing input/environment safeguards, poor recovery, and **fail-open** behavior (defaulting to *allow* on error) instead of **fail-closed**. Also: transactions that don't roll back on error, and errors that leak internal detail. 24 CWEs.
 
 ### Q101. What's the security-relevant core of A10?
@@ -500,6 +512,8 @@ Failing to **prevent, detect, and respond to unusual/unpredictable situations** 
 **Interview**
 
 ### Q105. "What does 'fail closed vs fail open' mean, with a security example?"
+> *Plain version:* "fail closed" = when in doubt, say **no** (an auth check that errors → deny). "Fail open" = when in doubt, say **yes** (an auth check that errors → *let everyone in*). Security must fail closed. The classic bug: a permission check wrapped in try/catch that returns "allowed" in the catch block, so any crash grants access.
+
 **Fail closed** = on error/uncertainty, default to *deny/safe* (e.g. an authz service that times out → deny access). **Fail open** = default to *allow* (→ timeout means everyone gets in). Security controls must fail **closed**. A classic bug: a licensing/authz check wrapped in a try/catch that returns `true` in the catch block → any exception grants access.
 
 ### Q106. "Why did OWASP add 'Mishandling of Exceptional Conditions' in 2025?"

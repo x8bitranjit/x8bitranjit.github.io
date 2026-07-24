@@ -39,6 +39,8 @@
 # §0 — THE FRAMEWORK ITSELF
 
 ### Q1. What is the OWASP API Security Top 10 and why does it exist separately from the Web Top 10?
+> *Plain version:* the same idea as the Web Top 10, but for **APIs** (the machine doors that apps talk to). It gets its own list because APIs hand out object IDs and admin endpoints directly — so the bugs are mostly "the server forgot to check you're allowed this," not the page-tricking bugs on the web list.
+
 A dedicated **awareness list** for **API-specific** risk (current: **2023**, superseding 2019). It exists separately because APIs fail differently from web pages: they expose **object IDs and privileged functions directly** (no UI to hide behind), so **authorization** — object, function, and property level — dominates the list in a way the Web Top 10 doesn't capture.
 
 ### Q2. Name the API Top 10 (2023) in order.
@@ -55,6 +57,8 @@ API1 Broken Object Level Authorization (BOLA) · API2 Broken Authentication · A
 **Authorization is the whole game.** Three of the top five are authorization failures at different granularities: **API1** (object), **API5** (function), **API3** (property). APIs hand you the IDs and endpoints directly, so the only thing protecting data is a server-side check that's frequently missing.
 
 ### Q5. BOLA vs BFLA vs BOPLA — the three-way distinction (asked constantly).
+> *Plain version:* three flavours of the same failure — "you weren't checked." **BOLA** = wrong *object* (read someone else's order). **BFLA** = wrong *function* (call an admin-only action). **BOPLA** = wrong *field* (read or set a field you shouldn't, like `isAdmin`). Object → Function → Property. Learn these three and you understand half the list.
+
 - **BOLA (API1)** — *whose object*: swap an object ID → read/modify another user's object.
 - **BFLA (API5)** — *which function*: call a privileged/admin function or method you shouldn't.
 - **BOPLA (API3)** — *which property*: read fields you shouldn't (over-read) or set fields you shouldn't (mass assignment).
@@ -64,6 +68,8 @@ Object → Function → Property. Nail this and you've nailed 60% of the list.
 Because it's the most **common and impactful** API bug: APIs expose object references everywhere (path/query/body/headers), enumeration is trivial, and a single missing per-object check leaks *all* users' data. It's the API twin of the web's #1 (Broken Access Control).
 
 ### Q7. What is the master testing technique for the API Top 10?
+> *Plain version:* make **two of your own accounts** (A and B), do something as A, then repeat the exact request using B's login aimed at A's stuff. If it works, the server isn't checking ownership — that's the bug. This one trick finds the highest-paying API bugs, and Burp's "Autorize" does it for you automatically.
+
 The **two-account differential**: authenticate as user A and user B; perform each action as A, capture the request, replay it with B's token against A's objects — anything that succeeds is a BOLA/BFLA/BOPLA. Automate with Burp **Autorize** (compares low-priv vs high-priv responses per request).
 
 ### Q8. Why don't scanners find most API bugs?
@@ -183,6 +189,8 @@ See Q31; plus secure recovery flows (host-independent reset links, strong tokens
 **Core**
 
 ### Q34. What is BOPLA and what two 2019 items did it merge?
+> *Plain version:* the API checks *which object* you can touch but not *which fields* of it — so it either **shows** you fields it shouldn't (a password hash) or **lets you set** fields it shouldn't (`"isAdmin":true`). Two old 2019 bugs ("too much data out" + "too much data in") rolled into one.
+
 Failure to authorize at the **property (field) level** — merging 2019's **Excessive Data Exposure** (over-**read**: the response returns fields the caller shouldn't see) and **Mass Assignment** (over-**write**: the caller can *set* fields they shouldn't). Same root: no per-property authorization.
 
 ### Q35. Give the two directions with concrete examples.
@@ -225,6 +233,8 @@ Explicit **writable-property allow-list** per role/endpoint (over-write) *and* e
 **Core**
 
 ### Q43. What is API4?
+> *Plain version:* the API never says "that's enough." No limit on how fast, how big, or how expensive your requests are — so you can crash it, run up its cloud bill, or brute-force passwords because nothing stops you trying forever.
+
 Serving requests **without limiting resource use** — no rate limits, no request/response-size caps, no query-complexity limits, no quotas/spend caps — so a client can drive excessive CPU/memory/bandwidth/storage/third-party-cost. Formerly "Lack of Resources & Rate Limiting."
 
 ### Q44. What are the three impact flavors?
@@ -304,6 +314,8 @@ Deny by default; enforce **function/role authorization server-side on every endp
 **Core**
 
 ### Q60. What is API6 (new in 2023)?
+> *Plain version:* every request is legit — the abuse is doing it **at bot-scale**. Buy all the concert tickets to scalp them, farm a signup bonus with thousands of fake accounts. Nothing's "hacked"; the flow just has no brakes against automation.
+
 Exposing a **sensitive business flow** (purchase, booking, comment/review, referral, vote, ticket-buy, withdrawal) **without compensating for automated/excessive use**. Individual requests are all valid, but the *flow* can be abused at scale to harm the business. It's "business logic at scale" — a *missing anti-automation/design* control, not a broken request.
 
 ### Q61. How is API6 different from API4?
@@ -453,6 +465,8 @@ Maintain a live **API inventory** (all endpoints/versions/environments/owners) +
 **Core**
 
 ### Q91. What is API10 (new in 2023) and how does it flip the usual direction?
+> *Plain version:* it flips the usual worry. Normally you distrust the *users* calling your API. But your API also **calls other** APIs (payment, a partner) and trusts their replies blindly — so if one of those gets hijacked, its poison flows straight into you. Distrust the services you *call*, too.
+
 The app **trusts data from other APIs it consumes** (third-party/partner/upstream) more than user input, applying weaker security to those integrations — following redirects blindly, not validating upstream responses, no timeouts. The risk comes from **the services you call**, not just the clients that call you.
 
 ### Q92. What's the impact?

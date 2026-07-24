@@ -42,6 +42,8 @@
 # §0 — THE FRAMEWORK & LLM METHOD
 
 ### Q1. What is the OWASP Top 10 for LLM Applications and who's it for?
+> *Plain version:* it's the "top 10 ways AI-powered apps get hacked" list. "LLM" just means the AI text-generator behind chatbots, copilots and AI agents. If an app lets an AI read outside input or *do* things, this list is its threat map.
+
 An **awareness list** of the top risks in LLM-powered applications (chatbots, RAG, AI agents, copilots, tool/function-calling backends, MCP servers) — current edition **2025** (IDs `LLM01:2025`…`LLM10:2025`), superseding the 2023 v1.0/1.1. It's for anyone building or testing apps where a model consumes untrusted input or takes actions.
 
 ### Q2. Name the LLM Top 10 (2025) in order.
@@ -51,6 +53,8 @@ LLM01 Prompt Injection · LLM02 Sensitive Information Disclosure · LLM03 Supply
 2025 added dedicated categories reflecting real-world agentic/RAG deployments: **LLM07 System Prompt Leakage** (new — teams keep putting secrets in prompts), **LLM08 Vector and Embedding Weaknesses** (new — RAG's storage layer), and **LLM10 Unbounded Consumption** (broadened from "Denial of Service" to include denial-of-wallet + model extraction). "Insecure Output Handling" → **LLM05 Improper Output Handling**; "Excessive Agency" stayed and grew in importance with agents.
 
 ### Q4. What's the single most important LLM-security insight?
+> *Plain version:* the golden rule. Making the AI "ignore its rules" is only step one — by itself it's a party trick. The actual bug is **where that hijacked behavior lands**: a stolen secret, an action it performs, or output that becomes a normal web bug. Always chase the cash-out; never stop at "the AI misbehaved."
+
 **Injection ≠ impact.** "I made the model ignore its instructions" is a *condition*, not the finding. The bounty is where that redirected behavior **lands**: data exfiltration (LLM02/07), a tool/agent action (LLM06 → SSRF/RCE/transaction), output rendered unsafely (LLM05 → XSS/SQLi on the host app), or resource/cost abuse (LLM10). Report the cash-out, not "the AI misbehaved."
 
 ### Q5. Why is "the LLM is a confused deputy" the core mental model?
@@ -63,6 +67,8 @@ Because the model holds privileges (system prompt, tools, RAG data, API keys, fu
 At **LLM05 (Improper Output Handling)** and **LLM06 (Excessive Agency)** — that's where the Criticals live. LLM05: model output flows unsanitized into a browser (→ XSS), shell (→ cmdi), DB (→ SQLi), file path (→ traversal). LLM06: an agent tool fetches a URL (→ SSRF) or runs code (→ RCE). The LLM is the *injection vector*; the Web kit is the *sink*.
 
 ### Q8. Direct vs indirect prompt injection — the key distinction.
+> *Plain version:* **direct** = you type the trick into the chatbot yourself (you attack your own session). **Indirect** = you hide the trick inside something the AI will read later — a web page, a shared document, an email — so it goes off in *someone else's* session, with their access. Indirect is the dangerous one because it hits other people.
+
 **Direct**: the attacker types the payload into the chat/API (attacks their own session). **Indirect**: the payload hides in content the model **ingests** — a web page it browses, a RAG document, an email it summarizes, an image caption, a tool result. **Indirect is the high-value case** — it attacks *other users* and *the org*, executing with *their* privileges. It's the sleeper.
 
 ### Q9. Why does non-determinism change how you test and report?
@@ -242,6 +248,8 @@ See Q45; plus data provenance/versioning, integrity checks on the corpus, and se
 **Core**
 
 ### Q47. What is LLM05 and why is it the highest-frequency "real" LLM bug on web apps?
+> *Plain version:* the app takes what the AI says and shoves it somewhere dangerous without cleaning it — into the web page, a database query, a command line. Because you can steer what the AI says, you've turned the AI into a delivery pipe for ordinary web bugs (XSS, SQLi, command execution). This is the most common *real* AI bug on websites.
+
 The app passes model output to a downstream component **without validation/sanitization/encoding** — into a browser (HTML/JS), shell, SQL, HTTP client, file path, `eval`, or another system. Because model output is attacker-influenceable (via LLM01), this turns the LLM into an **injection vector for the classic Web sinks**. It's the most common concrete LLM vuln on web apps.
 
 ### Q48. Why is this "where LLM meets the Web Top 10"?
@@ -286,6 +294,8 @@ Treat model output as untrusted; context-aware validation/encoding at the sink; 
 **Core**
 
 ### Q57. What is Excessive Agency?
+> *Plain version:* the AI doesn't just chat — it has **tools** (send email, run code, move money, browse). Excessive agency = it has too many tools or too much freedom, so a prompt-injection trick gets those tools *fired* on the attacker's behalf, using the app's power. This is the top-severity AI bug.
+
 The LLM/agent is granted **too much functionality, too many permissions, or too much autonomy** — tools/plugins/functions it can call (send email, run code, make purchases, modify data, browse, file ops) — such that a prompt injection causes it to perform **damaging real-world actions** with the app's privileges.
 
 ### Q58. Why is LLM06 the Critical ceiling of LLM security?
@@ -365,6 +375,8 @@ No. Treat it as **recoverable** — it can be extracted via injection/obfuscatio
 **Core**
 
 ### Q74. What is LLM08 (new in 2025)?
+> *Plain version:* "RAG" apps keep documents in a search database (a *vector store*) so the AI can look things up. This category is the bugs in that store — mainly the lookup forgetting to check permissions, so one customer's question drags back **another customer's documents**. IDOR, but for the AI's library.
+
 Weaknesses in how **embeddings and vector databases** (RAG's storage/retrieval layer) are generated, stored, accessed, and retrieved. Covers **unauthorized vector-store access** (cross-user/tenant retrieval), **embedding inversion** (reconstructing source text from vectors), **retrieval poisoning**, and **context/data leakage** across tenants sharing an index.
 
 **How to test**
@@ -491,4 +503,6 @@ Name the **impact**, not the model behavior: "indirect prompt injection in the R
 Only insofar as the talk *does* something. On a bare chatbot with no tools, no sensitive context, and safe output rendering, direct injection may be Low/Info. It becomes a real vulnerability when the model has **tools** (LLM06), **secrets/other users' data** (LLM02/07/08), or **unsafe output handling** (LLM05) — i.e., when the redirected behavior reaches a sink, an action, or data. Always hunt the cash-out.
 
 ### Q102. The one meta-lesson of the LLM Top 10?
+> *Plain version:* the whole list in one line — the AI is a **confused deputy** that mixes a stranger's text with real power, so "I tricked the AI" is never the finding; follow its **output, actions, data, and cost** to where it becomes a real bug. And fix it *outside* the AI (hard rules in code), because you can't fully teach the AI to tell instructions from data.
+
 **The LLM is a confused deputy: it mixes untrusted input with real privileges, so injection ≠ impact — follow the output, the actions, the data, and the cost to the sink where it becomes a Critical.** Defend *outside* the model (deterministic output/action gating, least-privilege tools, per-user authz at retrieval, no secrets in prompts, treat output as untrusted), because prompt hardening alone can never fully separate instructions from data.

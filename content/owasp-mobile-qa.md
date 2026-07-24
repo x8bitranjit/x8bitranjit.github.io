@@ -39,6 +39,8 @@
 # §0 — THE FRAMEWORK & MOBILE METHOD
 
 ### Q1. What is the OWASP Mobile Top 10 and how does mobile testing differ from web?
+> *Plain version:* it's the "top 10 mobile-app weaknesses" list. The thing to burn into your brain: **the attacker holds the phone.** They can open your app up like a book, read its files, and rewire it as it runs — so nothing hidden *inside* the app is truly hidden.
+
 An **awareness list** of the top mobile-app risks (current: **2024**, superseding 2016). Mobile differs in one way that dominates everything: **the attacker often controls the client** — they own the device, decompile the app, hook it at runtime, and read its storage. So "it's only in the app" is never a defense; any shipped secret/logic is recoverable.
 
 ### Q2. Name the Mobile Top 10 (2024) in order.
@@ -48,6 +50,8 @@ M1 Improper Credential Usage · M2 Inadequate Supply Chain Security · M3 Insecu
 The 2024 list was **restructured** around a modern threat model. New/renamed entries include **M1 Improper Credential Usage**, **M2 Inadequate Supply Chain Security** (new — third-party SDKs/build), **M4 Insufficient Input/Output Validation**, and **M6 Inadequate Privacy Controls** (new emphasis). "Reverse Engineering" and "Extraneous Functionality" folded into **M7 Binary Protections** / **M8 Misconfiguration**. The spine shifted toward **credentials, supply chain, and privacy**.
 
 ### Q4. What's the single most important mobile-pentest insight?
+> *Plain version:* the single most useful mobile-hacking fact — **your biggest wins are usually on the server, not the phone.** The app is just a map: crack it open to learn the server's secret addresses and shortcuts, then attack the server (where the real data lives).
+
 **Most Critical mobile bugs are actually server-side, exposed by the client.** The app is a *map of the backend API* — decompile it to find hidden/privileged endpoints, auth flows, and parameters, then attack the **server** (BOLA/IDOR, auth bypass, injection). Half your best findings are server-side bugs the client revealed. → Web/API kits.
 
 ### Q5. What's the standard mobile testing method (the phases)?
@@ -154,6 +158,8 @@ Vet + inventory + **pin** all SDKs/libraries (SBOM); patch known CVEs; minimize 
 **Core**
 
 ### Q28. What is M3 and why is it frequently the Critical?
+> *Plain version:* the app decides "you're allowed" on the **phone** (which you control) instead of on the server. So you flip the switch, or just call the server directly, and the guard is gone. It's the mobile bug that most often becomes a Critical — and it's really a server bug.
+
 Weaknesses in how the app **authenticates users** and **authorizes actions** — client-side-only checks, weak session/token handling, authorization enforced in the app instead of the server, and **BOLA/IDOR on the backend the app fronts**. It's frequently Critical because the fixes (or the bugs) live **server-side**, where the real data is.
 
 ### Q29. Why is "client-side auth the server trusts" the classic mobile bug?
@@ -236,6 +242,8 @@ Validate/sanitize all untrusted input (network, IPC, deep links, files); encode 
 **Core**
 
 ### Q46. What is M5?
+> *Plain version:* the app's conversation with its server isn't properly sealed — no HTTPS, or an HTTPS lock that's easy to pop ("pinning" you can switch off with a tool). On the same Wi-Fi, an attacker reads your login token or edits the replies.
+
 Weak or missing protection of data in transit: no TLS, TLS misconfiguration, accepting invalid/self-signed certs, **no certificate pinning (or bypassable pinning)**, cleartext traffic, and sensitive data over insecure channels. A network-positioned attacker reads or modifies the traffic.
 
 ### Q47. What's the impact and why is pinning central?
@@ -350,6 +358,8 @@ CWE-656 (reliance on obscurity), CWE-693 (protection mechanism failure), CWE-919
 **Core**
 
 ### Q70. What is M8 on mobile?
+> *Plain version:* "misconfiguration" on a phone mostly means **doors left open to other apps.** An "exported" component is a door any other installed app can walk through — to poke your app's internals or read its private database — no hacking of the app itself required.
+
 Insecure default/explicit configuration of the app and platform: **exported components** (Activities/Services/Receivers/ContentProviders) that shouldn't be exported, **debuggable** builds, **backup enabled**, permissive `networkSecurityConfig`, weak file permissions, exposed deep links, misconfigured WebViews, and insecure platform settings.
 
 ### Q71. Why are exported components the headline of M8?
@@ -391,6 +401,8 @@ CWE-926 (improper export of components), CWE-749 (exposed dangerous method), CWE
 **Core**
 
 ### Q79. What is M9 and why is it the highest-frequency device-side High?
+> *Plain version:* the app writes something sensitive — usually your **login token** — to the phone in plain readable form. Someone with a backup, a lost phone, or a sneaky co-installed app grabs it, replays it at the server, and they're you. The most common serious *phone-side* bug.
+
 Sensitive data stored **insecurely on the device** — cleartext in `shared_prefs`/plists, unencrypted SQLite, files in world-readable/external storage, misused keychain/keystore, data in caches/logs/temp/backups. It's the highest-frequency device-side High because apps persist **session/refresh tokens or credentials** in readable places → **ATO** from a lost/shared/backed-up device or a co-located app.
 
 **How to test**
@@ -485,4 +497,6 @@ Reporting **decompiled strings / hardcoded values / outdated libs with no reacha
 Pull + decompile (jadx) → grep secrets (M1) + read the manifest for exported components/`debuggable`/`allowBackup` (M8); proxy traffic + bypass pinning (M5); **call the backend API directly** and run two-account BOLA/auth tests (M3 — the likely Critical); check `shared_prefs`/DB for stored tokens (M9). Prioritize M3 (server-side) and M9 (ATO) — that's where the impact is.
 
 ### Q101. The one meta-lesson of the Mobile Top 10?
+> *Plain version:* one sentence for the whole list — **the phone can't be trusted and can't keep secrets, so do the real security on the server and store nothing sensitive in plain sight.** And remember: the client is a map to the server, where your best bugs hide.
+
 **The attacker owns the client, so the client can't be trusted or keep secrets — enforce security server-side and store nothing sensitive in the clear.** Every device-side category is "assume it's recoverable"; the biggest wins are the **server-side bugs the client exposed** (M3/M4). Test the device *and* follow the client into the backend.

@@ -27,6 +27,8 @@
 >
 > **Where the money is (memorize):** ① **A05 Injection → RCE/ATO/mass-dump (SQLi/cmdi/SSTI kits) — Critical** → ② **A01 Broken Access Control → IDOR/BOLA/privesc + SSRF→cloud metadata → mass data/ATO/cloud takeover — Critical** → ③ **A03 Supply Chain → known-CVE / malicious-dep → RCE — Critical** → ④ **A08 Integrity → insecure deserialization → RCE — Critical** → ⑤ **A07 Auth failures → ATO** → ⑥ **A04 Crypto / A02 Misconfig → High** → ⑦ **A06 Design / A09 Logging / A10 Exceptional-conditions → context-dependent.**
 
+> 🔰 **In plain words — what the "OWASP Top 10" is, and what "2025" changes:** the Top 10 is the security world's list of the *ten most common ways web apps get broken into*, grouped into ten **buckets** — not ten specific bugs. This is the **2025** edition; the buckets got re-shuffled from 2021 but the actual attacks (and this repo's kits) are identical. The three headline moves: **SSRF joined A01** (it's really an access-control failure), a **new A03 "Software Supply Chain"** bucket, and a **new A10 "Exceptional Conditions"** bucket. The one rule never changes: the Top 10 tells you *what to worry about*; the kits tell you *what to type*.
+
 ---
 
 ## Table of Contents
@@ -70,6 +72,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Users can act outside their intended permissions — accessing other users' data (horizontal), gaining higher privileges (vertical), or reaching functions/objects they shouldn't. **#1 again in 2025**, and now *broader*: **SSRF was merged in** (the server being coerced to reach resources it shouldn't is an access-control failure). Includes **IDOR/BOLA**, **missing function-level authorization (BFLA)**, **privilege escalation**, **forced browsing**, metadata/JWT manipulation, CORS-enabled cross-origin access, path-based bypass, **and SSRF**.
 
+> *In plain words:* the app checks you're **logged in** but not that the thing you want is **yours** — so you reach other people's data or admin-only features. In 2025 this bucket got *bigger*: **SSRF moved in** (tricking the server into fetching internal URLs is just another way of reaching something you shouldn't). Still #1.
+
 **Why it pays / impact.** The most common source of **mass data breaches**, **account takeover**, and now **cloud takeover** (via the SSRF sub-class): change an ID → read/modify another user's data; reach an admin function → privilege escalation; SSRF → **cloud metadata → IAM creds → cloud account takeover**. Consistently the top Critical/High bucket.
 
 **How to test (+ concrete classes → kits).**
@@ -96,6 +100,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A02:2025 — Security Misconfiguration
 
 **What it is.** Insecure or default configuration anywhere in the stack — app, server, framework, cloud, container — plus **XXE** (still folded in here). **Rose from #5 (2021) to #2 (2025)** as stacks grew more complex. Includes default creds, verbose errors/debug enabled, unnecessary features/ports, missing security headers, permissive CORS, directory listing, exposed admin/management interfaces, misconfigured cloud storage.
+
+> *In plain words:* the software is fine, it was just **set up** carelessly — default password left on, debug mode on in production, a cloud bucket left open, an XML parser told to read any file. The lock is good; someone left it unlocked. It jumped to #2 because modern stacks have *so many* knobs to get wrong.
 
 **Why it pays / impact.** Info leak → full compromise: **XXE** → file read / SSRF / RCE; **default creds** → admin access; **debug/verbose errors** → source/secret leak; **open cloud storage / exposed admin panels** → data breach / takeover; **missing headers / permissive CORS** → XSS/data-theft enablers; **Host-header handling** → cache poisoning / routing.
 
@@ -124,6 +130,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** **NEW for 2025**, expanding 2021's A06 "Vulnerable and Outdated Components" into the **entire software supply chain**: vulnerabilities *or malicious changes* in third-party code, tools, or dependencies — across building, distributing, and updating software. Covers unpatched/outdated/unmaintained dependencies, **malicious packages** (typosquatting, **dependency confusion**), compromised vendors, weak **CI/CD** security, and inadequate change management. **#1 in the community survey (50%); highest incidence rate (5.72%).**
 
+> *In plain words:* you didn't write most of your app — you glued together other people's libraries, build tools and update pipelines. This bucket is about that borrowed code betraying you: a library with a public hole (Log4Shell), or an outright **malicious** package you pulled in by mistake (typosquatting, dependency confusion, a poisoned update). New for 2025 and straight to #3 — it's the cheapest, most reliable way in.
+
 **Why it pays / impact.** A known CVE in a component = a ready-made exploit (often **RCE**): Log4Shell, Struts, Spring4Shell, deserialization gadgets. Plus the *malicious* supply-chain surface: a claimed internal package name (**dependency confusion**) → install-hook RCE in CI/CD; a compromised dependency (SolarWinds, the 2025 **Shai-Hulud npm worm**) → mass compromise. n-day exploitation is cheap and reliable; supply-chain injection is high-blast-radius.
 
 **How to test (+ concrete classes → kits).**
@@ -151,6 +159,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Failures in (or absence of) cryptography that expose sensitive data (was A02 in 2021; **dropped to #4**). Cleartext transmission/storage, weak/deprecated algorithms, poor key management, weak password hashing, missing encryption, predictable tokens, improper certificate validation.
 
+> *In plain words:* sensitive data (passwords, tokens, card numbers) is left readable — sent in the clear, stored with a weak or ancient lock, or "protected" by a key anyone can dig up. Like mailing a postcard instead of sealing it in an armored envelope. (This was #2 in 2021; it slipped to #4.)
+
 **Why it pays / impact.** **Exposure of sensitive data** — credentials, session tokens, PII, financial/health data — via sniffed traffic, weak encryption, or cracked hashes → ATO, breach, regulatory exposure. Weak token/session crypto → forgery/hijack. Improper TLS → MITM.
 
 **How to test (+ concrete classes → kits).**
@@ -174,6 +184,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A05:2025 — Injection
 
 **What it is.** Untrusted input interpreted as **code/commands/queries** by a downstream interpreter (was A03 in 2021; **dropped to #5**, still **holds XSS**). SQLi, NoSQLi, OS command injection, SSTI, XPath/XQuery, LDAP, expression-language, CRLF/header injection, and **XSS** (client-side injection).
+
+> *In plain words:* you type a **command** into a box meant for plain data, and something downstream (database, shell, template, the victim's browser) runs it. Like writing "…and hand over the keys" on a form a clerk reads aloud to an obedient robot. Still the bucket where most *total-takeover* (RCE) bugs live — it just slid from #3 to #5.
 
 **Why it pays / impact.** The **RCE / mass-data ceiling**: SQLi → dump / auth bypass / file-write → webshell → RCE; command injection / SSTI → direct **RCE**; NoSQLi → auth bypass + blind exfil; XSS → session theft / ATO; LDAP/XPath → auth bypass + directory/XML dump. Consistently the top source of Critical findings.
 
@@ -203,6 +215,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Flaws in the **design and architecture** — missing or ineffective security controls by design (was A04 in 2021; **dropped to #6**). Missing business-logic controls, lack of threat modeling, insecure workflows, missing rate limiting by design, trust-boundary failures.
 
+> *In plain words:* nothing is coded wrong — the **plan** is unsafe. The app faithfully allows something it never should (skip payment, redeem one coupon a thousand times). You can't filter your way out of a bad blueprint; it needs a redesign. Scanners miss it because every request looks perfectly valid.
+
 **Why it pays / impact.** **Business-logic abuse** — bypass a purchase/refund/workflow, exploit a race condition, abuse a coupon/quota, skip a payment step, manipulate price — high-impact and *not* caught by scanners because the requests are "valid." A design flaw needs a re-think, not input validation.
 
 **How to test (+ concrete classes → kits).**
@@ -225,6 +239,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A07:2025 — Authentication Failures
 
 **What it is.** Weaknesses in confirming identity, authenticating, and managing sessions (**renamed** from 2021's "Identification and Authentication Failures" → **"Authentication Failures"**). Credential stuffing/brute exposure, weak/default passwords, weak MFA, session-management flaws (fixation, no invalidation, exposure), weak password-reset flows, identity-federation (OAuth/SSO/SAML) flaws.
+
+> *In plain words:* the "prove you are who you say you are" machinery is weak — guessable passwords, unlimited login/OTP tries, hijackable reset links, sessions that never expire. The whole bucket is about one thing: **becoming someone else** (account takeover). (Just renamed from the longer 2021 title.)
 
 **Why it pays / impact.** **Account takeover** — the whole category is impersonating a user. Weak reset → ATO; no rate limit → brute/OTP bypass; session fixation/no-invalidation → hijack; OAuth misconfig → token theft → ATO; credential stuffing → mass ATO.
 
@@ -251,6 +267,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Code/infrastructure that doesn't protect against **integrity violations** — unverified sources/plugins/data, auto-updates without integrity checks, **insecure deserialization**, and **CI/CD** compromise (unchanged from 2021 A08; now overlaps A03 Supply Chain on the CI/CD + dependency side).
 
+> *In plain words:* the app trusts data or code without checking nobody swapped it — most famously rebuilding a saved object from attacker-controlled bytes (**deserialization**), which can run their code. Like a flat-pack kit that builds *and runs* whatever the instruction card says. Overlaps the new A03 on the pipeline/dependency side.
+
 **Why it pays / impact.** **Insecure deserialization → RCE** (the headline — Java/PHP/.NET/Python/Ruby/Node gadget chains); unverified auto-update / plugin → malicious code execution; **CI/CD compromise** → supply-chain RCE; unsigned data trusted → tampering. Predominantly **Critical/RCE**.
 
 **How to test (+ concrete classes → kits).**
@@ -275,6 +293,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 **What it is.** Insufficient logging, **alerting**, monitoring, and incident response — so attacks aren't detected, escalated, or investigated (**renamed** from 2021's "Logging and **Monitoring**" → "Logging **& Alerting**", emphasizing that logs without *alerting* don't stop attacks). Includes unlogged auth/access-control/high-value events, logs without detail, no alerting, logs not monitored, and — the offensive flip side — **log injection** and logs that leak sensitive data.
 
+> *In plain words:* even when something bad happens, **nobody's watching** — no alarm goes off. The 2025 rename adds the key word "**alerting**": logs nobody reads are useless. Rarely a standalone bounty, but it lets every *other* attack run unnoticed — and logs can sometimes be poisoned or made to leak.
+
 **Why it pays / impact.** Mostly a **defensive/detection** gap (hard to demo standalone), but real: undetected breaches persist; no forensics; it *amplifies* every other bug. Offensively, **log injection** (CRLF into logs, or Log4Shell-style log-triggered execution) and **sensitive data in logs** (PII/tokens) are concrete findings.
 
 **How to test (+ concrete classes → kits).**
@@ -298,6 +318,8 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 # A10:2025 — Mishandling of Exceptional Conditions
 
 **What it is.** **NEW for 2025** (24 CWEs). The application fails to **prevent, detect, and respond to unusual/unpredictable situations** — improper error/exception handling, missing input/environment safeguards, poor recovery, and **fail-open** behavior (defaulting to allow on error) instead of **fail-closed**. Also: transactions that don't roll back completely on error, and errors that leak internal detail.
+
+> *In plain words:* what does the app do when something **goes wrong** — a weird input, a crash, a half-finished payment? Safe apps "**fail closed**" (deny, roll back, show a generic error). Unsafe ones **fail open** (an auth check errors out and defaults to *allow*), spill internal details in the error page, or leave money/half-done transactions in a broken state. New for 2025 — you test it by *breaking* the app on purpose and watching how it falls over.
 
 **Why it pays / impact.** Three concrete cash-outs (per OWASP's example scenarios): **DoS** (an uncaught exception — e.g. a file-upload error — leaves resources locked → exhaustion); **data exposure** (a database/stack error reveals internal details → reconnaissance for injection); **financial fraud / logic abuse** (an interrupted multi-step transaction without rollback → account draining or duplicate transfers). The security-relevant core is **fail-open** decisions (an auth/authz check that errors and defaults to "allow").
 

@@ -18,6 +18,8 @@
 >
 > **Where the money is (memorize):** ① **auth/authz bypass exposed by the client → server BOLA/ATO (M3, → API/Web kits) — Critical** → ② **insecure data storage of session/creds → device-side ATO (M9) — High** → ③ **insecure comms / broken pinning → MITM → session theft (M5) — High** → ④ **exported-component / IPC abuse → privilege crossing (M8) — High** → ⑤ **hardcoded creds/keys → backend/third-party access (M1) — High** → ⑥ **weak/broken crypto (M10) — Medium–High** → ⑦ **binary/supply-chain/config/privacy/output-validation (M7/M2/M8/M6/M4) — context-dependent.**
 
+> 🔰 **In plain words — what the "Mobile Top 10" is, and its one big twist:** it's OWASP's list of the *ten most common ways mobile apps get broken into*. The twist that makes mobile different from web: **the attacker owns the phone.** They can pull your app apart, read its files, and hook it while it runs — so anything you hide *inside* the app (a key, a password check, an "is-admin" flag) isn't really hidden. Two lessons fall out: (1) never trust the client, and (2) half your best mobile findings are actually **server-side bugs** the app just handed you a map to. This page tells you *what to worry about*; the kits tell you *what to type*.
+
 ---
 
 ## Table of Contents
@@ -63,6 +65,8 @@
 
 **What it is.** Hardcoded credentials/API keys/secrets in the app, insecure transmission or storage of credentials, weak credential handling, or misuse of credentials — anything where the app manages secrets badly. Because the client is fully recoverable, any embedded secret is effectively public.
 
+> *In plain words:* the app carries a secret (an API key, a password) baked into it — but since anyone can pull the app apart, that secret is basically public. The finding isn't "I found a key," it's "I found a key **and it still works** against the server."
+
 **Why it pays / impact.** A hardcoded **API key / cloud credential / third-party secret** → direct access to the backend, cloud resources, or a paid third-party service (billing abuse, data access). Hardcoded **admin/service creds** → privilege escalation. Insecurely handled **user credentials** → theft. The impact is *what the credential unlocks server-side*.
 
 **Root causes.** Secrets baked into the APK/IPA (strings, resources, native libs, config); credentials in code/config assuming the client is trusted; keys not scoped/rotated; credentials logged or stored in cleartext; using API keys as if they were secrets when the client can't keep secrets.
@@ -90,6 +94,8 @@
 
 **What it is.** Vulnerabilities from the mobile supply chain: third-party **SDKs/libraries**, the build pipeline, malicious or compromised dependencies, and untrusted components bundled into the app. A malicious SDK runs with the app's permissions and data access.
 
+> *In plain words:* your app is built partly from other people's code (ad SDKs, analytics, libraries). If one of those is malicious or out-of-date, it runs *inside your app* with all its permissions — so someone else's bad code becomes your data leak. The mobile version of the supply-chain problem.
+
 **Why it pays / impact.** A compromised/malicious **SDK** (ads, analytics, payment) can exfiltrate user data, inject behavior, or backdoor the app — with the app's full permissions. Outdated libraries carry known **CVEs** exploitable in the client. A poisoned **build pipeline** ships malware to every user. This is the mobile twin of software supply-chain attacks.
 
 **Root causes.** Bundling SDKs/libraries without vetting; no dependency inventory/pinning; outdated components with known CVEs; over-permissioned third-party code; unsigned/unsafe build artifacts; typosquatted dependencies.
@@ -114,6 +120,8 @@
 # M3 — Insecure Authentication / Authorization
 
 **What it is.** Weaknesses in how the app **authenticates users** (login, session, tokens, biometrics) and **authorizes actions** (what a user can do/access). Includes client-side-only auth checks, weak session management, insecure token handling, authorization enforced in the app instead of the server, and BOLA/IDOR on the backend the app fronts.
+
+> *In plain words:* the app decides "you're logged in / you're an admin" on the **phone** — which the attacker controls — instead of on the server. Flip a flag, or just call the server directly and skip the app, and the checks vanish. This is the one that most often turns into a Critical, and the real bug usually lives on the server.
 
 **Why it pays / impact.** This is frequently the **Critical** on mobile: **client-side auth/authz that the server trusts** → bypass it by tampering the client or calling the API directly (→ account takeover, privilege escalation, accessing other users' data). **BOLA/IDOR** on the mobile backend → mass data access. Weak session/token handling → session theft.
 
@@ -143,6 +151,8 @@
 
 **What it is.** The app fails to validate/sanitize data from untrusted sources — network responses, IPC/intents, deep links, files, QR codes, other apps — leading to injection and memory-safety issues on the client, or passing malicious data through to the backend. Also output not encoded for its sink (e.g. into a WebView).
 
+> *In plain words:* the app blindly trusts data coming from outside — a link that opened it, another app, a server reply, a QR code — and feeds it somewhere dangerous (like a built-in browser window). Same "input becomes commands" problem as web injection, just arriving through a phone's doors.
+
 **Why it pays / impact.** **WebView injection / XSS** (untrusted data into `loadUrl`/`loadData`/`addJavascriptInterface` → JS execution, and with a JS bridge → **native method access / RCE-ish**). **SQL injection** in local DBs. **Path traversal** in file handling. **Intent/deep-link injection** driving internal behavior. **Memory corruption** in native code. Plus the app forwarding unvalidated input to the server (server-side injection).
 
 **Root causes.** Trusting data from IPC/intents/deep links/network/files; loading untrusted content into WebViews; `addJavascriptInterface` exposing native methods to web content; unsafe native code (buffer overflows); no output encoding for WebView/SQL/file sinks.
@@ -170,6 +180,8 @@
 # M5 — Insecure Communication
 
 **What it is.** Weak or missing protection of data in transit: no TLS, TLS misconfiguration, accepting invalid/self-signed certs, no certificate pinning (or bypassable pinning), cleartext traffic, and sensitive data sent over insecure channels. A network-positioned attacker reads or modifies the traffic.
+
+> *In plain words:* the app's chat with its server isn't properly sealed — no HTTPS, or an HTTPS lock that's easy to pick ("pinning" that a tool like Frida can switch off). Anyone on the same Wi-Fi can read the session token or tamper with replies (e.g. flip "payment failed" into "payment ok").
 
 **Why it pays / impact.** A network attacker (rogue Wi-Fi, MITM) can **read session tokens/credentials/PII** and **modify requests/responses** → account takeover, data theft, request tampering, response manipulation (e.g. flip an auth/payment result). Missing/bypassable **pinning** means even TLS traffic is interceptable by a determined attacker (or a malicious proxy/CA).
 
@@ -200,6 +212,8 @@
 
 **What it is.** The app mishandles **personally identifiable information (PII)** and privacy-sensitive data — excessive collection, insecure handling, over-broad permissions, leaking PII to logs/third parties/other apps, no consent, and retaining/exposing data beyond need. Distinct from "data storage" (M9) in that it's about *privacy* of PII specifically.
 
+> *In plain words:* the app is careless with **personal data** — grabbing more than it needs (location, contacts), quietly shipping it to ad/analytics companies, or dropping it into logs other apps can read. It's specifically about the *privacy* of who-you-are data, and it maps to laws like GDPR.
+
 **Why it pays / impact.** **PII exposure** (location, contacts, health, identity, financial) → privacy breach, regulatory exposure (GDPR/CCPA/HIPAA), user harm, and often a reportable bug in bug-bounty privacy scopes. Leaking PII to **third-party SDKs** or **logs** or **other apps** (via IPC/broadcasts) is the common finding. Over-permissioning enables mass data harvesting.
 
 **Root causes.** Collecting more data than needed; sending PII to analytics/ad/third-party SDKs without consent; PII in logs (`logcat`), clipboard, screenshots/backups, or IPC broadcasts readable by other apps; excessive permissions; no data-minimization or retention controls.
@@ -227,6 +241,8 @@
 
 **What it is.** The app binary lacks protections against **reverse engineering, tampering, and repackaging** — no/weak obfuscation, no anti-tampering/integrity checks, no root/jailbreak or debugger/hook detection, no runtime application self-protection. This makes it easy to analyze, modify, repackage, and abuse the app.
 
+> *In plain words:* the app does nothing to make itself hard to take apart or tamper with — no scrambling of the code, no "am I being hooked?" checks. That doesn't *cause* a bug by itself, but it makes every *other* attack easier (recovering secrets, shipping a modified fake copy, switching off the HTTPS lock). Defense-in-depth, not a real lock.
+
 **Why it pays / impact.** Enables/amplifies the other categories: easy reverse engineering exposes secrets (M1), logic, and endpoints; **repackaging** lets attackers ship trojanized versions or bypass client-side checks (M3); **no anti-hook** lets Frida bypass pinning (M5) and auth; **cheating/piracy/fraud** in games/finance. Note: binary protections are *defense-in-depth*, not a root fix — but their absence lowers the bar for everything.
 
 **Root causes.** No code obfuscation; no integrity/anti-tamper checks; no root/jailbreak/emulator/debugger/Frida detection; no signature verification at runtime; secrets/logic in plaintext in the binary; RASP absent.
@@ -251,6 +267,8 @@
 # M8 — Security Misconfiguration
 
 **What it is.** Insecure default or explicit configuration of the app and its platform: **exported components** (Activities/Services/Broadcast Receivers/Content Providers) that shouldn't be exported, debuggable builds, backup enabled, permissive `network_security_config`, weak file permissions, exposed deep links, misconfigured WebViews, and insecure platform settings.
+
+> *In plain words:* the app left doors open in its settings — "exported" components that let **any other app on the phone** poke its internals or read its private database, debug mode left on, backups allowed. No root needed; another app (or a plugged-in cable) just walks in through the door left ajar.
 
 **Why it pays / impact.** **Exported components** = another app (or ADB, no root) can invoke internal Activities/Services, send Broadcasts, or **query/modify a Content Provider's data** (→ read private data, SQLi in the provider, trigger internal actions) → privilege crossing, data theft, action injection. `android:debuggable=true` in prod → `run-as`/debugger access to app data. `allowBackup=true` → extract app data via backup. These are concrete, no-root, on-device attack surfaces.
 
@@ -281,6 +299,8 @@
 
 **What it is.** Sensitive data stored **insecurely on the device**: cleartext in shared_preferences/plists, unencrypted SQLite DBs, files in world-readable/external storage, secrets in the keychain/keystore misused, data in caches/logs/temp/backups. Recoverable by a malicious co-located app, an attacker with device access, or via backup.
 
+> *In plain words:* the app saves something sensitive — usually your **login token** — in plain readable form on the phone. Grab it from a backup, a lost phone, or a sneaky co-installed app, replay it at the server, and you're logged in as the victim. The most common *phone-side* serious bug.
+
 **Why it pays / impact.** Stored **session/refresh tokens or credentials** → **account takeover** from a lost/shared/backed-up device or a malicious app with storage access. Stored **PII/financial/health** data → breach. This is the highest-frequency *device-side* High: the app persists something that grants access, in a place the attacker can read.
 
 **Root causes.** Storing secrets in cleartext (shared_prefs, SQLite, files); using external/shared storage for sensitive data; caching sensitive responses; sensitive data in logs/temp/screenshots/backups; misusing (or not using) Keystore/Keychain; hardcoded encryption keys "protecting" the storage (ties M10).
@@ -308,6 +328,8 @@
 # M10 — Insufficient Cryptography
 
 **What it is.** Weak, broken, or misused cryptography: weak algorithms (MD5, SHA1, DES, RC4), ECB mode, hardcoded/static keys, weak key derivation, predictable IVs/nonces, custom "crypto," improper key management, or crypto that's technically present but implemented wrong. Often the reason M9's "encrypted" storage isn't actually protected.
+
+> *In plain words:* the app *does* lock its data, but with a bad lock — an ancient algorithm, or a key hidden right next to the locked box (baked into the app). Recover the key and the "encryption" is just decoration. It's usually *why* the "encrypted" storage in M9 wasn't actually safe.
 
 **Why it pays / impact.** **Recoverable/hardcoded keys** → the "encryption" is decryptable by anyone with the app (so M9 data is plaintext-equivalent). **Weak algorithms** → hashes cracked, ciphers broken. **Predictable IVs/ECB** → pattern leakage, forgery. The impact is *decryption/forgery of whatever the crypto was protecting* — tokens, stored data, signatures.
 
