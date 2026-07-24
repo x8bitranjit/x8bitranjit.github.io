@@ -11,6 +11,8 @@
 
 ## Read this first — why NoSQLi still pays
 
+> *In plain words — the anchor for this whole class:* a NoSQL query is a **form the app fills out for you**: "find a user where username = `___` and password = `___`." The app expects plain words in those blanks. NoSQLi is writing an **instruction** in the blank instead of a value — where they wanted your password, you write `{"$ne": null}`, which isn't a password, it's a command meaning *"match any password that isn't empty."* The database speaks that command language, so it obeys: it finds the admin whose password is *anything*, and logs you in. (SQLi breaks out of a sentence with quotes; NoSQLi slips a **command into a slot that expected a plain value.**) The reason it still works everywhere: modern JS/PHP form parsers *quietly turn* `password[$ne]=x` into exactly that command object — so the developer never even sees you doing it.
+
 Everyone hardened SQL; far fewer developers know that `db.users.find({user: req.body.user, pass: req.body.pass})` is just as injectable when `req.body.user` is allowed to be **an object** instead of a string. Send `{"$ne": null}` and the query becomes "any user, any password" — **login as the first/admin user with no credentials**. That is why NoSQLi remains a reliable **High/Critical**:
 
 - **Auth bypass with zero credentials** — the single most common and highest-value NoSQLi.
@@ -62,6 +64,8 @@ Also: the JS framework (Express + Mongoose, PHP + `mongodb`, Python + PyMongo), 
 - **Aggregation pipeline** — user-controlled `$match`/`$group`/`$lookup` stages → cross-collection reads, `$out`/`$merge` writes.
 - **`$where` / JS** — any place raw JS strings are built from input.
 
+> *In plain words:* the *same* attack wears different clothes depending on how the app reads your input — and that's the crux, because a filter that blocks one outfit rarely blocks the others. As JSON it's `{"user":{"$ne":null}}`; as an ordinary form field it's `user[$ne]=null` (the parser rebuilds it into the same command object); in the URL it's `?user[$ne]=null`. **Always try the same payload in every format** — switching content-type past a filter is one of the most reliable bypasses in this whole kit.
+
 ## 1.3 Injection surface per input format (this is the crux)
 
 The **same logical injection** appears differently depending on how the app parses input:
@@ -81,7 +85,7 @@ GET /api/users?role[$ne]=guest
 filter[age][$gt]=0
 ```
 
-**Content-type switching is a key bypass:** an endpoint that validates the JSON body may accept the same payload as `application/x-www-form-urlencoded` with `[$ne]` brackets (or vice-versa) — always try both. See also GraphQL resolver injection in [GraphQL](#/graphql/guide).
+**Content-type switching is a key bypass:** an endpoint that validates the JSON body may accept the same payload as `application/x-www-form-urlencoded` with `[$ne]` brackets (or vice-versa) — always try both. See also GraphQL resolver injection in [../../API/GraphQL/](../../API/GraphQL/).
 
 ---
 
@@ -143,6 +147,8 @@ A reliable delay only on the true branch = blind boolean via timing. Keep sleeps
 
 # PART III — Exploitation by type
 
+> *In plain words:* the headline and the most common NoSQLi. The login is the form "find a user where username = X **and** password = Y." Replace the password value with the command `{"$ne": null}` ("any password that isn't empty") and the "and password matches" condition becomes *always true* — so the first user that matches the username (often the seed admin) gets logged in with no password at all. Pin `username:"admin"` if you want to land specifically as admin.
+
 ## 3.1 Authentication bypass (the flagship)
 
 Target `findOne({username, password})`-style logins. Make one or both fields an operator:
@@ -185,7 +191,9 @@ GET /users?role[$ne]=none&isDeleted[$ne]=true
 search[$regex]=.*
 ```
 
-→ Data disclosure / authz bypass (pairs with [IDOR](#/idor/guide)).
+→ Data disclosure / authz bypass (pairs with [../IDOR/](../IDOR/)).
+
+> *In plain words:* even when the page shows you no data, it usually *behaves* differently for a true vs false query (login OK/fail, a result appears or doesn't). That's a **game of 20 questions**: instead of asking for the password, you ask "does the admin's password start with 'a'?" using the `$regex` command `^a`, read the yes/no off the response, then "…'ab'?", and so on — rebuilding the secret one character at a time. Point this at a **password-reset token** and you've got account takeover.
 
 ## 3.3 Blind data extraction (char-by-char) — the ATO engine
 
@@ -212,6 +220,8 @@ GET /reset?email=victim@x&token[$regex]=^a ...          # confirm each char, the
 
 Automate with `poc/nosqli_blind.py` (boolean `$regex` + time-based `$where`, binary-search over the charset). → **Full credential/token exfil → ATO.**
 
+> *In plain words:* some MongoDB features (`$where` especially) let a query carry an actual **snippet of JavaScript** the database runs for each record. If you can inject into that, you're no longer just picking records — you're running code inside the database engine. On modern MongoDB that code is sandboxed (no shell, no network), so it's used for blind data extraction and timing tricks; on old versions, or when the app foolishly pipes the "JS" into a Node `eval`, it becomes full RCE. Confirm which sink you actually have before claiming a shell.
+
 ## 3.4 Server-side JavaScript injection (MongoDB)
 
 If `$where`, `mapReduce`, `$accumulator`, or `$function` (MongoDB ≥4.4) accept attacker JS, or legacy `eval` is enabled:
@@ -230,8 +240,8 @@ Modern MongoDB sandboxes JS (no shell/network), so `$where` is usually **blind e
 
 - **MongoDB** — everything above; also **aggregation injection** (`$lookup` to read other collections, `$out`/`$merge` to **write**), `$expr`, `$jsonSchema`.
 - **CouchDB** — Mango `selector` operators (`{"selector":{"_id":{"$gt":null}}}` dumps all docs); `_all_docs`, `_users`; **CVE-2017-12635** (JSON duplicate-key parser differential in the Erlang vs JS validator → create an **admin** user → privesc/RCE via `_config` + query server).
-- **Elasticsearch / OpenSearch** — query-DSL injection into `_search`; **scripting RCE**: Groovy **CVE-2014-3120**, MVEL **CVE-2015-1427** (`{"script":"..."}` → OS command); `_search` blind boolean; unauth clusters dump `_all`.
-- **Redis** — **CRLF/command injection** (smuggle `\r\n` into a value that's written into the RESP protocol) → run arbitrary Redis commands; `EVAL` **Lua** injection; `MODULE LOAD` / `CONFIG SET dir`+`SAVE` webshell → **RCE**. Often reached via SSRF ([SSRF](#/ssrf/guide)).
+- **Elasticsearch / OpenSearch** — query-DSL injection into `_search`; **scripting RCE**: MVEL **CVE-2014-3120** (default dynamic scripting, ES <1.2), Groovy sandbox-bypass **CVE-2015-1427** (ES 1.3.x–1.4.x) (`{"script":"..."}` → OS command); `_search` blind boolean; unauth clusters dump `_all`.
+- **Redis** — **CRLF/command injection** (smuggle `\r\n` into a value that's written into the RESP protocol) → run arbitrary Redis commands; `EVAL` **Lua** injection; `MODULE LOAD` / `CONFIG SET dir`+`SAVE` webshell → **RCE**. Often reached via SSRF ([../SSRF/](../SSRF/)).
 - **Cassandra (CQL)** — `' OR '1'='1`, `ALLOW FILTERING`; more limited (prepared-statement heavy) but string-concat endpoints inject.
 - **Neo4j (Cypher)** — `' OR 1=1 //`, `' RETURN ...`, `UNION`, **`LOAD CSV FROM 'http://...'`** (SSRF/file read), **`apoc.*`** procedures → file/SSRF/**RCE** (`apoc.systemdb`, `dbms.security`), label/property enumeration.
 - **DynamoDB** — **PartiQL** injection (`' OR '1'='1`) in `ExecuteStatement`.
@@ -278,14 +288,14 @@ $function / $accumulator -> server-side JS
 | Auth bypass lands as non-admin | Pin `username:"admin"` + password operator; or extract admin creds via blind regex | Critical |
 | Boolean/true-false diff on a param | Blind `$regex` char-by-char → dump password hash / **reset token** → ATO | Critical |
 | `$where`/JS runs | Blind predicate exfil of any field; timing oracle; check for eval→RCE | High/Critical |
-| Filter param injectable | `[$ne]` to reveal other users'/unpublished data (→ [IDOR](#/idor/guide)) | High/Medium |
+| Filter param injectable | `[$ne]` to reveal other users'/unpublished data (→ [../IDOR/](../IDOR/)) | High/Medium |
 | Elasticsearch `_search`/script | Script RCE (CVE-2014-3120/2015-1427) or `_all` dump | Critical |
 | Redis reachable + CRLF | Command injection → `CONFIG SET`+`SAVE` webshell / `MODULE LOAD` → RCE | Critical |
 | Neo4j Cypher | `LOAD CSV`/`apoc` → SSRF/file/RCE | Critical/High |
 | CouchDB | CVE-2017-12635 → create admin → privesc | Critical |
 | Aggregation `$lookup`/`$out` | Cross-collection read / write | High |
 
-**Chains:** [IDOR](#/idor/guide) (authz), [SSRF](#/ssrf/guide) (reach internal Redis/ES/Mongo), [GraphQL](#/graphql/guide) & [REST](#/rest/guide) (resolver/endpoint injection), [JWT](#/jwt/guide) (exfiltrated secret → forge tokens), password-reset flow (token exfil → ATO).
+**Chains:** [../IDOR/](../IDOR/) (authz), [../SSRF/](../SSRF/) (reach internal Redis/ES/Mongo), [../../API/GraphQL/](../../API/GraphQL/) & [../../API/REST/](../../API/REST/) (resolver/endpoint injection), [../JWT/](../JWT/) (exfiltrated secret → forge tokens), password-reset flow (token exfil → ATO).
 
 ---
 
@@ -329,7 +339,7 @@ $function / $accumulator -> server-side JS
 
 ## 6.4 Reporting
 
-Lead with impact + a minimal reproduction: the exact request (both JSON and bracket forms if relevant), the control vs injected responses, and the resulting session/data. Use the report template. Name the sink pattern (`findOne({user,pass})` with unvalidated object input) and the fix (type-check inputs to strings; use `$eq`/parameterization; strip operator keys with a recursive sanitizer; disable server-side JS).
+Lead with impact + a minimal reproduction: the exact request (both JSON and bracket forms if relevant), the control vs injected responses, and the resulting session/data. Use [NOSQLI_REPORT_TEMPLATE.md](NOSQLI_REPORT_TEMPLATE.md). Name the sink pattern (`findOne({user,pass})` with unvalidated object input) and the fix (type-check inputs to strings; use `$eq`/parameterization; strip operator keys with a recursive sanitizer; disable server-side JS).
 
 ## 6.5 References & further reading
 
@@ -347,15 +357,17 @@ Lead with impact + a minimal reproduction: the exact request (both JSON and brac
 
 **CVEs & per-datastore:**
 - **CVE-2017-12635 / -12636** (Apache CouchDB) — JSON parser differential → admin creation → RCE.
-- **CVE-2014-3120 / CVE-2015-1427** (Elasticsearch) — Groovy/MVEL dynamic-scripting RCE.
+- **CVE-2014-3120** (Elasticsearch <1.2, **MVEL** default dynamic-scripting RCE) / **CVE-2015-1427** (Elasticsearch 1.3.x–1.4.x, **Groovy** sandbox-bypass RCE).
 - **Neo4j** `apoc`/`LOAD CSV` SSRF→file→RCE research · **Redis** unauth `CONFIG SET`+`SAVE` webshell / `MODULE LOAD`.
 - Vendor security docs: MongoDB · CouchDB · Elasticsearch · Redis · Neo4j · Firebase security-rules.
+
+**Standards & scoring:** CWE-943 (data-query injection) → CWE-287 / CWE-94 / CWE-78 · CVSS 3.1 calculator (first.org/cvss/calculator/3.1).
 
 ---
 
 ## Companion files
-- **[Attack Arsenal](#/nosqli/arsenal)** — payloads + tool commands.
-- **[Testing Checklist](#/nosqli/checklist)** — phase-by-phase + auto-reject.
-- **the report template** — report skeleton.
-- **[Zero to Expert (Q&A)](#/nosqli/qa)** — 100-question study + field reference.
-- **[PoC Scripts](#/nosqli/poc)** — `nosqli_fuzz.py` (detect + auth-bypass, control-baselined) · `nosqli_blind.py` (regex/time char-by-char) · `nosqlmap_cheat.md`.
+- **[NOSQLI_ARSENAL.md](NOSQLI_ARSENAL.md)** — payloads + tool commands.
+- **[NOSQLI_CHECKLIST.md](NOSQLI_CHECKLIST.md)** — phase-by-phase + auto-reject.
+- **[NOSQLI_REPORT_TEMPLATE.md](NOSQLI_REPORT_TEMPLATE.md)** — report skeleton.
+- **[NoSQLi_Zero_to_Expert.md](NoSQLi_Zero_to_Expert.md)** — 100-question study + field reference.
+- **[poc/](poc/)** — `nosqli_fuzz.py` (detect + auth-bypass, control-baselined) · `nosqli_blind.py` (regex/time char-by-char) · `nosqlmap_cheat.md`.

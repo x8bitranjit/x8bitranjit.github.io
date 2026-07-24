@@ -6,6 +6,7 @@
 ---
 
 ## 1. Harvest every JS (current + historical + chunks)
+*What & when:* step one, before any analysis — grab every copy of the blueprint, not just the front one. The **historical** (gau/waybackurls) lines are the gold: old bundles keep rotated-but-still-live keys and endpoints removed from the UI that still work. Miss a file, miss the bug.
 
 ```bash
 T=target.com
@@ -59,6 +60,7 @@ grep -RhoE '"openapi"|"swagger"|__schema|IntrospectionQuery' out/js   # inlined 
 ```
 
 ## 2. Secret regexes (HIGH-VALUE — validate live, Guide §10/§11)
+*What & when:* run these over the whole corpus to surface *candidates* — then treat every hit as unproven until §6 validates it live. The HIGH block is worth chasing (keys that open real locks off-site); the LOW block is the "lobby wifi password" that gets reports closed. Never lead with a LOW match.
 
 ```
 AWS access key id     AKIA[0-9A-Z]{16}
@@ -125,6 +127,7 @@ grep -RnE "(debug|test|internal|bypass|isAdmin|impersonate)\s*[:=]\s*(true|1)" o
 ---
 
 ## 4. DOM sink discovery (Guide §8/§12)
+*What & when:* use these to trace the pipe from a **source** you control to a dangerous **sink** — a bug that lives entirely in the JS, no server needed. Grep for the sinks and sources, then confirm one actually connects and fires (DOM Invader). The no-origin-check `postMessage` handler is the highest-value pattern here.
 
 ```bash
 # sinks
@@ -160,6 +163,7 @@ confirm in console:  ({}).test === 'polluted'   ||  ({}).polluted === 'yes'
 ---
 
 ## 5. Source-map recovery (Guide §9)
+*What & when:* the highest-leverage single move — turn the label-scrubbed bundle back into the developers' original labelled source. Always try `<bundle>.js.map` even when nothing references it (often deployed by accident). Then re-run every extractor against the recovered code — far higher signal than the minified version.
 
 ```bash
 # find the map reference
@@ -176,6 +180,7 @@ grep -RiE "(password|secret|token|api[_-]?key|internal|admin|TODO|FIXME|HACK|//)
 ---
 
 ## 6. Live-secret validation one-liners (read-only — Guide §10)
+*What & when:* the step that converts a candidate into a finding — each is the key's own "who am I?" call that proves it's live and shows its scope, without touching real data. Run the matching one for every HIGH hit, screenshot the identity response, then STOP.
 
 ```bash
 aws sts get-caller-identity                                          # AWS (set the env keys first)

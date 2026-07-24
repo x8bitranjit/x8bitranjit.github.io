@@ -8,11 +8,13 @@
 ---
 
 ## PHASE 0 — Recon & Lab (§1/§3)
+*Why this matters:* CSRF only matters on **state-changing** actions (reads aren't CSRF), and its value tracks the sensitivity of the action — so listing and ranking them (change-email/2FA at the top) points you at the ATO targets. Equally important is the lab setup: CSRF is *browser-validated*, so you need two real browser profiles and a genuinely cross-site host — testing in one tab or in Repeater will lie to you later.
 - [ ] Listed **state-changing** actions, ranked by impact (auth > financial/admin > data > trivial).
 - [ ] Two browser profiles (victim logged-in + attacker), **default settings**; a cross-site host for the PoC.
 - [ ] Recorded each action's request: method, URL, params, content-type, token presence.
 
 ## PHASE 1 — Baseline ★ (§4) — THE GATE, DO FIRST
+*Why this matters:* this is *the* gate that keeps your CSRF reports valid in 2026. Two answers here decide almost everything: is the auth a **cookie** (no cookie = no CSRF, full stop), and what's that cookie's **SameSite** (default-Lax silently kills cross-site POSTs). Answering these five questions *before* building a PoC is what stops you from filing a "CSRF" that a browser blocks — the single most common reason these reports get auto-closed.
 - [ ] **Q1** Auth via a **cookie** the browser auto-sends? (Bearer/localStorage ⇒ NOT CSRF, stop.)
 - [ ] **Q2** Read the session cookie **SameSite** (DevTools → Application → Cookies): None / Lax / Strict / absent.
 - [ ] **Q3** Is there an anti-CSRF **token** in the request? Is it actually validated/session-bound?
@@ -21,6 +23,7 @@
 - [ ] Produced the verdict: CSRF **possible** (None, or Lax+GET-sink, or token bypassable) vs **N/A** (Lax+POST+enforced token, or Bearer auth).
 
 ## PHASE 2 — Protection Bypass (§5–§10) — defeat the blocking control
+*Why this matters:* your baseline named the *one* control standing between you and a forged request — this phase is about defeating *that specific* control, not spraying random payloads. A token that isn't session-bound, a Lax cookie with a GET-reachable action, a Referer check that fails-open when absent: each has a targeted bypass. The end-state you need is a single forged **cross-site** request the server accepts — everything in Phase 3 depends on it.
 - [ ] **Token** (§5): remove / empty / use my own token / presence-only / GET path / method-override.
 - [ ] **SameSite** (§6): GET-nav under Lax · SameSite=None classic · subdomain same-site for Strict · **Lax+POST 2-min window** (fresh login).
 - [ ] **Strict/Lax bypass via on-site client-side redirect / SPA-router gadget** (§6.6): `?to=//?next=//#/route` the target's OWN JS follows → final request is **same-site** → cookie flows.
@@ -33,6 +36,7 @@
 - [ ] ✅ Produced a forged **cross-site** request the server accepts (or a framed real-token submit).
 
 ## PHASE 3 — IMPACT ⭐ (§11–§17) — chain to ATO/financial/admin
+*Why this matters:* "missing CSRF token" is a discounted, often-closed finding — the bounty is the **chain**. This phase converts a forged request into account takeover (change-email→reset), money movement, admin escalation, or a rescued self-XSS. Always push to the highest-impact action the CSRF can reach and *demonstrate* it end-to-end (on your own two accounts). Lead the report with what the victim *loses*, not with what header is absent.
 - [ ] **ATO**: CSRF change email/recovery → reset → log in as victim (§11).
 - [ ] **ATO**: CSRF change password (no old pw) / disable-2FA / add passkey-API-SSH key (§11).
 - [ ] **Login CSRF** (with demonstrated harm) (§12).
@@ -44,6 +48,7 @@
 - [ ] Stated impact in one sentence: *"A logged-in victim opening my page suffers <ATO/financial/admin change>."*
 
 ## PHASE 4 — Validate → Severity → Report (§19–§24)
+*Why this matters:* CSRF has the longest false-positive list of any class, and the killer is proving it wrong. The non-negotiable gate: it must **fire in a real, default-settings browser, cross-site** — not in Repeater (which runs same-site and always "works"), not with SameSite disabled. State the cookie's SameSite value and the browser you tested in your report; that single detail is what pre-empts the triager's first objection and separates a paid CSRF from an auto-closed one.
 - [ ] ★ **FIRED IN A REAL DEFAULT-SETTINGS BROWSER, CROSS-SITE** (not Repeater, not SameSite-disabled) (§19).
 - [ ] Passed **false-positive filter** (§20): NOT Lax+POST, NOT Bearer-auth, NOT "no token w/o PoC", NOT logout/trivial, NOT self-CSRF, NOT Repeater-only.
 - [ ] Set **CVSS 3.1** (UI:R) + **CWE-352** (+ outcome CWE) (§21).

@@ -37,6 +37,8 @@
 
 # LEVEL 0 — FUNDAMENTALS
 
+> *Plain version:* an LFI parameter is a fill-in-the-blank the server obeys — `?page=___` means "fetch the file named `___` and show it." Writing `../../../../etc/passwd` walks the server up out of its own folder to any file on disk. Traversal = the walk-out technique; LFI = the whole class (read *or* run a local file).
+
 ### Q1. What is LFI / path traversal?
 A parameter influences a **path** passed to a file API (`include`/`require`/`readfile`/`fopen`/`open`/`sendFile`). If you can steer that path with `../` (or an absolute path / a wrapper), you **read** — or, when the sink **executes** the file, **run** — content of your choosing. "Path traversal" = the directory-escape technique; "LFI" = the broader class (read **or** include a local file).
 
@@ -45,6 +47,8 @@ A parameter influences a **path** passed to a file API (`include`/`require`/`rea
 - **LFI** = the app includes/reads a **local** file you influence (traversal is how you reach it). Can be read-only or executing.
 - **RFI** = the app includes a **remote** file you control → direct RCE (separate kit). LFI is local-only.
 
+> *Plain version:* the whole class forks here — does the server **show** the file or **run** it? Show (`readfile`) lets you *read* secrets (bad but bounded). Run (PHP `include`) means any file you can slip your own text into becomes *your code executing* = RCE. Find out which on day one; it sets your entire plan.
+
 ### Q3. Read vs Include — why does it decide everything?
 - **READ/RETURN** sink (`readfile`, `file_get_contents`→echo, `sendFile`) → you get **disclosure** (source/secrets/sensitive files). High if it's secrets.
 - **INCLUDE/EXECUTE** sink (PHP `include`/`require`, some template engines) → poisoned content **runs** → **RCE**. Highest ceiling.
@@ -52,6 +56,8 @@ Identify which you have early — it sets your whole plan.
 
 ### Q4. Why does LFI pay so well?
 Because its ceiling is **RCE** (on PHP via logs/wrappers/sessions/upload), and even read-only LFI yields **secrets/source** (config, `.env`, keys, `web.config` machineKey, cloud creds, k8s tokens) → lateral movement / cloud takeover. A single `?page=` can become a shell.
+
+> *Plain version:* `/etc/passwd` just proves you can *walk around* the filesystem — it's a public, boring file. Stopping there is a Medium. The bounty is walking to the **secrets** (config, `.env`, keys, cloud creds) or turning the read into **code execution**. Always climb past passwd.
 
 ### Q5. What's the #1 mistake when reporting LFI?
 Reporting **`/etc/passwd`** and stopping. `passwd` is a **non-sensitive** file by design — it's *proof of traversal* (~Medium), not impact. The finding is **(a)** reading **real secrets/source** or **(b)** turning the read into **RCE**. Always climb past `passwd`.
@@ -172,6 +178,8 @@ No — that's limited. Escalate to **secrets/source** or an **includable/poisona
 
 # LEVEL 3 — WRAPPERS & SOURCE/SECRET DISCLOSURE
 
+> *Plain version:* PHP has fake "file names" that are really instructions. This one says "fetch config.php but hand it to me **base64-encoded**" — and because it arrives encoded, the server *shows* you the source instead of running it. So you steal the source and every secret even from a show-only sink, and even when a forced `.php` suffix would block a plain read.
+
 ### Q35. What is `php://filter` and why is it the fastest win?
 On PHP, `php://filter/convert.base64-encode/resource=config.php` returns the **base64 of the file's source** (not its executed output) — so you exfiltrate **source code and secrets** even from a READ sink, and even when a `.php` suffix is forced (the suffix becomes part of the resource). Decode locally:
 ```bash
@@ -212,6 +220,8 @@ When it only reads a **non-sensitive** file (no secrets/source value). Dump some
 ### Q45. What's the headline of LFI exploitation?
 **LFI → RCE.** On PHP especially, an *include* sink is frequently a path to a shell via: **log poisoning**, **`php://filter` chain**, **session-file poisoning**, **`data://`/`php://input` wrappers**, **`/proc/self/environ`**, **phpinfo race**, **`phar://` deserialization**, or **upload+include**. Always try to reach RCE before reporting.
 
+> *Plain version:* the server writes your User-Agent verbatim into its log file. Set your User-Agent to `<?php system($_GET['c']); ?>` and that PHP now sits inside `access.log` — an ordinary on-disk file. Point the include sink at the log and the server *runs* it as PHP → your line executes. You turned a field you don't control into code.
+
 ### Q46. How does log poisoning work?
 If the sink **includes** files and you can write attacker text into a log the server includes:
 ```
@@ -222,6 +232,8 @@ Logs: apache/nginx access+error, `auth.log` (SSH), `mail.log`, `vsftpd.log`, `/p
 
 ### Q47. SSH/mail log poisoning — when?
 When you can't reach the web log. SSH: `ssh '<?php system($_GET[c]);?>'@target` → the failed-login attempt lands in `/var/log/auth.log` → include it. Mail: send SMTP with PHP in a header → `/var/log/mail.log`. Useful alternates to access.log.
+
+> *Plain version:* the modern universal escape hatch — RCE with no log to poison, no upload, no remote URLs. It abuses `php://filter`'s ability to run a long assembly-line of text transforms: stack the right ones and the "file" that comes out the end *is* valid PHP you designed, which the include runs. Nothing is written to disk; the payload is manufactured on the fly from the one LFI parameter (a generator builds the chain).
 
 ### Q48. What is the `php://filter` chain RCE (file-write-free)?
 A modern technique: chain iconv-based `php://filter` conversions so the decoded output of an empty resource **becomes arbitrary PHP**, which the **include** then executes — **no writable file, no remote URL** (works even with `allow_url_include=Off`). Generate with `synacktiv/php_filter_chain_generator.py`:

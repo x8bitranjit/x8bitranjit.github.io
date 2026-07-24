@@ -32,6 +32,9 @@
 # LEVEL 0 — FUNDAMENTALS
 
 ### Q1. What is IDOR in one sentence?
+
+> *Plain version:* IDOR is a coat-check that hands you whatever coat number you name without checking the ticket is yours — you gave #123 (your coat), you ask for #124, and out comes a stranger's. The login works fine; the missing step is "is this specific object *yours*?"
+
 IDOR (Insecure Direct Object Reference) is when an app uses a **client-controlled reference** (id, uuid, filename, key) to fetch or change an object **without verifying the authenticated user is authorized for that specific object** — so you swap your id for someone else's and the server hands it over.
 
 ### Q2. IDOR vs BOLA vs BFLA vs BOPLA — what's the difference?
@@ -50,12 +53,18 @@ It scales with endpoints and needs no exotic primitive — it's a forgotten line
 **IF** (a) the request carries a **reference to an object** you control, **AND** (b) the object belongs to **another user/tenant**, **AND** (c) the server **doesn't enforce an ownership/role check** → **THEN it's IDOR.** Remove (c) and it's not.
 
 ### Q6. Authentication vs authorization — which one is IDOR?
+
+> *Plain version:* authentication is the bouncer checking your ID at the door (works fine — you're logged in). Authorization is the attendant checking that the coat you're claiming is actually yours (missing — that's the bug). IDOR is purely the second failure.
+
 **Authorization.** Authentication = "who are you" (login works fine). Authorization = "are you allowed *this object/action*" (the missing check). IDOR is a pure authorization failure.
 
 ### Q7. What's a "direct" object reference vs an indirect one?
 **Direct** = the real internal key is exposed (`/orders/8001` where 8001 is the DB PK). **Indirect** = the server maps a per-user handle to the real object (`/orders/my-2nd` resolved server-side against your session). Indirect references *with a server-side ownership map* are the fix; direct references *without a check* are the bug.
 
 ### Q8. Does using UUIDs prevent IDOR?
+
+> *Plain version:* a UUID just makes the ticket number long and unguessable — it doesn't make the attendant check the ticket. And those "unguessable" numbers leak constantly (search results, error messages, other API responses). If you can *obtain* the victim's number and the server still doesn't check ownership, it's a full IDOR. "Hard to guess" is not "you're allowed."
+
 **No.** UUIDv4 is unguessable but constantly **leaked** (search, autocomplete, Referer, errors, other API responses, GraphQL). Unguessable ≠ authorized. **IF** you can obtain a victim's UUID and the endpoint doesn't check ownership → it's still a full IDOR (Q33).
 
 ### Q9. Read IDOR vs write IDOR — which matters more?
@@ -76,6 +85,8 @@ For every object the app shows you, ask: *"What's the reference, who really owns
 
 ### Q13. How do I set up to test IDOR?
 Register **two accounts of equal role** (A=attacker, B=victim) — plus, ideally, an **admin** (for BFLA baselines) and a **second tenant/org** (for cross-tenant). Proxy both through Burp. Optionally an account in a paid/elevated tier to test plan-gating.
+
+> *Plain version:* you need **two coats you own** so you can honestly say "I walked in as A and left with B's coat." One account can't prove that — the data you got might be your own or public, and a triager will assume exactly that and close the report.
 
 ### Q14. Why two accounts and not just one?
 With one account you can't tell "I accessed someone else's data" from "I accessed my own / public data." Two accounts you own create the oracle: capture **B's** reference, replay it **in A's** session, show A got **B's** data. That's the proof a triager accepts.
@@ -215,6 +226,8 @@ Re-verify any "success" against the two-account oracle (A's creds, B's object, B
 
 # LEVEL 4 — MASS ASSIGNMENT & BFLA
 
+> *Plain version:* instead of grabbing someone's coat, you scribble an extra line on your *own* claim ticket that the system trusts — write "role: admin" or "owner: victim" into the request body. It works because the app often accepts any field you send, not just the ones its form shows. When reads are blocked, writing your way in like this frequently succeeds.
+
 ### Q56. What is mass assignment (BOPLA) and how does it relate to IDOR?
 You're allowed the object, but you set a **property you shouldn't control** by adding it to the request body: `owner_id`, `user_id`, `role`, `isAdmin`, `balance`. It's the *write* sibling of IDOR and a direct priv-esc/ATO path.
 
@@ -257,6 +270,8 @@ Promote **your own** test account (A), demonstrate one admin-only capability, th
 ---
 
 # LEVEL 5 — SPECIAL CONTEXTS: GRAPHQL, FILES, MULTI-TENANT, BLIND
+
+> *Plain version:* GraphQL is a coat-check with one giant counter that serves every object type, and the per-object check often lives in each little resolver — easy to forget. Worse, it lets you ask for hundreds of coat numbers *in a single request* (aliases/batching), so it's the ideal place to prove enumeration at scale.
 
 ### Q69. Why is GraphQL an IDOR/BOLA hotspot?
 Object access is **field-shaped** and centralized in resolvers that frequently lack per-object checks. `node(id:)`, `userById`, and friends are textbook BOLA, and aliases/batching let you enumerate at scale in one request.
@@ -309,6 +324,8 @@ If the id is enumerable (Q27) or harvestable (Q33), demonstrate **scale**: itera
 
 ### Q84. Read IDOR returned a reset token / API key — now what?
 **ATO/RCE immediately.** A leaked password-reset token → reset the victim's password. A leaked API key/session → act as them or hit privileged APIs. A read IDOR that returns **auth material** is Critical, not Medium.
+
+> *Plain version:* the move that turns "I read a stranger's record" into a paid Critical — swap the *name tag* on the victim's coat. Change their recovery email to your inbox, hit "forgot password," and the reset link comes to you. Now you're logged in as them. Always confirm the change stuck by re-reading as B; a `200 OK` isn't proof.
 
 ### Q85. Write IDOR → account takeover — the canonical chain?
 `PUT /users/<B>/email {attacker@inbox}` (A's creds) → request password reset for B → reset link hits attacker inbox → log in as B. Or direct password/MFA/passkey change. Verify on B.

@@ -161,6 +161,8 @@ wget -qO /opt/resolvers.txt https://raw.githubusercontent.com/trickest/resolvers
 
 # 2. The Recon Mindset
 
+*New to this? Here's what "recon" even means.* **Reconnaissance** (recon) is the *map-making* phase of hacking. Before a burglar ever touches a lock, a smart one walks the whole property: how many buildings, which doors and windows exist, which are round the back where nobody looks, which were left unlocked by the builders. In bug bounty the "property" is everything a company runs online, and recon is **drawing the complete map of it** — every website, server, and hidden entry point — *before* you try to break in. The break-in itself (finding the actual bug) is what the other kits (XSS, IDOR, SSRF…) teach; **this kit is purely about finding the doors**. Why it matters so much: *you cannot exploit a door you never found* — and the doors *other hunters* never found are where the un-reported, best-paying bugs live. So the entire goal here is **"find the forgotten back door before anyone else does,"** then hand it to an exploitation kit. Every jargon term below (subdomain, ASN, DNS, vhost, source map…) is explained in plain English the first time it shows up.
+
 Recon's deliverable is **a ranked list of places a bug is likely, that few others have looked at.** Everything maps to one of three questions:
 
 ```
@@ -213,6 +215,8 @@ Avoid sinking a week into: tiny single-domain scopes, "VDP" (no-pay) unless you 
 
 # 4. Root-Domain & Org Expansion
 
+*In plain words:* a big company doesn't own just `target.com` — over the years it buys other companies, registers spare domains (`target.io`, `target.co.uk`), and rents blocks of internet addresses. The jargon: an **ASN** (Autonomous System Number) is basically *"the ID number for a company's own chunk of the internet"* — look it up and it tells you every IP address range they own. **Reverse-WHOIS** means *"search domain-registration records backwards"* — instead of "who owns target.com?", you ask "what *other* domains were registered by the same company/email?" and out pop their siblings. **Acquisitions** are companies they bought, which usually still run on the acquired company's old, less-guarded servers. This section finds all of that — the org's *whole* footprint, not just the obvious domain — which is exactly the surface other hunters skip.
+
 **This is the #1 "what others miss" phase.** Most hunters start at `*.target.com` and stop. Experts first find **every domain the org owns** — acquisitions, alternate TLDs, and IP ranges — because those carry the least competition.
 
 ## 4.1 Find the org's other root domains
@@ -241,6 +245,8 @@ DNS-less assets (a bare IP running an old admin panel) never show up in subdomai
 
 # 5. Subdomain Enumeration — Passive
 
+*In plain words:* a **subdomain** is a prefix on the main domain — `mail.target.com`, `admin.target.com`, `api.target.com` are all subdomains of `target.com`, and each is usually a *separate* server/app with its own bugs. Companies have dozens to thousands of them, and the forgotten ones (`old-admin.target.com`) are gold. **Enumeration** just means *"make the full list."* **Passive** enumeration means you build that list by asking *third-party databases* that already recorded these names — you send **zero traffic to the target itself**, so it's fast, safe, and can't get you blocked. The richest such database is **Certificate Transparency (CT) logs**: every time a site gets an HTTPS certificate, that hostname is published to a public log — so `crt.sh` is basically *"a public list of every hostname anyone ever got a certificate for,"* including internal-sounding ones the company never meant to reveal.
+
 Passive = query third-party datasets (no packets to the target). Fast, safe, in-scope-friendly. Always do this first and most.
 
 ```bash
@@ -262,6 +268,8 @@ cat subs_*.txt | sort -u | anew subs_passive.txt
 ---
 
 # 6. Subdomain Enumeration — Active
+
+*In plain words:* **DNS** (Domain Name System) is the internet's phone book — it turns a name like `api.target.com` into the numeric IP address of the server. **Active** enumeration means *you* now query that phone book directly to discover names, instead of reading third-party databases. Two moves: **brute-force** = *"try thousands of common prefixes"* (`admin`, `dev`, `test`, `vpn`…) against the phone book and keep the ones that answer — this finds hosts that exist but were never published anywhere public. **Permutations** = *"take the names you already found and generate obvious variations"* — if `api.target.com` exists, automatically test `api-dev`, `api2`, `api-staging`, `dev-api`, and so on, because those siblings almost always exist and are far less locked down. **Resolve** just means *"check which names actually answer in the phone book"* (drop the dead ones). This is called active because the DNS lookups are traffic you generate — still light and normally fine, but not the pure zero-touch of passive.
 
 Active = you send DNS queries (resolution, brute, permutations). Finds subs that exist but aren't in any public dataset.
 
@@ -317,6 +325,8 @@ tlsx -l live_ips.txt -san -cn -silent | grep target.com | sort -u | anew subs_al
 
 # 8. Liveness & HTTP Probing
 
+*In plain words:* you now have a big list of subdomain *names*, but many are dead (no server answers) and the live ones you know nothing about yet. **Probing** means *"knock on each one and write down who answers and what they are."* The tool `httpx` visits every name and records: does it respond (**liveness**), what's the **status code** (200 = open page, 401/403 = a locked door that *exists*, 301/302 = a redirect), the page **title** ("Admin", "Login", "Jenkins" — instant jackpot signals), and the **tech stack** (what software runs it). **Fingerprinting** = *"identifying what software/version something runs"* — knowing it's a Spring Boot app or a WordPress site tells you which bugs to try. The output turns a dumb name-list into a **ranked map of real, identified web services**, which is what you actually attack.
+
 Turn your subdomain list into a **map of live, fingerprinted web services**. `httpx` is the workhorse — run it on *everything*, then sort by interesting.
 
 ```bash
@@ -342,6 +352,8 @@ cdn:     behind Cloudflare? → origin-IP hunt may bypass WAF (§9); not-behind 
 
 # 9. Port Scanning & Service Discovery
 
+*In plain words:* a single server can run many services at once, each behind a numbered **port** — think of one building with many numbered doors. Web traffic normally uses port **80** (http) and **443** (https), but admins often leave *other* doors open: a dev app on **8080**, a database admin screen on **9200**, a container control panel on **2375**. Those side doors are frequently unauthenticated and forgotten — the easiest wins. **Port scanning** = *"check which numbered doors are open"* on a host. (Heads-up: scanning is noisier and more intrusive than the DNS work above — some programs forbid it, so check the policy first, §29.)
+
 Web bugs aren't only on 80/443. A forgotten service on `:8080` or a database UI on `:9200` is often the easiest win.
 
 ```bash
@@ -359,6 +371,8 @@ naabu -l subs_resolved.txt -top-ports 1000 -silent | httpx -sc -title -td -o liv
 ```
 
 ## 9.1 Origin-IP hunting (WAF/CDN bypass)
+*In plain words:* many sites hide their real server behind a **CDN** (Content Delivery Network, like Cloudflare) — a middle layer that sits in front, speeds things up, and includes a **WAF** (Web Application Firewall) that *blocks attack traffic before it reaches the app*. So your payloads get stopped at the gate. But the real server (the **origin**) still has its own IP address, and if you can discover that address, you can talk to it **directly** — skipping the CDN's firewall and rate-limits entirely. **Origin-IP hunting** = *"find the real server's address so you can go around the bouncer."* It's one of the highest-value recon tricks because it rescues payloads that were "blocked."
+
 If the app is behind Cloudflare/Akamai, the **real origin IP** may be directly reachable, bypassing the WAF and rate limits:
 ```
 □ Historical DNS (SecurityTrails, viewdns) → IPs before they moved behind the CDN.
@@ -374,6 +388,8 @@ If the app is behind Cloudflare/Akamai, the **real origin IP** may be directly r
 ---
 
 # 10. Technology Fingerprinting & Favicon Hashing
+
+*In plain words:* the **favicon** is that tiny icon in the browser tab. Every copy of the same app serves the *same* icon, so you can compute a **hash** of it — a short fingerprint number — and then search the whole internet (via Shodan, a search engine for servers) for *"every server anywhere serving an icon with this exact fingerprint."* Why that's powerful: if a company runs a custom internal admin tool, its unique favicon lets you find **every instance of that tool the company runs** — including ones on naked IP addresses that never appeared in your DNS list. It's a way to discover assets by their *looks* instead of their *name*.
 
 Knowing the stack tells you the bug classes (§23). Favicon hashing correlates assets across the whole internet.
 
@@ -396,6 +412,8 @@ curl -s https://target.com/favicon.ico | base64 | <mmh3-hash>
 
 # 11. Virtual-Host (vhost) Discovery
 
+*In plain words:* one server (one IP address) can host **many different websites**, and it decides *which* site to show you based on the **`Host:` header** — a line in every web request that says "I want the site called `admin.target.com`." A **virtual host (vhost)** is one of those co-hosted sites. The catch: some of them were never added to the DNS phone book, so subdomain enumeration can't find them — but the server *will* serve them if you simply *ask* for the right name in the `Host:` header. **vhost discovery** = *"try many hostnames in the `Host:` header against one known IP and watch which ones return a real, different page"* — surfacing internal/staging sites that are otherwise invisible.
+
 A single IP can host many sites keyed on the `Host:` header. Some vhosts have **no DNS record** and are invisible to subdomain enum — but reachable if you guess the `Host:`.
 
 ```bash
@@ -412,6 +430,8 @@ ffuf -w /opt/SecLists/Discovery/DNS/subdomains-top1million-20000.txt \
 > From here, work **only the interesting hosts** from §8 (auth/API/dev/admin/dashboards). Don't deep-crawl the CDN'd brochure.
 
 # 12. Historical Data Mining
+
+*In plain words:* the internet has **archives** — services like the Wayback Machine that have been saving snapshots of websites for 20+ years. Tools like `gau` ("get all URLs") and `waybackurls` pull *every URL of the target anyone ever recorded*, including pages and parameters the company **deleted years ago**. Why you care: developers remove a link from the website but often forget to actually turn off the underlying **endpoint** (the backend address that did the work) — so a `/api/old/debug` from 2019 may *still run*, and because everyone forgot it, it's *unguarded*. Mining archives = *"dig up the old, forgotten doors that are still unlocked."* An **endpoint** is just a specific URL/address the app responds to; a **parameter** is an input tacked onto it (`?id=123` — `id` is the parameter).
 
 Archives remember endpoints and parameters the app **deleted** — which are often still live on the backend and **unguarded** because nobody remembers them.
 
@@ -493,6 +513,8 @@ q, search, query, s                                                     → XSS 
 
 # 15. JavaScript Analysis
 
+*In plain words:* every modern website sends your browser a pile of **JavaScript (JS)** files — the code that makes the page work. That code is downloaded to *you*, so **you can read it**, and it's astonishingly revealing: it lists the **API routes** the app calls (`/api/v2/users/{id}/delete`), the parameter names, hidden **feature flags**, sometimes even secret keys the developer left in by mistake. Reading the JS is like *getting a copy of the building's blueprints* — you see doors that aren't linked anywhere on the visible site. Most hunters skip this because it's tedious; that's exactly why it pays. (There's a whole separate kit, JSFiles, dedicated to it.)
+
 **The single most under-exploited recon source.** Modern apps ship their entire client logic — API routes, parameter names, feature flags, sometimes secrets — in JS bundles. Read them.
 
 ```bash
@@ -512,6 +534,8 @@ cat js_files.txt | jsluice urls -R js_dump.txt ; cat js_files.txt | jsluice secr
 ```
 
 ## 15.1 SOURCE MAPS — the biggest secret most hunters skip
+*In plain words:* before shipping, developers **minify** their JavaScript — crush it into unreadable one-line gibberish (short variable names, no spaces) to make it smaller. A **source map** (`.js.map` file) is a companion file that lets browser dev-tools *reverse* that crushing back into the **original, readable source code** — with the real variable names, the developers' comments, and `// TODO: remove this debug route` notes. Developers use maps to debug, but if a `.js.map` is left reachable on the web, *you* can use it to reconstruct their **entire original codebase**. That's the jackpot: you're no longer guessing at the app — *you're reading their actual code*, including the full list of API endpoints and how their permission checks work.
+
 If a `.js.map` is exposed, you can **reconstruct the original, un-minified source** (variable names, comments, dev endpoints, sometimes secrets):
 ```bash
 # Probe for maps next to every bundle:
@@ -537,6 +561,8 @@ Feature flags / debug routes      → hidden functionality to test.
 ---
 
 # 16. API & GraphQL Discovery
+
+*In plain words:* an **API** (Application Programming Interface) is the *machine-facing* side of an app — instead of pretty web pages, it's plain addresses that return raw data (`/api/users/123` → that user's record as JSON). The mobile app and the website both talk to it behind the scenes. APIs are the richest hunting ground because they handle the real data and their access checks are often sloppy (this is where **IDOR/BOLA** — reading *other people's* records by changing an ID — lives). A **spec** (like **Swagger/OpenAPI**) is a machine-readable *menu of every API endpoint*; if you find one, you instantly have the whole map. **GraphQL** is a newer API style where the client asks for exactly the fields it wants in one flexible query — and **introspection** is a built-in feature that, if left on, hands you the *complete list of every query and data type the API supports*. Find the API + its spec/schema = you've got the full backend map most hunters never see.
 
 APIs are where authz/IDOR/logic bugs (the highest-paying, least-duped classes) live. Find every API and its spec.
 
@@ -571,6 +597,8 @@ curl -s https://target.com/graphql -H 'Content-Type: application/json' \
 
 # 17. Subdomain Takeover
 
+*In plain words:* companies point a subdomain at an outside service using a **CNAME** — a DNS record that means *"for `shop.target.com`, actually go to this Shopify/S3/Heroku address."* Trouble starts when the company **cancels the outside service but forgets to remove the CNAME**: now `shop.target.com` points at an empty Shopify slot that *nobody owns*. A **subdomain takeover** = *you* go sign up for that same Shopify/S3/Heroku name, and because the target's DNS still points there, **you now control `shop.target.com`** — a real subdomain of the target, serving whatever you put on it. It's clean, high-severity, and rarely duplicated (few hunters check the *dead* subdomains). It escalates to full account takeover when the parent domain's login cookies are shared with all its subdomains (see the gloss in §21).
+
 A subdomain CNAMEs to a third-party service (S3, GitHub Pages, Heroku, Azure, Shopify, Fastly…) that's **unclaimed** → you register it → you control the subdomain (serve content, steal cookies scoped to the parent, phish, sometimes full ATO via OAuth/cookie scope).
 
 ```bash
@@ -587,6 +615,8 @@ subzy run --targets subs_all.txt                                  # dedicated ch
 ---
 
 # 18. Secrets Hunting (GitHub/GitLab Dorking & Leaks)
+
+*In plain words:* a **secret** is any credential that should be private — an API key, a database password, a cloud access key. Developers constantly leak these by accident: they push code to a **public GitHub repo** with a password still in it, paste config into a public gist, or leave keys in the JS (§15). **Dorking** = *"using precise search queries to fish for those leaks"* — e.g. searching GitHub for `"target.com" password` or `org:Target filename:.env`. A `.env` file holds an app's secrets; `.tfstate` (Terraform state) files often hold *entire* infrastructure passwords. The killer detail: even a secret *deleted* in the newest commit still sits in the **commit history** (`git log`), so you scan the history, not just the current files. A live, working secret is usually an instant **Critical** — it's a key that opens a real door.
 
 Developers leak secrets in public repos, gists, CI logs, and JS. A live secret → direct impact (API access, cloud creds, ATO) and is usually **Critical**.
 
@@ -607,6 +637,8 @@ Developers leak secrets in public repos, gists, CI logs, and JS. A live secret �
 ---
 
 # 19. Cloud Asset Discovery (S3/GCS/Azure)
+
+*In plain words:* companies store files (backups, user uploads, source code) in **cloud storage buckets** — Amazon **S3**, Google **GCS**, or **Azure** blobs. Each bucket has a name and a permission setting, and admins *constantly* leave them set to **public** by mistake. If you can guess or find a bucket's name (they're often predictable — `target-backups`, `target-uploads`, `target-prod`), you test its permissions: **public read** lets you download everything inside (PII, database dumps, source → Critical); **public write** lets you upload a file the app then serves (→ stored XSS / supply-chain). Bucket names hide in JS (§15), page source, CNAMEs (§17), and GitHub (§18). Easy to find, easy to prove, often Critical — just prove it with a *benign* file you delete afterward and never touch other people's data.
 
 Misconfigured cloud storage = public read/write of sensitive data, often **Critical** and easy to prove.
 
@@ -656,6 +688,8 @@ debug/trace/phpinfo     → internal paths, config, sometimes creds → Medium�
 ---
 
 # 21. CORS & Subdomain-Trust Recon
+
+*In plain words:* browsers normally forbid one website from reading another website's private data — that wall is called the **same-origin policy**. **CORS** (Cross-Origin Resource Sharing) is the app's way of poking controlled holes in that wall to say *"these specific other sites are allowed to read my data."* If the app configures CORS carelessly — e.g. it trusts *any* site, or trusts *all* of `*.target.com` — then a site *you* control (or a weak subdomain you took over in §17) can read logged-in users' private data from the main app. Related trap: **cookie scope** — if login cookies are set on `.target.com` (note the leading dot), then *every* subdomain can read them, so one weak subdomain leaks the main app's sessions. This section **draws the trust graph**: which origins the strong app trusts, so you know which *weak* node can break it. (There's a dedicated CORS kit for the exploitation.)
 
 Map which origins the app *trusts*. Misconfigured CORS or over-broad subdomain cookie trust turns one weak subdomain into a breach of the main app.
 

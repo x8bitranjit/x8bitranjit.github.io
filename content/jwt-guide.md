@@ -20,6 +20,8 @@
 > 4. **Lifecycle bugs are real bugs too.** `exp` not enforced, no revocation on logout, replayable (no `jti`), tokens accepted forever, refresh-token abuse — these are payable when they yield persistent access.
 > 5. **Severity rides on what the forged token *does*, not on how clever the forge was.** A forged admin token = Critical. A forged token that changes nothing = nothing.
 >
+> **In plain words — the festival-wristband analogy (used throughout this guide):** think of a JWT as a **hand-stamped VIP wristband**. What's *printed* on it (your name, "VIP") is the **claims** — anyone can read them, that's not hacking. What makes it *genuine* is the venue's special **UV stamp** — that's the **signature**. Attacks are all ways to get a wristband the door still accepts: the door lets in wristbands with **no stamp** (`alg:none`), you **guessed the cheap stamp** they use and bought your own (weak HS256 secret), the "public" half of their fancy lock is **printed on the wall** and a broken scanner treats it as the secret (RS256→HS256 confusion), or the wristband says *"to check me, call THIS number"* and the guard dials the **attacker's** number (`jku`/`jwk`/`kid`). The bug is never "I read my wristband" — it's **"the door accepted a wristband I made."**
+>
 > **Where the money is (memorize this order):** ① **signature bypass that forges an admin/any-user token** (`alg:none`, RS256→HS256, weak-secret crack, `jwk`/`jku`/`kid` injection) → full ATO / vertical priv-esc → ② **claim tampering that the server trusts** (`sub`→other users = IDOR, `role`→admin) → ③ **`jku`/`x5u` SSRF** to attacker-hosted keys (sometimes also an SSRF finding on its own) → ④ **lifecycle failures** (no `exp`/no revocation/replay) yielding persistent or stolen-token access → ⑤ *then* info-leak claims, missing `typ`, and hardening notes as **Low/Info enablers**, not headliners.
 
 ---
@@ -181,6 +183,8 @@ eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9 . eyJzdWIiOiIxMjMiLCJyb2xlIjoidXNlciJ9 . <s
 - **base64url** (not standard base64): `+`→`-`, `/`→`_`, padding `=` stripped. Decoding never needs a key.
 - **JWE** (encrypted) has **five** parts (`header.encKey.iv.ciphertext.tag`) — different beast (**§20**).
 
+> *In plain words:* a JWT is three text chunks glued with dots. **Chunk 1 (header)** = "how I'm stamped" (which algorithm/key). **Chunk 2 (payload)** = "who I am and what I'm allowed to do" (the claims — your `sub`, your `role`). **Chunk 3 (signature)** = the tamper-proof stamp over chunks 1+2. **base64url is just reversible encoding, NOT encryption** — it's like writing in a slightly different alphabet, not a locked box. Anyone can flip it back to plain text with the commands above; you never need a password to *read* a JWT. That's why "I can read the claims" is not a vulnerability — reading is the intended behaviour. The only chunk you *can't* fake without the venue's secret is chunk 3.
+
 ```bash
 # Decode without any tool (Linux):
 echo 'eyJhbGciOiJIUzI1NiJ9' | tr '_-' '/+' | base64 -d 2>/dev/null
@@ -199,7 +203,11 @@ python3 -c "import jwt,sys;print(jwt.get_unverified_header(sys.argv[1]));print(j
 | `PS256/384/512` | RSA-PSS | RSA private/public | same key-source attacks as RS* (**§11–13**) |
 | `EdDSA` | Ed25519/448 | EdDSA keys | malleability/zero-key edge cases (**§14**) |
 
-**The crucial asymmetric insight:** with RS256 the **public** key is, by definition, public. If the server can be tricked into treating it as an **HMAC secret** (§8) or into accepting **your** key (§11/§12), you can sign tokens it will trust.
+> *In plain words — symmetric vs asymmetric (the single most important idea for JWT attacks):*
+> - **Symmetric (HS256/384/512)** = **one shared secret** does both jobs — the same password stamps the wristband *and* checks it. If you learn that one password (crack it, find it leaked in a repo), you can stamp your own wristbands. It's like a rubber stamp kept in a drawer: whoever holds it can both make and verify stamps.
+> - **Asymmetric (RS256/ES256/PS256/EdDSA)** = **two matching keys** — a *private* key stamps (only the server has it) and a *public* key checks (published for anyone). Like a wax seal from a signet ring: the ring (private) is locked away, but everyone has a photo of what a genuine seal looks like (public) so they can verify. You can't forge the seal because you don't have the ring... *unless* the server checks it the wrong way (§8/§11/§12).
+>
+> **The crucial asymmetric insight:** with RS256 the **public** key is, by definition, public. If the server can be tricked into treating it as an **HMAC secret** (§8) or into accepting **your** key (§11/§12), you can sign tokens it will trust.
 
 ## 2.3 Standard claims (RFC 7519) and what they're worth
 ```
@@ -217,7 +225,9 @@ jti   unique id (replay defense)     → missing? replay (§17)
 
 # 3. The Trust Model — How Verification Works & Where It Breaks
 
-Correct verification is: *recompute/verify the signature over `header.payload` using the **expected** key and the **expected** algorithm, then validate the claims (`exp`, `aud`, `iss`, etc.).* Every JWT vuln is a break in one of those steps:
+> *In plain words:* when the door guard checks your wristband properly, they do it in a fixed way: "I stamp *my own* copy of what's printed using *my own* stamp, and if it matches the stamp on your band, you're genuine — then I read whether it says VIP or not." Two things are non-negotiable: the guard uses **the venue's stamp** (not one you brought) and **the venue's method** (not whatever the wristband tells them to use). Every JWT vuln below is the guard breaking one of those rules — using your stamp, using your method, or not checking the stamp at all.
+>
+> Correct verification is: *recompute/verify the signature over `header.payload` using the **expected** key and the **expected** algorithm, then validate the claims (`exp`, `aud`, `iss`, etc.).* Every JWT vuln is a break in one of those steps:
 
 ```
 1. "Which algorithm?"   → if the server trusts header.alg, you pick it: none (§6) or HS where it expects RS (§8).
@@ -273,6 +283,8 @@ curl -s https://target.com/jwks   https://target.com/oauth/jwks  ...
 
 **Always do this first.** A surprising number of apps decode the JWT and trust the claims **without verifying the signature** (misconfigured library, `verify=False`, "decode" used instead of "verify"). If so, you skip all the crypto and just edit claims.
 
+> *In plain words:* before trying any clever attack, ask the dumbest question first — *does the guard even look at the stamp?* Some apps just read what's printed on the wristband and wave you through without checking it's genuine. If that's the case, you don't need to forge a stamp at all — you literally hand-edit "user" to "admin" on the band, leave the (now-wrong) stamp untouched, and walk in. This is the single highest-value check in the whole guide because it's the easiest bug and the most devastating one. Do it before you spend a day cracking secrets.
+
 ## 5.1 The three baseline probes
 ```
 A) TAMPER-NO-RESIGN: change a claim (e.g. role:user→admin) but KEEP the original signature.
@@ -307,6 +319,8 @@ python3 jwt_tool.py <TOKEN> -M pb     # probe-bypass / scan known issues against
 
 The original JWT flaw: `alg:none` declares the token unsigned. If the server honors it, you forge any claims with **no key at all**.
 
+> *In plain words:* the header field `alg` is where the wristband tells the guard *how* to check its stamp — and `alg:none` is the wristband saying **"I have no stamp; just trust what's printed on me."** A broken guard reads that and thinks *"oh okay, no stamp to check"* and lets you in. So you set `alg` to `none`, edit the payload to `role:admin`, and send the token **with the whole third chunk left empty** (`header.payload.` — note the trailing dot and nothing after it). No key, no crypto, instant forge. Modern libraries reject this by default, so when it *does* work it's usually someone who deliberately allowed it — still a Critical, as long as the forged token is accepted on a request that actually checks who you are.
+
 ## 6.1 The attack
 ```
 1. Decode the token, set header.alg = "none" (also try case/whitespace variants — see filters below).
@@ -336,6 +350,8 @@ Also try `alg` with trailing space/null, or duplicate `alg` header keys (parser 
 
 If the token uses HS* (symmetric), the **same secret signs and verifies**. A weak/guessable/default secret lets you re-sign arbitrary claims.
 
+> *In plain words:* HS256 is the "rubber stamp in a drawer" case — **one password** both makes and checks the stamp. If that password is weak (`secret`, `changeme`, a framework's copy-pasted sample key, something leaked in a public GitHub repo or a mobile app), you can **guess it offline** and then stamp your own wristbands. "Offline" is key: you capture *one* real token and let hashcat try millions of passwords against it *on your own laptop* — you never hammer the target, so it's quiet and safe. Once you have the password, you re-stamp a band that says `role:admin` and it's genuinely valid. This only counts as a bug once you *actually crack it* — "they use HS256" on its own is not a finding.
+
 ## 7.1 Crack it
 ```bash
 # hashcat (GPU, fast) — mode 16500 = JWT
@@ -349,7 +365,7 @@ john token.txt --wordlist=rockyou.txt --format=HMAC-SHA256
 python3 jwt_tool.py <TOKEN> -C -d jwt.secrets.list
 ```
 - Prioritize **known-default secrets** first (`secret`, `your-256-bit-secret`, `changeme`, the framework's sample key, leaked `.env`/git secrets). Many real findings are literally `secret` or a tutorial's copy-pasted key.
-- HS384/HS512 use modes `16700`/`16800` historically — check current hashcat mode list; jwt_tool handles all.
+- **One mode covers all three:** `-m 16500` ("JWT") cracks **HS256/HS384/HS512** — hashcat auto-detects the variant from the token, so you don't change the mode per algorithm (16700/16800 are *unrelated* hash types — FileVault 2 / WPA-PMKID — not JWT). `jwt_tool -C` handles all three too.
 
 ## 7.2 Forge with the cracked secret
 ```bash
@@ -367,6 +383,8 @@ python3 jwt_tool.py <TOKEN> -T -S hs256 -p "<cracked_secret>"
 # 8. RS256 → HS256 Algorithm Confusion
 
 The classic asymmetric-to-symmetric confusion. The server expects **RS256** (verifies with the RSA *public* key). If you change the token's `alg` to **HS256** and the server naively uses **the same public key bytes as the HMAC secret**, you can sign tokens with the **public key** — which you have.
+
+> *In plain words (read this slowly — it's the trick that trips everyone up):* the venue normally uses the **wax-seal system** (RS256): a locked-away ring stamps, and a **public photo of the seal** lets anyone verify. You don't have the ring, so you can't forge — *normally*. But some guards are careless: they let the **wristband choose the checking method**. So you rewrite the header to say "check me with the **rubber-stamp** method (HS256)" instead of the wax-seal method. Now the guard reaches for a rubber-stamp password to check you — and the only key it has on file is **the public photo of the seal**. So it uses *that public, everyone-has-it photo* as the rubber-stamp password. But a rubber-stamp password is symmetric: **whoever can verify can also stamp.** You have the exact same public photo, so you stamp your own band with it, and the guard's check passes. In one sentence: **you turned their public verify-only key into a stamp-and-verify key just by changing which method the token asks for.** The public key was always meant to be public — it only becomes dangerous when the verifier lets you pick HS256.
 
 ## 8.1 Why it works
 - RS256 verify: `RSA_verify(publicKey, data, sig)`.
@@ -414,6 +432,8 @@ openssl s_client -connect target.com:443 </dev/null 2>/dev/null | openssl x509 -
 
 The `kid` header tells the server **which key** to load. If the server uses `kid` to build a **file path**, **DB lookup**, or **command**, it's an injection sink — and you may steer it to a key whose value you know.
 
+> *In plain words:* big systems have *many* stamps, so the wristband carries a little label — `kid`, the "key ID" — saying **which stamp to check me with** (e.g. `kid: "2024-signing-key"`). The server takes that label and looks the key up: reads a file named after it, or runs `SELECT key FROM keys WHERE id = '<kid>'`. The problem: **you control that label**, and the server pastes it straight into a filename / SQL query / command. So `kid` is three classic injection bugs in one field — path traversal (point it at a file whose contents you know, like the empty `/dev/null` → the key becomes `""`, then you stamp with an empty password), SQL injection (make the query *return a key you chose*), or command injection (if it ends up in a shell → RCE, a bug all by itself). Always fuzz `kid`.
+
 ## 10.1 Path traversal → predictable-key signing
 ```
 kid points to a file the server reads as the key. Point it at a file with KNOWN/empty content:
@@ -446,6 +466,8 @@ If `kid` reaches an OS command or file read, test command injection / LFI (`kid:
 # 11. `jku` / `x5u` Header Injection — Attacker-Hosted JWKS (SSRF)
 
 `jku` (JWK Set URL) and `x5u` (X.509 URL) tell the server **where to fetch the verification key**. If the server fetches the URL from the **token** without strictly allow-listing the host, you point it at **your** JWKS containing **your** public key, then sign with **your** private key.
+
+> *In plain words:* here the wristband doesn't carry the key — it carries a **phone number to call for the key**: `jku` = "fetch my verification key from *this URL*." A careless guard dials whatever number the band prints. So you host your **own** public key at `https://your-server/jwks.json`, set `jku` to that, and sign the token with your **own** private key. The guard calls your server, gets *your* key, checks your stamp against *your* key — of course it matches. You supplied both the lock and the key. Bonus: the mere fact that the server *fetched a URL you chose* is also **SSRF** (§27) — even if it doesn't honor your key, you can point it at internal addresses (like the cloud metadata service) and prove the server made the request.
 
 ## 11.1 The attack
 ```
@@ -480,6 +502,8 @@ Use an **HTML/JSON injection or open redirect on the trusted domain** to host yo
 # 12. `jwk` Header Injection — Self-Signed Key Embedding
 
 The `jwk` header can **embed the public key directly in the token**. If the server verifies against the **embedded** key instead of its own trusted key, you simply include **your** public key and sign with **your** private key — no hosting needed.
+
+> *In plain words:* `jwk` is the laziest version of the `jku` trick — instead of a phone number to call, the wristband just has **the key printed right on it**: "here's the key to check me with, it's attached." A broken guard checks your stamp against the key *you attached to your own band* — which you obviously made match. No server to host, no URL, one click in Burp's JWT Editor ("Embedded JWK"). Because it needs zero setup, **try it early in Phase 3.** Any server that trusts a key carried inside the token (`jwk`/`jku`/`x5c`) is fully forgeable → Critical.
 
 ```
 1. Generate your RSA keypair.
@@ -533,6 +557,8 @@ Try swapping `alg` to any other supported algorithm and see if verification is m
 
 Once you can forge (Part II) **or** when the signature isn't verified (§5), the claims are yours. Even *without* a forge primitive, always test whether the server **trusts claims it shouldn't** (e.g. it re-reads `role` from the token instead of the DB).
 
+> *In plain words:* Part II got you a genuine-looking stamp; **this section is about what to *print* on the band now that you can.** The payoff claims: change `sub` (your user-ID) to *someone else's* ID → you become them (§24); change `role:user` to `role:admin` → you become staff (§25); change `tenant` to another company → you cross into their data (§26). One discipline matters: change **one claim at a time** and confirm the server's *behaviour* actually changed (you now see admin buttons / another user's data). A token that's *accepted but ignored* — because the app re-checks your real role in its database — is not a bug. "Accepted" ≠ "acted on."
+
 ```
 High-value claims to tamper and observe:
   sub / user_id / uid / account_id   → set to another user's id → horizontal takeover/IDOR (§24)
@@ -551,6 +577,8 @@ High-value claims to tamper and observe:
 # 16. Issuer / Audience Confusion & Cross-Service Reuse
 
 Multi-service and OAuth systems issue tokens for specific **audiences** (`aud`) and **issuers** (`iss`). Weak validation lets a token meant for service A be replayed at service B, or a token from a *different* (attacker-registered) issuer be accepted.
+
+> *In plain words:* a wristband usually says **who issued it** (`iss` — "issued by the North Gate box office") and **where it's valid** (`aud` — "good for the main stage only"). A lazy guard at the *VIP lounge* doesn't check the "main stage only" line and lets your main-stage band in. That's the attack: take a **genuine, correctly-signed** token from a low-value place (a different app, a staging environment, your own OAuth client) and **replay it** at a higher-value endpoint that forgets to check it was meant for somewhere else. No forging needed — the signature is real; the *scoping* is what's broken. In shared-IdP SaaS (everyone uses the same Auth0/Azure tenant), forgetting to pin `aud`+`iss`+`tenant` means **any customer's token validates against any other customer** = cross-tenant auth bypass.
 
 ```
 □ aud not validated:  a low-priv API's token accepted by a high-priv API (privilege crossover).
@@ -587,6 +615,8 @@ OIDC `id_token`s carry extra security claims that relying parties (RPs) routinel
 
 Lifecycle bugs are payable when they yield **persistent or stolen-token access**.
 
+> *In plain words:* even a perfectly-stamped wristband is supposed to **stop working eventually** — it has an expiry time (`exp`), and it should be torn up when you "leave the venue" (log out / change your password). Lifecycle bugs are when that clean-up fails: the band works *forever* (no `exp`, or `exp` is never actually checked), or a band you already surrendered still opens the door after you "left" (no revocation on logout). Why it pays: if a token stays valid after logout/password-reset, then **a token an attacker stole once keeps working even after the victim does the exact thing meant to save them.** The classic proof: grab your token, log out, replay it — if it still returns your data, that's the bug. One-time tokens (password-reset / magic-login JWTs) that can be *replayed* are even juicier — reuse = reset again.
+
 ```
 □ exp not enforced:    set exp far in the future (or remove it) on a forged token, or use an old
                        captured token past its exp → still accepted → forever-session.
@@ -604,6 +634,8 @@ Lifecycle bugs are payable when they yield **persistent or stolen-token access**
 
 # 18. Refresh-Token & Session Lifecycle Abuse
 
+> *In plain words:* many apps hand you **two** tokens — a short-lived **access token** (the wristband you show at every door, expires fast) and a long-lived **refresh token** (a "come back for a fresh wristband" voucher). The voucher is more dangerous than the wristband: if an attacker steals the *refresh* token, they can **keep minting new access tokens forever**. So the questions here: does using the voucher *replace* it with a new one ("rotation") or can the same voucher be used again and again? Does logging out actually cancel the voucher, or does a stolen one keep working? A stolen/forged refresh token = persistent account takeover, and you should call that out explicitly because it *raises* the severity (§30).
+
 ```
 □ Refresh token doesn't rotate:        same refresh token re-mints access tokens indefinitely.
 □ Refresh token not revoked on logout: stolen refresh token = persistent ATO (worst case).
@@ -618,6 +650,8 @@ A stolen/forged **refresh** token is more severe than an access token (re-mints 
 # 19. JWT Storage & Leakage
 
 Where the token lives decides how it gets stolen and how long it lasts.
+
+> *In plain words:* a JWT is a **bearer** token — like cash, whoever holds it *is* you, no questions asked. So "where do you keep the cash?" decides how easily it's pickpocketed. In the **URL**? Then it leaks into browser history, server logs, and the `Referer` header sent to other sites (a password-reset link with the token in the URL is the classic). In **localStorage**? Then *any* XSS on the page can read it and mail it to the attacker (`HttpOnly` can't protect localStorage — only cookies). Leakage on its own is usually Low/Medium — its real value is as the **first link in a chain**: leaked/stolen token → replay as the victim → account takeover. Report the *account compromise* you can demonstrate, not just "the token is in localStorage."
 
 ```
 □ In URL / query / fragment:   leaks via Referer header, browser history, server logs, proxies,

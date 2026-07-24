@@ -11,6 +11,8 @@
 > out-of-scope assets, and for any "exploit" step (bucket write, takeover claim, secret validation) use **benign**
 > proof on **your own** resources / read-only checks. Never test systems you don't have written permission to test.
 
+> 🧭 **New to this? Read this first.** **Recon** (reconnaissance) is the *map-making* phase of hacking — you find **all the doors** into a company's online presence *before* you try to open any of them. Picture a burglar casing a huge estate: counting the buildings, checking which windows the builders left unlatched round the back, noting the gate nobody guards. In bug bounty the "estate" is everything the company runs online (websites, servers, APIs, cloud storage), and recon is drawing the full map of it. The actual break-in — finding a real bug — is what the *other* kits teach; **this kit is only about finding the doors.** Why it matters: *you can't hack a door you never found*, and the doors *other hunters* missed are where the un-reported, best-paying bugs live. So the whole game is **"find the forgotten back door first,"** then hand it to an exploitation kit. Every jargon word below (subdomain, DNS, ASN, vhost, source map, CNAME…) is explained in plain English the first time it appears — look for the *Plain version:* notes.
+
 **Canonical references** (cited throughout — real and worth reading in full):
 - ProjectDiscovery — subfinder / httpx / naabu / katana / nuclei / dnsx / chaos (docs + the recon tooling that defines the field)
 - `tomnomnom` tooling (gau / waybackurls / qsreplace / gf / unfurl / anew) · OWASP WSTG — *Information Gathering*
@@ -43,6 +45,7 @@ Recon is **mapping the target's entire attack surface** — every domain, subdom
 JS file, secret, and cloud asset — and then **routing each finding to a bug class with impact**. It's not a phase you
 rush before "real hacking"; on broad-scope programs, recon **is** most of the edge — you find and test surface nobody
 else mapped.
+*Plain version:* "attack surface" = *every place a bug could possibly be.* A **subdomain** is a prefix on the main domain (`admin.target.com`); an **endpoint** is a specific address the app answers at (`/api/users/5`); a **parameter** is an input on it (`?id=5`). Recon = list *all* of those, everywhere the company runs, then next to each one write down "this could have bug X." That list is the entire product of recon.
 
 ### Q2. Why does recon pay so well (and reduce duplicates)?
 Because the #1 frustration in bounty is **duplicates**, and dupes happen on the **well-trodden main app** where everyone
@@ -75,6 +78,7 @@ the well-trodden main app, where everyone else already is.
 GitHub) — quiet, no rate-limit risk. **Active** = you query the target (DNS brute, port scan, httpx probing, content
 fuzzing) — louder, mind rate limits/automation rules. Do **passive first** (it's free and quiet), then active to fill
 gaps.
+*Plain version:* **passive** = *"read what other databases already recorded about the target"* — you never send a single packet to the company, so it's undetectable and can't get you blocked (e.g. **CT logs** = Certificate Transparency, a public list of every hostname that ever got an HTTPS certificate). **Active** = *"you personally poke the target"* — asking its DNS, knocking on its servers. Louder, so it can trip alarms or rate-limits. Golden rule: milk passive dry first (free and silent), then go active only to fill the gaps.
 
 ### Q7. Why are API keys a "force multiplier" for recon?
 Subdomain tools aggregate dozens of sources, many gated behind free/cheap API keys (Censys, Shodan, SecurityTrails,
@@ -159,6 +163,7 @@ within the rules.
 `amass intel -org "Target Inc"` (ASN/org search), reverse-whois (`amass intel -whois`), `whois <known-IP> | grep -i
 origin` → ASN → enumerate its prefixes, **acquisitions** (Crunchbase/SEC), and a **favicon-hash pivot** (hosts serving
 the same favicon = same org). Each new root domain multiplies your subdomain surface.
+*Plain version:* a big company owns way more than `target.com`. An **ASN** (Autonomous System Number) is *"the ID for a company's own block of internet addresses"* — look it up and you get every IP they own. **Reverse-WHOIS** = *"search domain records backwards"* — instead of "who owns this domain?", ask "what other domains did the same company register?" **Acquisitions** = companies they bought, usually still on old, weakly-guarded servers. Finding all these roots first is the #1 thing other hunters skip.
 
 ### Q22. How do I enumerate subdomains passively?
 `subfinder -d target.com -all -recursive`, `amass enum -passive`, `chaos -d target.com`, and **crt.sh** (CT logs —
@@ -174,6 +179,7 @@ code search. subfinder/amass aggregate most of these — but only with the **API
 2. **DNS bruteforce** with a good wordlist (`puredns bruteforce subdomains-top1m.txt`) — finds unlisted ones.
 3. **Permutations** (`gotator`/`dnsgen`/`altdns`: `dev`→`dev2`, `api`→`api-staging`) — **high yield, under-used**.
 4. Merge everything into `subs_all.txt`.
+*Plain version:* **DNS** is the internet's phone book (name → server IP). **Resolve** = *"check which names actually answer"* (throw out the dead ones). **Bruteforce** = *"try thousands of common prefixes"* (`admin`, `dev`, `test`…) against the phone book and keep the hits — this finds hosts nobody published anywhere. **Permutations** = *"mutate the names you already have"* — if `api.target.com` exists, auto-try `api-dev`, `api2`, `api-staging`; those siblings almost always exist and are far less hardened, and most hunters never run this pass.
 
 ### Q25. Why are permutations "high yield, under-used"?
 Because orgs name predictably (`api`, `api-dev`, `api-staging`, `api2`, `api-internal`). Permutation tools generate
@@ -219,6 +225,7 @@ your manual effort goes.
 A **subdomain** has its own DNS record. A **vhost** is a site served by a shared IP based on the `Host` header, possibly
 with **no DNS record** — you find it by fuzzing the `Host` header against a known IP (`ffuf -H "Host: FUZZ.target.com"`).
 vhost fuzzing finds no-DNS sites on shared infra (§Q49).
+*Plain version:* one server (one IP) can host many websites, and it picks which one to show you based on the **`Host:` header** — a line in your request saying "I want the site called X." A **virtual host (vhost)** is one of those co-hosted sites. A subdomain is listed in the DNS phone book so anyone can look it up; a vhost may **not** be in the phone book at all — it's invisible to normal enumeration, but the server *will* serve it if you simply *ask* for the right name in the `Host:` header. That's why you fuzz the header to surface hidden internal/staging sites.
 
 ### Q35. How do I handle wildcard DNS during enum?
 A wildcard DNS record makes *every* random subdomain "resolve," polluting your results with false positives. Detect it
@@ -278,6 +285,7 @@ When a host is behind a **WAF/CDN** (Cloudflare), finding the **real origin IP**
 bypassing the WAF — often the app there is unprotected. Find it via historical DNS (SecurityTrails), Shodan cert search
 (`ssl.cert.subject.cn:"target.com"`), favicon hash, or SAN leaks; verify with
 `curl -H "Host: target.com" https://<origin_ip>/`.
+*Plain version:* a **CDN** (like Cloudflare) is a middle layer that sits in front of the real server to speed it up and, crucially, includes a **WAF** — a **W**eb **A**pplication **F**irewall that *blocks attack traffic before it reaches the app*. So your payloads die at the gate. But the real server (the **origin**) still has its own address; if you find it, you talk to it **directly** and skip the firewall entirely. **Origin-IP hunting** = *"find the real server's address so you can walk around the bouncer"* — it rescues payloads that were "blocked."
 
 ### Q47. Why is origin-IP discovery so high-value?
 Because it **defeats the WAF** — the same payloads that get blocked at the edge often sail through to the origin. A
@@ -343,11 +351,13 @@ redirect), `id/user/order/doc/file` (IDOR/LFI), `debug/admin/isAdmin` (logic/aut
 Because the bundle is the **backend's blueprint**: endpoints, parameters, hidden routes, roles, feature flags, and
 **secrets**. Collect bundles, extract endpoints (jsluice/LinkFinder) + secrets (trufflehog), and **validate** any live
 secret. (Cross-ref the JS-files kit — JS recon feeds every other bug class.)
+*Plain version:* every site sends your browser its **JavaScript** — the code that runs the page — so *you get a free copy of it*. That code openly lists the API addresses it calls, the parameter names, hidden feature switches, and sometimes secret keys a developer forgot to remove. Reading it is like being handed the building's **blueprints**: you see doors that aren't linked anywhere on the visible site. Tedious, so most people skip it — which is exactly why it pays.
 
 ### Q60. What are source maps and why pull them?
 A reachable `.js.map` reconstructs the **original commented source** (variable names, dead admin code, secret comments).
 Probe `<bundle>.js.map` (even when unreferenced); if exposed, unpack it and re-mine the original source. Exposed prod
 source maps are a recon goldmine.
+*Plain version:* before shipping, developers **minify** their JavaScript — crush it into unreadable one-line gibberish to make it smaller. A **source map** (`.js.map`) is a companion file that *un-crushes* it back into the **original, readable code** with the real names and the developers' comments (including `// TODO: remove this debug route`). Devs use it to debug; if they leave it reachable on the web, *you* use it to read their **actual source code** — the whole API and permission model, no guessing.
 
 ### Q61. How do I enumerate APIs and GraphQL?
 Find specs: `/swagger.json`, `/openapi.json`, `/v2/api-docs`, `/api-docs`, `/swagger-ui.html`. For GraphQL: test
@@ -385,6 +395,7 @@ the high-value hosts. Now run the high-value recon passes (Level 5) and start te
 A subdomain's **CNAME points to a service (S3/Heroku/GitHub Pages/Azure/Fastly/Zendesk) that's no longer claimed** →
 you register it and serve content on the org's subdomain. Find with `nuclei -t takeovers`/`subzy` over `subs_all.txt`;
 confirm the dangling CNAME (a 404/NXDOMAIN fingerprint).
+*Plain version:* a **CNAME** is a DNS record meaning *"for this subdomain, actually go to that outside service"* (e.g. `shop.target.com` → Shopify). The bug: the company cancels the Shopify/S3/Heroku account but **forgets to delete the CNAME**, so the subdomain now points at an empty, *unclaimed* slot. **Subdomain takeover** = *you* sign up for that same slot, and since the target's DNS still points there, **you now control `shop.target.com`** — a genuine subdomain of the target. Clean, high-severity, rarely duplicated (few people check the *dead* subdomains).
 
 ### Q68. Why is takeover high-value, and how do I escalate it?
 Because it's a **clean, high-severity, fast, low-dupe** win — you control content on the org's origin. Escalate: if the
@@ -396,6 +407,7 @@ domain → ATO; or it satisfies a **`*.target.com` CORS/CSP trust** → credenti
 `trufflehog github --org=Target --only-verified` (and over commit **history**), plus GitHub **dorks**: `org:Target
 "BEGIN RSA PRIVATE KEY"`, `"target.com" jdbc:`, `filename:.env DB_PASSWORD`, `filename:.tfstate target`. **Verify**
 every secret before believing it (verified = it actually authenticates).
+*Plain version:* a **secret** is any private credential — an API key, a database password, a cloud access key. Developers leak them constantly by pushing code to **public GitHub** with the password still in it. **Dorking** = *"precise search queries that fish for those leaks."* Two killer details: a secret *deleted* in the latest commit still sits in the **history** (`git log`), so scan history not just current files; and `.tfstate` (Terraform state) files often hold entire infrastructure passwords. A live secret = an instant Critical — it's a working key to a real door.
 
 ### Q70. Why "verify before believing" a secret?
 Because most regex matches are **dead/rotated/placeholder/example** keys. A finding starts at *"this key authenticates
@@ -416,6 +428,7 @@ the search queries.
 `cloud_enum`/`s3scanner` with org-based keywords (`target`, `target-prod`, `target-uploads`, `target-backups`). Test
 **public list** (`aws s3 ls s3://bucket --no-sign-request`) and a **benign write** (upload a `poc.txt` you delete —
 never overwrite real data). A world-readable/writable bucket = data exposure / supply-chain (overwrite a served asset).
+*Plain version:* companies keep files (backups, uploads, source) in **cloud storage buckets** — Amazon **S3**, Google GCS, Azure blobs — and admins constantly leave them set to **public** by accident. Bucket names are often guessable (`target-backups`, `target-uploads`). **Public read** = download everything inside (PII, DB dumps → Critical); **public write** = upload a file the app then serves (→ stored XSS / supply-chain). Prove it with a harmless `poc.txt` you delete afterward, and never touch other people's files.
 
 ### Q74. Exposed `.git`/`.env`/backups — how do I exploit them?
 `/.git/config` reachable → `git-dumper` → reconstruct the **full repo** (source + secrets + history). `/.env` → DB/cloud
@@ -426,6 +439,7 @@ Criticals.
 Inject `Origin: https://evil.com` across hosts and grep for a **reflected ACAO** (+ `ACAC:true`); note the session
 cookie's **`Domain` scope** (`.target.com` = subdomain trust). This builds a **trust map** that turns a subdomain
 takeover/XSS into a credentialed-theft chain (CORS/CSRF kits).
+*Plain version:* browsers normally forbid one website from reading another's private data (the "same-origin policy"). **CORS** is the app's way of poking holes in that wall to allow *specific* other sites in. If it's careless — trusts *any* site, or trusts all of `*.target.com` — then a site *you* control (or a weak sub you took over) can read logged-in users' data. Related: **cookie `Domain` scope** — if login cookies are set on `.target.com` (leading dot), *every* subdomain can read them, so one weak sub leaks the main app's sessions. You're mapping *which origins the strong app trusts*, so you know which weak node breaks it.
 
 ### Q76. Why build a "trust map"?
 Because the highest-impact chains come from **trust pivots**: a takeover of any `*.target.com` + a `.target.com`-scoped

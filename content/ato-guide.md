@@ -11,6 +11,8 @@
 
 ## Read this first — why ATO is the bug everyone actually wants
 
+> 🧭 **New to this? Start here.** **Account takeover (ATO)** means exactly what it sounds like: **you end up logged into someone else's account** — reading their messages, spending their money, changing their settings — without knowing their password the normal way. Think of an online account as a **locked apartment**. There are three ways in: the **front door** (you log in with the password + 2FA), the **spare key hidden for emergencies** (the "forgot password" / account-recovery flow), and the **wristband that says you already came in** (your session cookie/token — the thing that keeps you logged in as you click around). A burglar doesn't need all three; **any one weak entry point** gets them inside. ATO hunting is just checking each of those three entry points on *someone else's* apartment and finding the one the builder left sloppy. This whole guide is organized around those three doors — **who you prove you are, how you recover, how your session persists** — so if the jargon gets heavy, come back to the apartment.
+
 Account takeover is the **outcome that pays**. A triager rates the *impact*, and "I can log into any user's account, including admin, without their password" is the top of almost every severity table. Most individual bugs on this program are only interesting **because they lead to ATO** — a reset-token leak, a missing rate-limit, an IDOR on the email field, an `alg:none` JWT. Your job is to **connect a primitive to a takeover** and prove it end-to-end.
 
 **Why it pays High/Critical — every time:**
@@ -22,6 +24,8 @@ Account takeover is the **outcome that pays**. A triager rates the *impact*, and
 **Report the takeover, not the condition.** "The reset link contains the token in the `Referer`" is a *lead*. "I took over the victim's account by capturing their reset token from the `Referer` sent to my analytics domain, and logged in as them" is the finding. Always prove it with **two accounts you own** (attacker + victim) and show you ended up **inside the victim's account**.
 
 **The one mental model.** An account is protected by three things: **who you prove you are** (login/2FA), **how you recover it** (reset/email-change), and **how the session persists** (tokens/cookies). ATO is breaking **any one** of those for **someone else's** account. Enumerate all three surfaces, attack the weakest, and prove cross-account.
+
+*Why "the weakest of three" matters so much:* a bank can have a flawless login page and unbreakable 2FA, but if the "forgot password" flow emails the reset link to an address **you** control, none of the front-door strength helps — you walked in through the spare-key box. Defenders have to get **all three** doors right; you only have to find **one** that's wrong. That asymmetry is why ATO is so findable and so well-paid. So don't fixate on hammering the login form (the door everyone reinforces) — map all three surfaces first (§1) and spend your time on whichever one looks hand-built or under-checked.
 
 ---
 
@@ -76,6 +80,9 @@ For each, capture the **request/response**, note **what proves identity** and **
 # 2. Reset-link poisoning (0-click, unauthenticated)
 
 The reset email's link is built from a **host** the app trusts from the request — poison it and the victim's click sends **you** the token.
+
+> *In plain words — how this bug is even possible:* when you click "forgot password," the server generates a secret **reset token** (a long random string that proves "whoever holds this may set the new password") and emails you a link like `https://target.com/reset?token=ABC123`. To build that link, the server needs to know its own domain name — and lazy code grabs it from the **`Host` header of your request** instead of from a fixed config value. But **you** control the `Host` header (it's just text in the HTTP request). So you send the "reset password for **victim**" request with `Host: attacker.com`, and the server dutifully emails the *victim* a link like `https://attacker.com/reset?token=VICTIM_SECRET`. When the victim clicks it (they trust the email — it's a real reset they may have expected), their browser sends that secret token **to your server**. You now hold the victim's reset token → you set their password → you're in. It's **0-click for you** (the victim does the clicking) and needs **no login** (the reset flow is pre-auth) — which is why it's Critical. The header tricks below are just ways to smuggle your host past a picky server; see [../HostHeader/](../HostHeader/) for the full menu.
+
 ```
 Host: attacker.com                         → link becomes https://attacker.com/reset?token=VICTIM_TOKEN
 X-Forwarded-Host: attacker.com             → same, via the proxy header (see ../HostHeader/)
@@ -99,6 +106,8 @@ Trigger a reset **for the victim** (`B`), poison the host, and catch the token o
 
 # 4. Weak / mishandled reset tokens
 
+> *In plain words:* the reset token is the master key to the account, so its **only** protection is being **impossible to guess**. "Entropy" is just the technical word for *how unguessable* it is — a 40-character string of true randomness has huge entropy (a lifetime of guessing won't crack it), while a token that's really `MD5(email)`, the current timestamp, or a number that ticks up by one each time (`1001`, `1002`, `1003`…) has *tiny* entropy: if you can figure out the recipe, you can **forge the victim's token without ever seeing it**. So the game here is: request a bunch of tokens for *your own* account, lay them side by side, and look for a pattern (do they share a prefix? go up by one? change only with the clock?). If you spot the recipe, you compute what the victim's token must be. The other failures below are about **lifetime and binding** — a token that never expires, can be used twice, isn't cancelled when the password changes, or (the juicy one) isn't actually tied to a specific user so you can pair *your* valid token with the *victim's* email.
+
 ```
 □ PREDICTABLE: sequential, timestamp-based, short, MD5(email)/MD5(email+time), base64(userid+ts) → forge the victim's token.
 □ NON-EXPIRING / long TTL → a leaked/old token still works.
@@ -111,6 +120,8 @@ Use `poc/reset_token_analyzer.py` to collect many tokens for **your own** accoun
 > **If this → then that:** you collect 20 reset tokens for your own account and they're **sequential or timestamp-correlated** → you can **forge the victim's token** → ATO. Token still works after use/after a second request → session-independent replay.
 
 # 5. Reset-flow parameter abuse
+
+> *In plain words:* here you don't attack the token's strength — you trick the server into **mailing the victim's reset link to your address**. The classic is **HTTP Parameter Pollution (HPP)**: you send the email field **twice** — `email=victim@target.com&email=attacker@evil.com`. Buggy servers often **validate one copy but send the mail to the other**, so the token generated *for the victim's account* lands in *your* inbox. Same idea with **CRLF/CC injection** (sneak a newline + `cc:` so the mail gets a second recipient — you) and with a **`reset_url`/`callback`/`domain`** field in the JSON body that some APIs foolishly trust (point it at your host, exactly like the Host-poisoning in §2). **Email normalization** is the sneaky cousin: `Victim@target.com`, `victim@target.com.` (trailing dot), or a Unicode look-alike may be treated as "different" at registration but "the same" when routing the reset — letting you request a reset the app thinks is for a different address but delivers to the victim's mailbox (or yours). All roads lead to: **you receive a token minted for the victim's account.**
 
 ```
 EMAIL PARAM POLLUTION (get the reset sent to YOU while it's for the VICTIM):
@@ -133,6 +144,8 @@ STEP/RESPONSE MANIPULATION:  change "delivered":false→true, reuse another user
 
 # 6. Structural 2FA bypass (skip the factor entirely)
 
+> *In plain words:* two-factor auth is supposed to be a **second locked door** after the password — even with the right password, you can't get in without also entering the one-time code. A "structural" bypass means the second door was never actually load-bearing: you **walk around it** instead of picking the lock. The two most common holes: **(1) force-browse** — the login already handed you a *logged-in session cookie* after the password step, *before* checking the code, so you just navigate straight to the account page and ignore the "enter your code" screen entirely (the code check was only a UI speed-bump). **(2) response flip** — the app asks *your own browser* "is 2FA satisfied?" and trusts the answer; the verify response says `{"verified":false}` and the client obeys it, so you intercept and change it to `true`. Also always try the **API/mobile login path**: teams often bolt 2FA onto the website but forget the app's API endpoint, so logging in there skips it. The theme: the second factor only counts if the **server** refuses to issue a real session until the code is verified — anywhere it doesn't, the door is decorative.
+
 ```
 □ FORCE-BROWSE: after password step, navigate straight to the post-login/authenticated endpoint, skipping the 2FA page.
 □ RESPONSE MANIPULATION: the 2FA verify returns {"2fa":false}/{"verified":false} → flip to true; or the login returns a
@@ -145,6 +158,8 @@ STEP/RESPONSE MANIPULATION:  change "delivered":false→true, reuse another user
 > **If this → then that:** the password step returns a **usable session cookie before 2FA** → force-browse past the OTP page = **2FA bypass**. The verify response is a client-checked boolean → **flip it**. Always test the **API/mobile** login path — 2FA is often only enforced on the web UI.
 
 # 7. OTP brute-force & weakness
+
+> *In plain words:* a one-time code (the 4–6 digit number texted/emailed to you) is only safe because you get **a handful of tries** before you're locked out — 5 guesses against a million possibilities is hopeless for an attacker. This section is about all the ways that "handful of tries" fails. The headline is **no rate-limit**: if the server lets you submit *unlimited* wrong codes, a 6-digit code (1,000,000 options) falls to an automated script, and a 4-digit one (10,000) falls in seconds — the second factor is gone. Sneaky variants: the counter **resets when you request a fresh code** (so re-request every few guesses), it's counted **per-code instead of per-account**, or you dodge it by rotating the `X-Forwarded-For` header / changing letter-casing / adding a trailing space so the server thinks each attempt is a new client. Then there are code-quality bugs: the OTP is **reused/predictable**, **leaked in the response**, or the server accepts **`0000`/empty/`true`/an array** (type-juggling). You prove the rate-limit gap **safely** by firing a *bounded* batch of wrong codes at **your own** account and showing you're never blocked (`poc/otp_bruteforce.py`) — you never actually crack a real user's code (§18).
 
 ```
 □ NO RATE-LIMIT on the OTP verify → brute a 4–6 digit code (10k–1M space) → bypass. (poc/otp_bruteforce.py detects the gap.)
@@ -184,6 +199,8 @@ STEP/RESPONSE MANIPULATION:  change "delivered":false→true, reuse another user
 
 # 10. Registration abuse & pre-account-takeover (the quiet money bug)
 
+> *In plain words — the bug most hunters walk past:* normally you take over an account that **already exists**. Pre-account-takeover flips the timeline: you **claim the victim's account before they do**, then wait for them to walk into it. Step by step: **(1)** You sign up on the site using the **victim's** email address (`victim@company.com`) and *your own* password. Many sites let you register without proving you own that email, or don't strictly enforce verification — so your half-baked account now "owns" their email. **(2)** Later, the real victim shows up and signs in with **"Sign in with Google"** (or any SSO). The site sees the email `victim@company.com` already has an account and **merges the Google login into your pre-existing account** instead of making a clean new one. **(3)** The victim is now using an account that **you also have the password to** — you log in whenever you like and read everything they do. It's **0-click for the victim** (they did nothing wrong; they just used SSO) and it's *invisible* because there's no "reset" or "hijack" event to alert anyone. The analogy: you filed the paperwork claiming their new house before they moved in, so your key still works after they get theirs. The test is one line — *"register the victim's email, then log in as the victim via SSO and see if I land in the account I made."* This is a classic High/Critical that programs pay well for (USENIX 2022 research, §Appendix C).
+
 ```
 PRE-ACCOUNT-TAKEOVER (classic):
   1) Attacker registers an account using the VICTIM's email (email unverified / verification not enforced).
@@ -204,6 +221,8 @@ CLASSIC merge/overwrite:
 
 # 11. Session/token lifecycle flaws
 
+> *In plain words:* the **session token** is that "wristband" from the intro — the cookie your browser shows on every request so the server keeps treating you as logged-in. This section is about wristbands handed out or recycled carelessly. **Session fixation** is the counter-intuitive star: instead of *stealing* the victim's wristband, you **give them one you already hold a copy of**. You obtain a session id, plant it in the victim's browser (via a URL or cookie the app accepts), and wait for them to log in. If the app **doesn't issue a fresh id at login** — it just "upgrades" the one they already had to logged-in — then the id *you* planted is now an *authenticated* session for *their* account, and you're wearing the matching wristband. The other flaws are lifecycle sloppiness: sessions that **never expire**, **don't get replaced** when privileges change, or — the one that turns every session-theft bug permanent — **stay valid even after the user logs out or changes their password**. That last one means once you've grabbed a session (by any means), the victim *can't evict you* by doing the obvious thing. (`JWT` tokens have their own forgery angles — see [../JWT/](../JWT/).)
+
 ```
 □ SESSION FIXATION: the app accepts a session id you set (URL/cookie) and doesn't rotate it on login → set B's session to a
   value you know, get B to authenticate, you share the authenticated session. (CWE-384)
@@ -222,6 +241,8 @@ CLASSIC merge/overwrite:
 
 # 12. Broken authorization → ATO (IDOR / mass-assignment)
 
+> *In plain words:* here you're logged into **your own** account, but the app lets you **reach into someone else's**. An **IDOR** (Insecure Direct Object Reference) is when a request says *which* account to act on via an id you can just change — e.g. `POST /api/user/1337/email`. Swap `1337` for the victim's id and, if the server doesn't check "wait, is this *your* account?", you've changed the **victim's** email — then you reset the password to the new address and you're in. **Mass assignment** is the sibling: a "update my profile" endpoint blindly accepts whatever fields you send, so you slip in `"role":"admin"` or `"email":"..."` or `"2fa_enabled":false` and the app happily writes them. Both come down to the same missing check — **object-level authorization**, i.e. "does this user own the thing they're trying to change?" Test it by doing an account-change with your two accounts and swapping the id/fields; this is one of the **most common real-world ATOs**, so check *every* "update account" call. (Deep dive: [../IDOR/](../IDOR/).)
+
 ```
 □ IDOR on the change-email / change-password / change-phone endpoint (userId/accountId in path/body) → change B's creds as A.
   → cross-ref ../IDOR/ ; this is one of the most common real ATOs.
@@ -232,6 +253,8 @@ CLASSIC merge/overwrite:
 > **If this → then that:** `POST /api/user/{id}/email` (or a body `userId`) lets account `A` change account `B`'s email → **direct ATO via IDOR** (Critical) → then reset to the new email. Test every "update account" call for **object-level authz** with your two accounts.
 
 # 13. Injection / client-side / infra chains → ATO
+
+> *In plain words — this is the "cash register" of the whole library:* lots of other bugs are only worth real money **because they end in ATO**, and this is where you convert them. Think of each bug class below as a *tool that steals a piece of the victim's identity*, and ATO as *what you do with it*. Found **XSS**? Run JavaScript in the victim's page → grab their session cookie → become them. Found **CSRF** on the change-email form? Make the victim's own browser silently change their email to yours → reset → in. Found permissive **CORS**? Read the victim's authenticated data (their token, their email) from another site → in. **Cache deception** lifts their logged-in page (with secrets) out of a shared cache. **SSRF/Log4Shell** can reach server secrets and forge any session. **SQLi/NoSQLi** can dump the password-hash / reset-token table or bypass the login check outright. The mindset shift for a beginner: don't stop at "I found an XSS" (a Medium) — **drive it to "I logged in as another user"** (a Critical). Same bug, several times the bounty. Each arrow points at the kit that owns the underlying technique.
 
 ```
 XSS (../XSS/)              → steal B's session cookie / act in their session / change their email → ATO.
@@ -267,6 +290,8 @@ Race (../RaceCondition/)   → parallel OTP/reset/coupon → bypass single-use l
 
 # 15. False positives — STOP reporting these (auto-reject)
 
+> *In plain words — the trap that sinks beginner reports:* almost everything in this table is a **lead, not a finding**. You saw the door *look* unlocked, but you never actually walked through it. A triager rejects "the reset token appears in the response" (on your *own* reset — of course you can see your own token) or "the Host header is reflected" (reflection isn't *capture*). The fix is always the same: **finish the takeover of your second account.** Don't report "token in Referer" — report "I captured account B's token via the Referer and logged in as B, here's B's profile." The rule of thumb: if your proof doesn't end with you **inside a different account**, it's not ATO yet — keep going or don't file it.
+
 | # | Commonly mis-reported | Why it's NOT (yet) ATO | What makes it real |
 |---|---|---|---|
 | 1 | **"Reset token in the response"** on **your own** reset | You're seeing your own token | The token is leaked for a **victim** (Referer/host-poison) or you reset **B**'s account |
@@ -294,6 +319,8 @@ Race (../RaceCondition/)   → parallel OTP/reset/coupon → bypass single-use l
 | **Pre-account-takeover (unverified-email merge)** | **High → Critical** | CWE-287 / CWE-640 |
 | **Weak/leaked reset token, not yet exploited end-to-end** | **Medium → High** | CWE-640 | 
 | **Missing rate-limit with no demonstrated bypass** | **Low → Medium** | CWE-307 |
+
+> *In plain words — how to read the table and the vector strings:* severity here tracks **how easy** the takeover is and **whose** account it takes. The two dials that push it to the top are **"needs no login"** (the attacker starts as a random internet stranger) and **"needs no victim action"** (0-click — you don't even need them to click anything). An **admin** account raises everything, because owning admin usually owns the whole app. The scary-looking `AV:N/AC:L/PR:N/…` is just the CVSS shorthand for those same ideas — decode the important letters: **AV:N** = attackable over the *network* (remote), **AC:L** = *low* effort/complexity, **PR:N** = *no privileges* needed (unauthenticated), **UI:N** = *no user interaction* (0-click), and **C:H/I:H/A:H** = *high* damage to the victim's confidentiality/integrity/availability. All-worst across the board is why an unauthenticated 0-click ATO lands at ~9.8. You don't have to memorize the letters — paste your scenario into the calculator (link below) and it builds the string for you.
 
 **CVSS anchors:**
 - Unauth 0-click ATO: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → **~9.8 Critical**.

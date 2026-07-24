@@ -8,6 +8,7 @@
 ---
 
 ## 1. Special-character probes (detect + classify) — Guide §5
+*What & when:* your first move on any suspected sink — send the directory's punctuation one char at a time and watch what changes. The goal is to prove *logic changed* (more rows, an error, a flipped login), not that a character was echoed back. Get this right and you know which of the four attack paths applies.
 
 ```
 *            presence/wildcard — widens results / matches-any
@@ -24,6 +25,7 @@ PROVE LOGIC (not reflection):
 ```
 
 ## 2. Authentication bypass — Guide §9
+*What & when:* the headline payloads — paste into the username field to delete the password half of the login's question. `admin)(&)` (always-true) is the cleanest; the `*` variants log you in as the first/any entry when you don't know a username. Note which account you land on; the first OU entry is often admin.
 
 ```
 # Login filter is usually (&(uid=$user)(userPassword=$pass)).  pass = anything unless noted.
@@ -69,6 +71,7 @@ OR context   (|(fixed)(attr=INPUT)) :
 ```
 
 ## 4. Information disclosure / enumeration — Guide §10
+*What & when:* for search/directory features that *show* results — widen the question until it returns the whole tree, then match on hidden attributes to pull data the UI never shows (emails, group memberships, and — if the server exposes it — password hashes). Quantify the excess for the report; a bounded sample is enough.
 
 ```
 q=*                                  every entry that has the searched attr
@@ -94,6 +97,7 @@ you)(&)                              → (&) absolute-true → check passes
 ```
 
 ## 6. Blind LDAP injection (boolean oracle + char-by-char) — Guide §8/§12
+*What & when:* when nothing is shown but the response *differs* true-vs-false — build the yes/no oracle, then play 20 questions to rebuild hidden values a character at a time. Use `>=`/`<=` to binary-search and cut requests. Prove with a few chars of a benign attribute on your own test account; don't dump the directory.
 
 ```
 # build the oracle (response DIFFERS true vs false):
@@ -124,6 +128,7 @@ displayName / description = *)(objectClass=*       → fires when admin-search/s
 ```
 
 ## 8. WAF / filter / escaping evasion — Guide §14
+*What & when:* when a blacklist blocks the raw metachars — route around it with encoding, the hex escape (apps that un-escape hand the metachar back), or the tiny absolute-true `(&)` that needs no `*`. Apply one layer at a time and re-confirm the filter logic still changes.
 
 ```
 URL-ENCODE:     *→%2a   (→%28   )→%29   \→%5c   &→%26   |→%7c   =→%3d   !→%21   NUL→%00

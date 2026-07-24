@@ -11,6 +11,8 @@
 
 ## Read this first — why SSO bugs are the highest-paying auth bugs
 
+> 🧭 **New to this? Start here — what "SSO / OAuth" actually is.** You've clicked **"Sign in with Google"** on some website. That's this whole topic. Instead of the website checking your password itself, it **outsources the ID check to Google** and just trusts Google's answer. Two roles to name: the **IdP** (*Identity Provider* — Google/Apple/Facebook/Okta, the trusted ID-card issuer) and the **SP** (*Service Provider* — the app you're logging *into*, the bar that accepts the ID card instead of checking IDs itself). The thing Google hands back to vouch for you — a code, a token, or (in SAML) a signed XML "assertion" — is basically a **digital ID card** that says "this is alice@gmail.com, I checked." The app reads that card and logs you in. **Every OAuth/SSO bug is one of three things you can do to that ID card:** ① **steal it in transit** (make Google mail *your* card to the attacker), ② **forge it** (hand the bar a fake card it doesn't check properly), or ③ **confuse whose card it is** (get the bar to accept a card issued for someone else, or for a different bar). Pull any of those off and you're logged into a victim's account **without their password and usually without their 2FA** — which is exactly why these pay so well. The terms below (`redirect_uri`, `state`, PKCE, `id_token`, IdP, SP, assertion, XSW) are each defined in plain English the first time they appear; when the acronyms pile up, come back to the "Sign in with Google" ID-card picture.
+
 Federated auth is the front door to the whole account. A single flaw in the *handshake* — a mis-validated `redirect_uri`, a missing `state`, an unsigned SAML assertion, an unverified `email` claim — hands you **someone else's session without their password and without their MFA**. That is why these consistently pay **High–Critical**:
 
 - You are not bypassing *one* control, you are bypassing **authentication itself**.
@@ -25,6 +27,8 @@ Federated auth is the front door to the whole account. A single flaw in the *han
 2. **Forge or tamper the assertion** — unsigned/`alg:none`/XSW/unverified claim.
 3. **Confuse the trust** — wrong audience, wrong IdP (mix-up), wrong client (confused deputy), unverified email → account linking.
 4. **Replay the assertion** — no nonce/no NotOnOrAfter/no one-time-use.
+
+*In plain words — "assertion" is just the ID card, and the flow is always the same three beats:* the **IdP vouches** for who you are (issues the card), the **SP believes** the card, and the SP then **cuts you a local session** (your logged-in cookie for that app). OAuth 2.0, OpenID Connect (OIDC), and SAML are three different *brands* of ID card doing the identical dance — OAuth/OIDC use short web codes and JWT tokens, SAML uses a signed XML document — so once you understand one, the attacks port across all three. And the four bug families map straight onto the ID-card metaphor: **steal** the card while Google is mailing it (§2.1), **forge** a card the bar won't inspect closely (§2.7, §3.1–3.2), **confuse** the bar about whose card it is or which bar it's for (§2.9, §2.10), or **reuse** an old card that should have expired (§2.3, §3.6). Keep that grid in your head and every payload below has an obvious "why."
 
 ---
 
@@ -51,7 +55,7 @@ Federated auth is the front door to the whole account. A single flaw in the *han
 | `SAMLRequest`/`SAMLResponse` (base64 XML), `RelayState`, `/saml/acs`, `/sso`, `AuthnRequest`, `<saml:Assertion>` | **SAML 2.0** |
 | Provider-specific: `login.microsoftonline.com`, `accounts.google.com`, `appleid.apple.com`, `facebook.com/dialog/oauth` | branded IdP |
 
-**OIDC discovery** (free recon): fetch `https://IDP/.well-known/openid-configuration` → gives `authorization_endpoint`, `token_endpoint`, `jwks_uri`, `userinfo_endpoint`, supported `response_type`s, `scopes_supported`, whether **PKCE** (`code_challenge_methods_supported`) is advertised. `jwks_uri` gives the signing keys — pull it for ID-token validation testing (see [JWT](#/jwt/guide)).
+**OIDC discovery** (free recon): fetch `https://IDP/.well-known/openid-configuration` → gives `authorization_endpoint`, `token_endpoint`, `jwks_uri`, `userinfo_endpoint`, supported `response_type`s, `scopes_supported`, whether **PKCE** (`code_challenge_methods_supported`) is advertised. `jwks_uri` gives the signing keys — pull it for ID-token validation testing (see [../JWT/JWT_TESTING_GUIDE.md](../JWT/JWT_TESTING_GUIDE.md)).
 
 ## 1.2 Which grant / flow?
 
@@ -74,6 +78,8 @@ Federated auth is the front door to the whole account. A single flaw in the *han
 ## 2.1 `redirect_uri` validation — steal the code/token (the #1 OAuth bug)
 
 The IdP sends the code/token to `redirect_uri`. If you can make it point at **your** host (or a page you control on the client), you steal the credential. Test **every** relaxation of the match:
+
+*In plain words — this is "make Google mail the ID card to the attacker":* after Google verifies you, it has to **send the code/token back to the app somehow.** It does that by redirecting your browser to a URL the app specified: the **`redirect_uri`** (literally "the address to send the answer to"). Google is *supposed* to only ever send it to the app's real callback address — so the app pre-registers something like `https://app.example.com/callback` and Google checks the `redirect_uri` in the request against that list. **The #1 OAuth bug is a sloppy check of that address.** If you can tweak `redirect_uri` to point at a server *you* control and Google still accepts it, then Google mails the victim's login code straight to **you** → you redeem it → you're in their account. Every line below is a different way the app's address-check might be too loose: matching only a *substring* of the allowed domain, allowing *subdomains*, being fooled by a `@` (which secretly changes the real host — same trick as SSRF §9), by a `#`, a backslash, or by sending the parameter *twice*. Try each; you're hunting for any variant Google accepts that lands the code on your box.
 
 ```
 # Baseline (legit):
@@ -105,7 +111,7 @@ redirect_uri= (empty)          # some IdPs fall back to first registered / or re
 redirect_uri=https://app.example.com/callback&redirect_uri=https://evil.com/
 ```
 
-**If the exact-match is strict:** pivot to an **open redirect or reflected-page on the *allowed* origin** (see [SSRF](#/ssrf/guide) and open-redirect testing). `redirect_uri=https://app.example.com/valid/callback` where `/valid/callback?returnUrl=` bounces to your host → the code lands on the allowed host, then the app forwards it (in `Location` or `Referer`) to you. This is the single most common way strict `redirect_uri` gets broken in the wild.
+**If the exact-match is strict:** pivot to an **open redirect or reflected-page on the *allowed* origin** (see [../SSRF/](../SSRF/) and open-redirect testing). `redirect_uri=https://app.example.com/valid/callback` where `/valid/callback?returnUrl=` bounces to your host → the code lands on the allowed host, then the app forwards it (in `Location` or `Referer`) to you. This is the single most common way strict `redirect_uri` gets broken in the wild.
 
 **Code/token exfiltration once it lands on a host you influence:**
 - **Referer leak:** if the callback page loads any third-party resource (analytics, an `<img>`, an ad) *before* stripping the code from the URL, the full URL (with `?code=`) leaks in the `Referer` header to that third party.
@@ -117,6 +123,8 @@ redirect_uri=https://app.example.com/callback&redirect_uri=https://evil.com/
 ## 2.2 `state` — CSRF on the OAuth flow / forced login (login CSRF → stealthy ATO)
 
 `state` is the OAuth CSRF token binding the callback to the user who started the flow. Test:
+
+*In plain words — `state` is a "receipt number" that stops mix-ups:* when *you* start a "Sign in with Google" flow, the app generates a random value called **`state`** and remembers it; Google echoes it back on the callback, and the app checks "does this returned receipt match the one I handed out?" That check ties *the login coming back* to *the person who started it*, which blocks an attacker from splicing **their** Google login into **your** browser session. If `state` is **missing, not checked, guessable, or reusable**, that protection is gone — and the scary payoff is the **account-linking silent takeover** described just below: many apps let you "connect your Google account" to an existing account, and with no working `state` an attacker can trick a logged-in victim's browser into connecting the *attacker's* Google identity to the *victim's* account. After that, the attacker just clicks "Sign in with Google" and lands inside the victim's account. The four tests below check whether `state` is missing, ignored, replayable, or predictable — any "yes" opens that door.
 
 1. **Missing entirely?** Start a flow, delete `state` from the authorization request and the callback — does login still succeed? → **CSRF vulnerable.**
 2. **Not validated?** Change `state` to a constant/`state=x` on the callback — accepted? → not bound.
@@ -140,6 +148,8 @@ redirect_uri=https://app.example.com/callback&redirect_uri=https://evil.com/
 
 PKCE binds the `code` to a secret (`code_verifier`) the client holds, so a stolen code is useless. Attacks:
 
+*In plain words — PKCE is a "claim ticket" that makes a stolen code worthless:* the authorization **code** is like a coat-check ticket you redeem for the real tokens. Problem: if someone steals the ticket (§2.1), they can redeem it. **PKCE** (pronounced "pixy," *Proof Key for Code Exchange*) fixes that: at the *start* of the flow the app invents a random secret (`code_verifier`), sends only a *hash* of it (`code_challenge`) to Google, and must present the **original secret** when redeeming the code. So even if an attacker steals the code, they can't redeem it without the secret they never saw — the coat-check now demands a matching stub only the real app holds. PKCE is the modern defense that makes code theft harmless, **so the attacks here are about defeating it**: does the app still work if you **omit** PKCE entirely (then a stolen code is redeemable again)? Can you **downgrade** to `method=plain` (where the "hash" is just the secret itself, so seeing the request reveals it)? Does the token endpoint even **check** the verifier, or accept any value? If any of these succeed, PKCE is decorative and §2.1's stolen code becomes a full takeover again.
+
 - **PKCE omission accepted:** the client normally sends `code_challenge`; try the flow **without** it — if `/token` issues tokens without a `code_verifier`, PKCE is optional → a stolen code is fully usable.
 - **`code_challenge_method=plain` downgrade:** force `plain` (challenge == verifier) so knowing the challenge (it's in the request) == knowing the verifier.
 - **Verifier not checked:** send any `code_verifier` at `/token` → if accepted, PKCE is theater.
@@ -161,7 +171,9 @@ PKCE binds the `code` to a secret (`code_verifier`) the client holds, so a stole
 
 ## 2.7 OIDC ID-token validation (forge the identity)
 
-The `id_token` is a JWT the SP must verify (signature + `iss` + `aud` + `exp` + `nonce`). Every JWT attack applies — see **[JWT](#/jwt/guide)** — plus OIDC-specific claim checks:
+The `id_token` is a JWT the SP must verify (signature + `iss` + `aud` + `exp` + `nonce`). Every JWT attack applies — see **[../JWT/JWT_TESTING_GUIDE.md](../JWT/JWT_TESTING_GUIDE.md)** — plus OIDC-specific claim checks:
+
+*In plain words — this is "forge the ID card":* in OpenID Connect the ID card is an **`id_token`**, a **JWT** — a little signed packet that says `{"email":"alice@app.com", "sub":"123", ...}` plus a cryptographic **signature** proving Google really issued it. The app is supposed to (1) **verify the signature** (is this genuinely from Google?), and (2) **check the claims** — is it *for us* (`aud` = our app), from the *right issuer* (`iss` = Google), *not expired* (`exp`), and tied to *this* login (`nonce`). Every forgery bug is the app **skipping one of those checks.** The killers: **`alg:none`** — you strip the signature off and set the algorithm to "none," and if the app accepts an *unsigned* token you can write `email: victim@app.com` yourself and become anyone (this is a JWT classic — full details in the JWT kit). **Signature never verified** — some apps just base64-decode the token and trust the contents; then you edit freely. **`aud` not pinned** — you take a *real, validly-signed* token that Google issued for a *different* app you control, and present it here; if this app doesn't check the token was meant *for it*, it accepts someone else's genuine card. Each bullet below is one skipped check → forge the victim's identity → ATO.
 
 - **`alg:none`** — strip the signature; SP accepts an unsigned id_token → forge any `sub`/`email` → ATO.
 - **Signature not verified** at all (SP just base64-decodes the JWT) → forge freely.
@@ -174,11 +186,13 @@ The `id_token` is a JWT the SP must verify (signature + `iss` + `aud` + `exp` + 
 
 ## 2.8 `request_uri` / JAR / PAR — SSRF & injection
 
-OIDC lets the client pass the request by reference: `request_uri=https://client/req.jwt`. The **IdP fetches that URL server-side** → **SSRF from the IdP** (`request_uri=http://169.254.169.254/latest/meta-data/...`, internal hosts, `file://`). Also test `request` (JWT-secured Authorization Request/JAR) for parameter injection. See **[SSRF](#/ssrf/guide)** for the metadata/cloud-creds escalation.
+OIDC lets the client pass the request by reference: `request_uri=https://client/req.jwt`. The **IdP fetches that URL server-side** → **SSRF from the IdP** (`request_uri=http://169.254.169.254/latest/meta-data/...`, internal hosts, `file://`). Also test `request` (JWT-secured Authorization Request/JAR) for parameter injection. See **[../SSRF/SSRF_TESTING_GUIDE.md](../SSRF/SSRF_TESTING_GUIDE.md)** for the metadata/cloud-creds escalation.
 
 ## 2.9 Account linking & unverified email → **pre-account-takeover** (the money bug)
 
 Modern SSO ATO usually comes from **identity linking on an unverified attribute**, not crypto:
+
+*In plain words — the highest-value SSO bug needs no crypto at all, just the app trusting an email it shouldn't:* most apps decide "which local account does this Google login belong to?" by **matching the email address** on the ID card. That's fine *if* the email was actually verified — but two things break it. **(1) Unverified email:** the ID card carries an `email_verified: true/false` flag, and if the app **ignores** that flag (or uses an IdP that lets you set any email without proving you own it), you just log in with the *victim's* email on your card and the app hands you the victim's account. Always check whether the app honors `email_verified:false`. **(2) Pre-account-takeover** (the "seed it first" trick, often **zero-click** for the victim): the *attacker* registers on the app with the **victim's email** (via normal password signup) *before the victim ever shows up*. Later the real victim clicks "Sign in with Google" with that same email, and the app — seeing the email already exists — **merges** the Google login into the account the attacker already made. Now both share the account, the attacker still knows the password, and they have **persistent** access to the victim's data. It's like registering your name on someone's future mailbox before they move in — your key still works after they get theirs. This class is frequently Critical and is where a lot of real SSO bounty money is; the "Sign in with Apple" 2020 bug (Apple would issue a valid token for *any* email you asked for) is the famous example.
 
 - **Unverified `email` linking:** SP links/logs-in by matching the IdP's `email` claim to a local account. If the IdP (or a self-hosted/custom IdP, or a provider that doesn't verify email like some SAML/OIDC setups) lets you set an arbitrary `email`, register with the **victim's email** → SSO logs you into the victim's account. Always check `email_verified` handling: if the SP ignores `email_verified:false`, you win.
 - **Pre-account takeover:**
@@ -207,9 +221,13 @@ Modern SSO ATO usually comes from **identity linking on an unverified attribute*
 
 # PART III — SAML 2.0 attacks
 
+*In plain words — SAML is the same "ID card" idea, but the card is a signed XML document.* Where OAuth uses short codes and JWT tokens, **SAML** (common in corporate/enterprise "log in with your company account" setups) uses a big **XML** file called a **`SAMLResponse`** containing an **assertion** — the statement "this user is bob@corp.com" — wrapped in a **digital signature** proving the company's IdP really issued it. The SP's entire trust rests on that **XML signature**: if you can make the SP accept an assertion whose signature *doesn't actually cover the part you tampered with*, you forge any identity (including `admin@target.com`). So the SAML attacks below are all about **breaking or side-stepping that signature check.** First step is always: base64-decode the `SAMLResponse` (it may also be DEFLATE-compressed on the redirect binding), pretty-print the XML, and find the `<ds:Signature>` — what element does it actually sign (the whole Response? just the Assertion? nothing?), because the gaps between "what's signed" and "what the app reads" are exactly where the bugs live.
+
 SAML's security rests entirely on the **XML signature** over the assertion. Break the signature verification and you forge identities. Decode `SAMLResponse` (base64, sometimes DEFLATE for redirect-binding) → pretty-print the XML → locate `<ds:Signature>`, what it references (`Reference URI="#..."`), and whether the **Assertion** (not just the Response) is signed.
 
 ## 3.1 XML Signature Wrapping (XSW) — the flagship SAML attack
+
+*In plain words — XSW is a "two documents in one envelope" trick:* the SP does two separate jobs on the XML, and XSW exploits the fact that they can end up looking at **different parts**. Job one: the **signature-checker** finds the signed element and confirms "yes, the IdP signed this — valid." Job two: the **application** pulls out the username to log in. XML Signature Wrapping puts **two assertions in the document** — the *original* genuine signed one (kept intact so the signature still validates) *and* a *forged* one you inserted with `NameID = admin@target.com`. Then you arrange the structure so the **signature-checker still validates against the original** ("signature valid! ✅") while the **application reads your forged copy** ("logging in as admin ✅"). Both are true at once, and you're admin without ever breaking the crypto — you just made the two jobs look at different elements. The "8 canonical patterns" are 8 different ways to arrange the wrapper (sibling before, sibling after, nested, hidden in `Extensions`, etc.) because different SP libraries get fooled by different arrangements — so you try all 8. **SAML Raider** (a Burp plugin) applies all eight and re-signs automatically, which is why it's the standard tool here.
 
 The verifier checks the signature over the *original* element, but the application reads a *different, injected* element. You wrap/relocate nodes so both "the signature is valid" and "the app reads my forged assertion" are true. **All 8 canonical XSW patterns** (per Somorovsky et al. / the SAML Raider tool):
 
@@ -221,6 +239,8 @@ The verifier checks the signature over the *original* element, but the applicati
 Automate with **SAML Raider** (Burp) — it applies all 8 and re-signs; test each because different SP libraries fall to different patterns. Change `NameID`/attributes to the victim (`admin@target.com`) in the forged copy.
 
 ## 3.2 Signature exclusion / stripping
+
+*In plain words:* XSW keeps a real signature around to fool the checker; **signature stripping is even blunter — just delete the signature and see if anyone notices.** Some SPs only verify a signature *if one is present*, so if you **remove `<ds:Signature>` entirely** and submit a plain unsigned assertion with `NameID = admin@target.com`, a badly-configured SP shrugs and logs you in. Same idea with an unsigned assertion tucked inside a signed wrapper (the SP checks the wrapper's signature but trusts the unsigned inner assertion). Always try the "no signature at all" case — it's a one-line edit and it still works on real systems.
 
 - **Remove `<ds:Signature>` entirely** and submit an unsigned assertion with your chosen `NameID`. Poorly configured SPs (or ones that only *validate if present*) accept it → **instant forge**.
 - **Sign nothing but claim it's signed:** empty/garbage signature accepted.
@@ -243,7 +263,7 @@ Depending on how the SP extracts text nodes after canonicalization, it may read 
 
 ## 3.5 XXE & SSRF in the SAML parser
 
-`SAMLResponse` is attacker-supplied XML → a prime **XXE** target. Inject a DOCTYPE with external entities to read files / SSRF / blind-OOB — full technique in **[XXE](#/xxe/guide)**:
+`SAMLResponse` is attacker-supplied XML → a prime **XXE** target. Inject a DOCTYPE with external entities to read files / SSRF / blind-OOB — full technique in **[../XXE/XXE_TESTING_GUIDE.md](../XXE/XXE_TESTING_GUIDE.md)**:
 
 ```xml
 <!DOCTYPE root [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
@@ -281,13 +301,15 @@ If you obtain the IdP's **token-signing private key** (e.g., ADFS `AD FS` key fr
 | SAML XXE | File read (`/etc/passwd`, app config, private keys) or blind OOB. | High/Critical |
 | Implicit-flow token in fragment + any open redirect | Exfiltrate `access_token` → API access as victim. | High |
 
-**Chaining map:** [JWT](#/jwt/guide) (id_token forgery, jku/kid) · [XXE](#/xxe/guide) (SAML parser) · [SSRF](#/ssrf/guide) (`request_uri`, metadata) · open-redirect on the client (code exfil) · [CSRF](#/csrf/guide) (login/link CSRF) · [CORS](#/cors/guide) (token endpoint / userinfo readable cross-origin).
+**Chaining map:** [../JWT/](../JWT/) (id_token forgery, jku/kid) · [../XXE/](../XXE/) (SAML parser) · [../SSRF/](../SSRF/) (`request_uri`, metadata) · open-redirect on the client (code exfil) · [../CSRF/](../CSRF/) (login/link CSRF) · [../CORS/](../CORS/) (token endpoint / userinfo readable cross-origin).
 
 ---
 
 # PART V — Validity, false positives, severity, reporting
 
 ## 5.1 False-positive auto-reject table
+
+*In plain words — the trap that gets SSO reports rejected:* almost every row here is someone reporting the *observation* instead of the *exploit*. "The `state` is missing," "the token is a readable JWT," "the SAML is base64" — these describe how OAuth **normally works** or a *potential* weakness, not a proven attack. The bar is simple and unforgiving: **you have a finding only when you actually logged in as (or gained the privileges of) an identity you shouldn't have** — or stole a credential that demonstrably lets you. If the server *rejected* your tampered token/assertion, that's the defense *working*, not a bug. Before you write anything up, ask: "did I end up inside a second account I own but shouldn't have accessed?" If not, keep escalating (or drop it).
 
 | Observation | Why it's NOT (yet) a finding | What would make it real |
 |-------------|------------------------------|-------------------------|
@@ -316,6 +338,8 @@ If you obtain the IdP's **token-signing private key** (e.g., ADFS `AD FS` key fr
 | Missing `state`/PKCE with **no** demonstrated exploit | **Low/Info** | CWE-352 |
 | Verbose OAuth error disclosure | **Low/Info** | CWE-200 |
 
+*In plain words — how to read this severity table:* an SSO bug's rating tracks three dials. **Reach:** can you take over *any* account, or only under rare conditions? **Interaction:** does the victim have to do nothing (zero-click, the attacker seeds it — worst), click one link (one-click), or nothing exploitable at all? **MFA bypass:** because SSO *replaces* the password, taking over via SSO usually **skips the victim's 2FA entirely** — a big severity multiplier worth stating explicitly. So a zero/one-click full ATO on any account (email-linking, XSW, forged id_token, stolen-code-redeemed) is **Critical**; something that only leaks a token needing a separate leak-sink, or escalates a scope without full takeover, drops to High/Medium; and a "missing `state`/PKCE" with **no demonstrated login as someone else** is just Low/Info (a config note, not a finding — see §5.1). Always rate by the *account takeover you actually proved*, not by the misconfiguration you spotted.
+
 Justify with reach (all users?), interaction (zero/one-click?), and **MFA bypass** (SSO ATO usually skips MFA → argue up).
 
 ## 5.3 SAFE-PoC discipline (mandatory)
@@ -330,7 +354,7 @@ Justify with reach (all users?), interaction (zero/one-click?), and **MFA bypass
 
 ## 5.4 Reporting
 
-Lead with **impact + reproduction**, exactly which validation failed, and the fix. Use the report template. Include: the full authorization request + callback, the tampered value, the accepted response, and the resulting authenticated session (screenshot/`whoami`-equivalent). Map to the OAuth Security BCP (RFC 9700) / OIDC spec clause that's violated — reviewers act faster when you cite the exact requirement.
+Lead with **impact + reproduction**, exactly which validation failed, and the fix. Use [OAUTH_REPORT_TEMPLATE.md](OAUTH_REPORT_TEMPLATE.md). Include: the full authorization request + callback, the tampered value, the accepted response, and the resulting authenticated session (screenshot/`whoami`-equivalent). Map to the OAuth Security BCP (RFC 9700) / OIDC spec clause that's violated — reviewers act faster when you cite the exact requirement.
 
 ## 5.5 References & further reading
 
@@ -348,7 +372,7 @@ Lead with **impact + reproduction**, exactly which validation failed, and the fi
 
 **CVEs & real-world ATO:**
 - **"Sign in with Apple" ATO** — Bhavuk Jain, 2020 ($100k) — Apple issued a valid JWT for any requested email; SPs trusted it → any-account ATO.
-- **SAML comment/canonicalization** — CVE-2018-0489 (ruby-saml), CVE-2017-11427/11428 (python/ruby OneLogin), Duo Labs "SAML vulnerabilities" family (2018).
+- **SAML comment/canonicalization** — CVE-2017-11427/11428 (OneLogin python-saml / ruby-saml), CVE-2018-0489 (Shibboleth/OpenSAML), Duo Labs "SAML vulnerabilities" family (2018, US-CERT VU#475445).
 - **Microsoft / Auth0 / Okta** OAuth ATO advisories; countless HackerOne `redirect_uri` + account-linking-CSRF reports.
 
 **Standards & scoring:** CWE-287 / 290 / 347 / 352 / 601 / 918 · CVSS 3.1 calculator (first.org/cvss/calculator/3.1).
@@ -356,8 +380,8 @@ Lead with **impact + reproduction**, exactly which validation failed, and the fi
 ---
 
 ## Companion files
-- **[Attack Arsenal](#/oauth/arsenal)** — every payload + tool command.
-- **[Testing Checklist](#/oauth/checklist)** — phase-by-phase test list + auto-reject.
-- **the report template** — report skeleton.
-- **[Zero to Expert (Q&A)](#/oauth/qa)** — 100-question study + field reference.
-- **[PoC Scripts](#/oauth/poc)** — `oauth_redirect_fuzz.py` · `saml_xsw.py` · `oauth_flow_audit.py` · `idtoken_tamper.py`.
+- **[OAUTH_ARSENAL.md](OAUTH_ARSENAL.md)** — every payload + tool command.
+- **[OAUTH_CHECKLIST.md](OAUTH_CHECKLIST.md)** — phase-by-phase test list + auto-reject.
+- **[OAUTH_REPORT_TEMPLATE.md](OAUTH_REPORT_TEMPLATE.md)** — report skeleton.
+- **[Oauth_Zero_to_Expert.md](Oauth_Zero_to_Expert.md)** — 100-question study + field reference.
+- **[poc/](poc/)** — `oauth_redirect_fuzz.py` · `saml_xsw.py` · `oauth_flow_audit.py` · `idtoken_tamper.py`.

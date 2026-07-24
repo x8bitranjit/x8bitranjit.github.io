@@ -11,6 +11,10 @@
 
 ## Read this first — why one published package owns the whole build
 
+*New to this? Here's the whole bug in one picture.* Imagine a company that orders office supplies by **nickname**. Internally everyone calls one item "the blue binder," and they buy it from their trusted **in-house supply closet**. But their automated ordering system has a lazy rule: *"buy 'the blue binder' from whoever offers the newest version — the in-house closet **or** the public marketplace."* An attacker lists a product on the **public** marketplace called "the blue binder," stamps it **version 99**, and waits. The next automatic order grabs the **attacker's** box because it's "newer." And here's the sting: when the mailroom **opens** the box, it runs whatever's inside. In software, "opening the box" = the package **install step**, and that install step can **run code**. So the attacker's code executes **inside the company's build machines** — exactly where the crown-jewel secrets live. That's dependency confusion: same name, wrong source, code runs.
+
+*In plain words — the three ingredients you need:* (1) a package name the company uses **privately** (the nickname), (2) that name is **unclaimed** on the public marketplace (nobody registered it there, so you can), and (3) the company's install tooling is willing to **look at the public marketplace** and **prefer the higher version**. Get all three and their build installs *your* package.
+
 Organisations build software against **internal packages** — `@acme/config`, `acme-internal-utils`, `com.acme:shared` — that live on a **private** registry and are never meant to be public. Package managers resolve a name across the registries they're configured with, and a **misconfiguration** (public registry as primary/fallback, or "pick the highest version across all sources") lets an attacker **publish a public package with that exact internal name** and a **higher version**. The next `npm install` / `pip install` — very often inside **CI/CD** — pulls the **attacker's** package, and its **install hook runs code**. That's **RCE where the secrets live**: cloud keys, artifact-signing keys, source, deploy access.
 
 **Why it pays Critical:**
@@ -55,6 +59,8 @@ Reference anytime: payloads/commands → `DEPENDENCY_CONFUSION_ARSENAL.md`; chec
 
 # 1. The mechanic & the ecosystems
 
+*In plain words:* a **package** is a reusable chunk of code someone else wrote that your app pulls in (like `react` or `requests`). A **registry** is the online store it's downloaded from — `npmjs.org` for Node, `pypi.org` for Python, etc. A **private registry** is the company's own internal store. The bug lives in the **resolver** — the piece of tooling that, given a name, decides *which store to download from*. If the resolver can see both the private store and the public one, and it picks by "newest version," an attacker who publishes a higher-numbered public package with the same name **wins the download**. The table below is the same trick across every language's tooling — read the "Code-exec on install" column as *"this is the moment the attacker's code runs."*
+
 ```
 Vulnerable pattern:  the org depends on a PRIVATE name (e.g. @acme/config) but the resolver can also reach the PUBLIC
                      registry, and either (a) prefers public, or (b) picks the HIGHEST version across all sources.
@@ -74,6 +80,8 @@ Attack:              publish @acme/config@99.99.99 to the public registry with a
 > **If this → then that:** the target uses **`--extra-index-url`** with pip, or an npm **scope they didn't reserve**, or "highest version wins" resolution → those internal names are **prime DC candidates**. Go/Cargo are more namespace-safe → pivot to **repo-jacking** (§10) there.
 
 # 2. Harvest internal package names (the recon)
+
+*In plain words:* before you can claim a name, you have to **learn the nicknames** — the internal package names the company uses but never published. Those names leak everywhere: in files that list a project's dependencies (a **manifest** — `package.json`, `requirements.txt`, etc.), in the compiled front-end JavaScript your browser downloads, and in the company's public code repositories. A **lockfile** (`package-lock.json`, `yarn.lock`) is a manifest's stricter cousin that pins exact versions — great for you because it lists *every* dependency, including deep internal ones. Your whole job in this phase: collect a candidate list of internal-looking names + which ecosystem each belongs to.
 
 ```
 LEAKED MANIFESTS (the goldmine) — find these exposed on the web / in repos / wayback:
@@ -106,6 +114,8 @@ Exclude: well-known public packages (react, lodash, requests) - those aren't con
 
 # 4. Claimability check (the core detection)
 
+*In plain words:* "claimable" just means **can I register this name on the public store myself?** You check by asking the public registry for the name and reading the answer: **404 (not found)** = nobody has it, so *you* can publish it = **claimable**. **200 (found)** = someone already owns it, so you can't. This is a plain read-only lookup — you're not publishing anything yet, just window-shopping to see which nicknames are still up for grabs. A name the company **uses privately** that **404s publicly** is the golden ticket.
+
 For each candidate name, query the **public** registry (read-only) — does it exist?
 ```
 npm:      GET https://registry.npmjs.org/<name>            -> 404 = UNCLAIMED (claimable) ; 200 = taken
@@ -127,6 +137,8 @@ A name that is **referenced internally** but **404s on the public registry** = a
 
 # 6. Resolution rules (why the public copy wins)
 
+*In plain words:* the name being claimable isn't enough — the company's tooling still has to **choose your public copy over their private one**. This section is the "why would it ever do that?" answer, and there are only a few common reasons. The big one is **highest-version-wins**: many tools, when the same name exists in two stores, just grab the biggest version number — so you publish `99.99.99` and beat their private `1.4.2` every time. The other reasons are ordering/fallback (public store checked first, or used when the private one doesn't have the name) and merge policies in proxy servers like Artifactory/Nexus. `pip`'s `--extra-index-url` is the textbook offender because it literally queries *both* stores and takes the highest.
+
 ```
 HIGHEST-VERSION-WINS: publish version 99.99.99 -> beats the private 1.x. (npm/pip-extra-index/nuget/rubygems)
 PUBLIC-PRIMARY / FALLBACK: public registry is tried first, or when the private is unreachable/misses the name.
@@ -143,6 +155,8 @@ Artifactory/Nexus VIRTUAL repo: the merge policy may prefer the "remote" (public
 > Everything here publishes to a **real public registry**. Do it **only** for a name you're **authorized** to claim, with a **benign** beacon, and **unpublish immediately** after the callback. This is the exact Birsan-style proof programs accept — keep it that way.
 
 # 7. Build a benign callback package
+
+*In plain words:* now you prove the bug is real — but **safely**. An **install hook** is a little script a package is allowed to run automatically the moment it's installed (npm's `preinstall`/`postinstall`, Python's `setup.py`). Attackers abuse this to run malware; **you** use it to run one harmless "ping home." That ping is a **callback** (also called **OOB** — *out-of-band* — because it comes back over a separate channel, DNS or HTTP, not the web page you were poking). You stand up a listener (interactsh/Burp Collaborator gives you a unique URL), and your package's hook sends a request to it carrying only a **token** (a random ID so you know it's yours) plus the **hostname** (so you can tell a CI build from a laptop). That's the entire PoC: *"my code ran, here's where."* No stealing, no shell, no persistence — because the callback alone already proves code execution.
 
 ```
 The install hook must do ONE thing: a DNS/HTTP callback to YOUR OOB host carrying a NON-SENSITIVE marker so you can
@@ -179,6 +193,8 @@ PyPI (setup.py):
 
 # 9. Typosquatting & combosquatting
 
+*In plain words:* dependency confusion tricks the **machine** (the resolver picks the wrong source). **Typosquatting** tricks the **human** — you register a package named like a common misspelling of a popular one (`reqiests` for `requests`), so when a developer fat-fingers the install command, they get yours. **Combosquatting** is the same idea using easy-to-confuse separators (`acme-utils` vs `acme_utils` vs `acmeutils`). Lower hit-rate than true confusion because it depends on someone making a typo, but it's a real, reportable supply-chain risk — same benign-proof discipline applies.
+
 ```
 Publish a package whose name is a common TYPO or look-alike of a real dependency (reqiests/requsts vs requests;
 python-dateutil vs dateutil; cross-env vs crossenv) so a mistyped install pulls yours.
@@ -188,6 +204,8 @@ Detection/defense angle: flag the org's deps that have obvious squat neighbours;
 > Same benign-proof discipline. Typosquatting relies on human error rather than resolver config, so it's lower-probability but real — report as a supply-chain hygiene issue with a benign proof.
 
 # 10. Repo-jacking / namespace reuse (the Go/GitHub angle)
+
+*In plain words:* some ecosystems (Go especially) name packages by their **full web address**, e.g. `github.com/someuser/somepkg`. That looks safe — you can't confuse a full URL. But if `someuser` **deleted or renamed** their GitHub account, that username is now **free to register**. Grab it, host a package at the exact old path, and every project still importing `github.com/someuser/somepkg` now pulls **your** code. That's **repo-jacking** — hijacking an abandoned name rather than confusing a resolver. Same for expired domains and dead npm/PyPI maintainer accounts. This is your go-to move when the ecosystem is too namespace-strict for classic confusion.
 
 ```
 A dependency references a GitHub org/user that was RENAMED or DELETED (go.mod: require github.com/olduser/pkg; a broken
@@ -211,6 +229,8 @@ LOCKFILES: a pinned lockfile (package-lock.json/poetry.lock with hashes) BLOCKS 
 
 # 12. What a callback proves (and how to scope it)
 
+*In plain words:* **CI/CD** is the company's automated **build/test/deploy pipeline** — the robot that turns code into shipped software. It's the juiciest place for your code to run because that robot holds the master keys: cloud credentials, code-signing keys, deploy access, the full source. So a callback *from a CI machine* isn't "I ran a script" — it's "I can run code where all the secrets live." The important discipline: you now *could* read those secrets, but you **describe** them in your report ("build env exposes `AWS_*`, `NPM_TOKEN`") rather than **stealing** them. Proving execution + naming what's reachable = full Critical impact, cleanly.
+
 ```
 CI/CD RCE:   the beacon ran in the build -> code exec with the pipeline's identity: cloud IAM role, registry/signing creds,
              source access, deploy keys. Chain to ../SSRF/ (cloud metadata) mentally — but the pipeline creds are often right there.
@@ -226,6 +246,8 @@ DEV MACHINE: a callback from a workstation -> RCE on a developer -> lateral move
 # PART VI — VALIDITY, SEVERITY & REPORTING
 
 # 13. False positives — STOP reporting these (auto-reject)
+
+*In plain words:* a **false positive** is something that *looks* like the bug but isn't a payable finding — and this class has a lot of them because the early steps (a leaked name, a claimable name) feel like wins but are only **leads**. The rule to keep in your head: the finding isn't "I *found* an internal name" or "I *could* claim it" — it's "**their build actually ran my package and called home.**" Everything short of that callback is homework, not a report. Read the table as "tempting thing I saw" → "why a triager will close it" → "what would make it real."
 
 | # | Commonly mis-reported | Why it's NOT (yet) DC | What makes it real |
 |---|---|---|---|
@@ -254,6 +276,8 @@ DEV MACHINE: a callback from a workstation -> RCE on a developer -> lateral move
 | **Internal name leaked, but unclaimable / lockfile-pinned** | **Low / Informational** | — |
 
 **CVSS anchor (CI/CD RCE):** `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` → **~9–10 Critical** (scope-changed: your code runs in their trusted build). Anchor to **CWE-829**; note **CWE-427** (resolution order) and **CWE-494** (no integrity check).
+
+*Decoding that CVSS string in plain English:* **AV:N** (Attack Vector: Network) = you attack over the internet, no physical/local access needed — you just publish to a public registry. **AC:L** (Attack Complexity: Low) = no special timing or luck; it fires on their next build. **PR:N** (Privileges Required: None) = you don't need any account on their systems. **UI:N** (User Interaction: None) = nobody has to click anything; the pipeline pulls it automatically. **S:C** (Scope: Changed) = the damage crosses a trust boundary — your code, published to a public store, ends up executing inside their *private, trusted* build — and this single flag is what pushes the score into Critical territory. **C:H/I:H/A:H** (Confidentiality/Integrity/Availability: High) = once your code runs there it can read secrets, alter builds, and break the pipeline. All maxed, this exact vector computes to a **perfect 10.0**. (Many raters instead score it **AC:H** — success depends on the target's resolver config and a build actually running, which are outside your control at attack time — and that eases it to **~9.x**; still Critical either way.)
 
 ---
 

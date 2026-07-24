@@ -14,6 +14,9 @@
 ---
 
 > ### ⚡ READ THIS FIRST — why most file-upload reports underpay (or get closed)
+>
+> *In plain words — the anchor for this whole class:* uploading a file is like **handing a package to a building's mailroom.** Three things decide whether it's dangerous, and only one of them is about the package itself: (a) what's *inside* it (your bytes), (b) the *label* you wrote (filename + declared type — you can write anything), and — the one that actually matters — (c) **which room it gets delivered to and who opens it.** A "bomb" left in the mailroom bin is harmless; the *same* package delivered to the server's control room and opened = remote code execution. So "the mailroom accepted my package" (§1 below) is a non-event. **Where it's stored, what URL serves it, and which handler opens it** is the whole finding.
+>
 > 1. **"It accepted my file" is not a vulnerability.** Uploading a `.php` is meaningless unless that file is **stored somewhere reachable** and **executed/rendered as code**. The finding is *execution or impact*, not acceptance. Always answer: **where is it stored, what URL serves it, and with what `Content-Type`/handler?** (§4 — the most important phase.)
 > 2. **Two questions decide everything:** (a) *Can I control the file's interpretation?* (extension/MIME/magic/processing) and (b) *Can I reach the stored file in a context that executes it?* (web root + exec handler = RCE; app origin + inline = XSS; a parser = XXE/SSRF). No reachable execution context → no high-severity bug.
 > 3. **Where it's served caps the severity.** A `.svg` with script served **inline from the app origin** is stored XSS; the *same* file served from a **sandboxed CDN** with `Content-Disposition: attachment` is near-zero. Find the serving URL *first*.
@@ -133,11 +136,13 @@ pip install fuxploider 2>/dev/null || git clone https://github.com/almandin/fuxp
 interactsh-client -v        # gives you a host that logs DNS/HTTP hits (proves XXE/SSRF)
 ```
 
-> **Windows:** tamper in Burp on Windows fine; run `exiftool`/`convert`/`zip` payload-building in **WSL**. Keep `poc/` reachable at `the kit's poc/ folder`.
+> **Windows:** tamper in Burp on Windows fine; run `exiftool`/`convert`/`zip` payload-building in **WSL**. Keep this kit's `poc/` folder reachable from WSL (via the `/mnt/<drive>/…` mount of wherever this kit lives) so the generators run there.
 
 ---
 
 # 2. Upload Anatomy — The Controls & Where They Break
+
+> *In plain words:* your package passes through a line of inspectors — the browser's JS check, then the label-reader (MIME), the name-reader (extension), the byte-peeker (magic), the re-wrapper (re-encode), and finally the delivery step (storage + serving). **Each inspector is a separate lock to pick**, and they don't talk to each other well. Find which ones exist, then break the weakest.
 
 An upload passes through a chain of controls. **Each is a separate bypass target** — enumerate which ones exist (§4), then break the weakest:
 
@@ -181,6 +186,8 @@ Most hunters test the avatar and stop. The high-impact uploads are the **boring,
 ---
 
 # 4. Baseline — What Is Accepted, Where Stored, Where Served
+
+> *In plain words:* before trying to defeat any inspector, **follow one honest package through the whole system** and watch where it ends up. Upload a normal image, then answer three questions: where is it stored, what URL hands it back, and with what type/handler? Those three answers *are* your severity ceiling — a web-root + PHP-handler landing means RCE is on the table; a sandboxed CDN with `attachment` means it never will be. Skipping this is why hunters waste a day fuzzing extensions against a hardened endpoint.
 
 **This is the single most important phase. Do it before any bypass.** Severity is decided here, not by the payload.
 
@@ -243,6 +250,8 @@ curl -X POST https://target/upload -F "file=@shell.php;type=image/png;filename=s
 ---
 
 # 6. Content-Type / MIME Bypass
+
+> *In plain words:* "type" is claimed in **three separate places** — the header you send, the filename extension, and the actual bytes — and you control all three. A weak server trusts just one; a strong one cross-checks them. The whole game of this section is figuring out *which* one the validator trusts, then making that one lie while your payload still runs.
 
 MIME/type validation is the **most common** upload control and the most varied — there are **five different ways** a server can "check the type," and each has a different bypass. The amateur move is to change one header and give up when it fails. The expert move is to **identify which of the five models is in play** (probe in §4.2), then apply the matching bypass. Type is asserted in **three independent places** — and a robust server cross-checks all three:
 
@@ -346,6 +355,8 @@ Double:  shell.jpg.php (if it takes the LAST ext)  ·  shell.php.jpg (if a misco
 ---
 
 # 8. Magic-Byte / Signature / Polyglot Bypass
+
+> *In plain words:* the byte-peeker inspector only reads the *first few bytes* to decide "is this a real image?" A **polyglot** is a file that is honestly two things at once — a valid image to the peeker AND valid code to the engine that runs it later. You put a real `GIF89a` header up front (peeker happy) and your `<?php …?>` in a spot the image format ignores but PHP still scans (engine happy). One file, two truths.
 
 The server reads the first bytes to verify it's "really" an image. Defeat by **prepending valid magic bytes** or building a **polyglot** (valid image AND valid script).
 
@@ -457,6 +468,8 @@ The strongest defense: the server **re-encodes** every image (resize/convert/str
 
 # 12. RCE via Web Shell
 
+> *In plain words:* the jackpot. It only happens when **all four links line up**: your file survives the inspectors, lands in a folder the web server *executes*, that server has the matching engine (PHP/ASPX/JSP), and you can *request the file's URL*. Miss any one and there's no RCE — a `.php` served as plain text is not RCE, it's a screenshot of a `.php`. Prove it with a marker that prints a unique token + the hostname; that's a complete Critical without ever dropping a real backdoor.
+
 The crown jewel. Achieved when an uploaded file with server-side code lands in a location with a **matching execution handler** and you can request it.
 
 ## 12.1 The full chain (all must be true)
@@ -515,6 +528,8 @@ Upload as `x.svg` (or polyglot `x.svg` with `image/svg+xml`). **It's only XSS if
 
 # 14. XXE via Uploaded Files
 
+> *In plain words:* lots of "files" are secretly XML — an SVG, and every Office doc (DOCX/XLSX are just zipped XML). If the server parses that XML with external entities switched on, your uploaded "image" or "resume" can order it to read a local file (`/etc/passwd`, cloud creds) or make internal requests. The tell: an upload that produces a **preview or thumbnail** is an upload the server *parsed* — test XXE first.
+
 File formats that are **XML under the hood** become XXE when the server parses them with external entities enabled → file read, SSRF, sometimes RCE.
 
 ## 14.1 XML-based upload formats to target
@@ -566,6 +581,8 @@ Host a DTD that exfiltrates a file to your collaborator. See `poc/xxe.svg` + `po
 
 # 16. Image / Document Processing Exploits
 
+> *In plain words:* when a target re-encodes every image, most hunters give up on RCE — that's exactly the mistake. If the server *processes* your file with a buggy library (ImageMagick, Ghostscript, exiftool, FFmpeg), **the processing itself is the exploit**: your payload is a genuinely valid file of an allowed type that detonates *inside* the parser. No web shell, no executable extension, no reachable web root needed — which is why these Criticals sit un-found on "secure" allowlist+sandbox uploads.
+
 When the server **processes** the file with a vulnerable library, the *processing itself* is the RCE/SSRF/file-read — **no web shell, no executable extension, no reachable web root needed.** This is the single most under-tested path to Critical on "secure" allowlist+sandbox uploads, because the payload is a *valid file of an allowed type* that detonates inside the processor. Full payload recipes & CVE list: `FILE_UPLOAD_ARSENAL.md` §P.
 
 **The processor RCE matrix (match the library + version — fingerprint via §4/§11 behaviour & error strings):**
@@ -600,6 +617,8 @@ When the server **processes** the file with a vulnerable library, the *processin
 ---
 
 # 17. Archive Attacks — Zip Slip & Zip Bomb
+
+> *In plain words:* when the server unzips your archive it trusts the *names inside the zip*. Name an entry `../../../../var/www/html/shell.php` and a careless extractor writes it **outside** the intended folder — into the web root — giving you file-write-anywhere from a plain "upload a .zip we'll extract." A symlink entry is the read-side twin: it can slurp `/etc/passwd` or overwrite `~/.ssh/authorized_keys`.
 
 Features that **extract** uploaded archives (themes, plugins, bulk-import, backup-restore) are dangerous.
 

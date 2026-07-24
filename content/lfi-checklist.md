@@ -10,6 +10,8 @@
 - [ ] Grepped JS/source (JS-files kit) for include/require/readFile/sendFile/render with user input.
 - [ ] Noted any base path/suffix leaked in error messages/stack traces.
 
+*Why this matters:* one test decides your whole strategy — does the sink **show** the file or **run** it? Show = read secrets (bounded); run (PHP include) = the RCE ceiling. Nailing read-vs-include, the stack, and any forced prefix/suffix here tells you exactly which Part-II bypass and which impact path to chase.
+
 ## PHASE 1 — Baseline (§4)
 - [ ] Confirmed traversal by reading a known file (`/etc/passwd` / `win.ini`), sweeping depth 1–12.
 - [ ] Determined **READ vs INCLUDE** (raw source returned = read; executed output / poisoned PHP runs = include).
@@ -21,9 +23,13 @@
 - [ ] Bypassed `../` filtering (`....//`, `%252f`, overlong, backslash) — found the one that lands.
 - [ ] Satisfied any allowlist/prefix then traversed out.
 
+*Why this matters:* on PHP this is the fastest high-value win — `php://filter` fetches files *encoded* so the server shows you source instead of running it, handing you config/`.env`/keys even from a show-only sink and even past a forced `.php` suffix. Those secrets are both a finding on their own and the setup for RCE.
+
 ## PHASE 3 — Wrappers (§9/§10)
 - [ ] (PHP) Dumped source via `php://filter/convert.base64-encode/resource=` and decoded.
 - [ ] Pulled **config/.env/keys**; checked `allow_url_include` (for data://) from a dumped config/phpinfo.
+
+*Why this matters:* this is the climb past "I can read a file" to the payout — secrets that unlock a pivot, or an include sink turned into a shell. Try the RCE paths in order of what's available (log → session → wrapper → upload → filter-chain, the universal fallback). Every proof is a single benign marker on your own target, artifacts cleaned up.
 
 ## PHASE 4 — Impact: climb to RCE (§10–§16)
 - [ ] **Secrets/source disclosure (§10):** read config/.env/DB-cloud creds/private keys (redact; validate read-only).
@@ -37,6 +43,8 @@
 - [ ] **Windows/other (§16):** `web.config` `machineKey`/conn strings → forge auth; non-PHP → disclosure/SSTI pivot.
 - [ ] **Server/infra traversal (§16.3):** Apache 2.4.49/50 `/cgi-bin/.%2e/…` (file read + RCE) · nginx `alias` off-by-slash · IIS unicode · proxy `%2e/%2f` decode mismatch.
 - [ ] **Second-order / stored LFI (§16.4):** stored a traversal/wrapper payload in a theme/template/locale/filename → triggered the consumer → read/RCE (often higher-priv context).
+
+*Why this matters:* an LFI that stops at `/etc/passwd` is a Medium that triagers discount — the report must show *real secrets* or *code execution*, prove it with a benign marker, and clean up every artifact (poisoned logs/sessions/uploads). Lead with the impact and the outcome CWE, not the passwd dump.
 
 ## PHASE 5 — Validate → report
 - [ ] Escalated past `/etc/passwd` to **secrets or RCE** (FP check §18 — passwd alone ≈ Medium).

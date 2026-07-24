@@ -9,6 +9,7 @@
 ---
 
 ## PHASE 0 — Recon & Lab (§1/§3)
+*Why this matters:* IDOR's whole proof rests on **two coats you own** — so registering two same-role accounts first isn't optional, it's the oracle. And you can't test ownership on a reference you never found, so map *every* id (headers and nested JSON hide the easy wins) before touching a payload.
 - [ ] Registered **two same-role accounts** A & B (+ optional admin, + 2nd tenant/org).
 - [ ] Proxied the app as **both** A and B through every feature (UI + the API the mobile app calls).
 - [ ] Mapped **every object reference** (path/query/body/JSON/header/cookie/GraphQL/file) into an objects table.
@@ -16,6 +17,7 @@
 - [ ] Recorded, per object: reference location, **format**, and an **example reference owned by B**.
 
 ## PHASE 1 — Baseline ★ (§4) — THE ORACLE, DO FIRST
+*Why this matters:* this phase is what makes an IDOR impossible to dismiss as a false positive. Establishing "does A's session reach B's object?" per object — and classifying the id format — is what separates a paid finding from a closed "that's your own data." Do it before any payload.
 - [ ] Captured **B's** request + B's object reference; captured **A's own** equivalent request.
 - [ ] Classified the **ID format** (drives §6/§7); **decoded** any encoded id.
 - [ ] Asked the defining question: does the server enforce an **ownership/role check**, or trust the reference?
@@ -41,6 +43,7 @@
 - [ ] ✅ Produced a request in **A's session** that reads or changes **B's object** (or a confirmed function-level bypass).
 
 ## PHASE 3 — IMPACT ⭐ (§11–§17)
+*Why this matters:* a single read of one record is Low–Medium; the bounty is the multiplier. Push every confirmed IDOR toward enumerate-the-population (mass PII), write→ATO, BFLA→admin→RCE, or cross-tenant — the highest one you can prove is your severity. Never submit the first read without asking "now scale it or write it."
 - [ ] **Read → enumerate** (§11): prove the pattern (small set), state population (`X-Total-Count`/max-id) → mass-PII.
 - [ ] Did the leaked object contain **auth material** (reset token / API key / session)? → pivot to **ATO/RCE**.
 - [ ] **Write → ATO** (§12): change B's email/recovery → reset → log in as B; or direct pw/MFA/key change. **Verify on B.**
@@ -52,6 +55,7 @@
 - [ ] Stated impact in one sentence: *"Using A's creds I read/changed B's <object>, affecting <any user/admin/tenant>, at <single/mass> scale."*
 
 ## PHASE 4 — Validate → Severity → Report (§19–§24)
+*Why this matters:* the two-account proof is the single line that gets IDORs paid — "A's creds, B's object, B's data returned." If you can't state that, you don't have a finding yet. Lead with it, keep the enumeration small and ethical, and title with impact + scale, not "IDOR found."
 - [ ] ★ **TWO-ACCOUNT PROOF**: A's credentials, B's object, B's data returned or B's object changed (re-read as B) (§19).
 - [ ] Passed the **false-positive filter** (§20): NOT one-account, NOT public data, NOT your-own-data, NOT 403-with-no-bypass, NOT victim-token-required.
 - [ ] Set **CVSS 3.1** + **CWE-639** (+ CWE-285/863/566/915 as fits) (§21); stated **scale** & **who the victim can be**.

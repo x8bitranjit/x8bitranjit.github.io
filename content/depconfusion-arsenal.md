@@ -9,6 +9,8 @@ report. The finding is a **callback from the target's build** — never a payloa
 
 ## 0. Recon — where internal package names leak (Guide §2)
 
+*What & when:* your very first step — you can't claim a name you don't know. These commands harvest **internal package names** from files that list dependencies (**manifests**), from compiled front-end JavaScript (**bundles**), and from committed config that proves a private store exists. Run the `grep` lines against any JS/manifest you download; run the GitHub/GitLab **dorks** (targeted search queries) to find them at scale. Output = a candidate name list for §1.
+
 ```
 # manifests exposed on the web / in public repos / wayback:
 package.json  package-lock.json  yarn.lock  .npmrc                  (npm)
@@ -30,6 +32,8 @@ nuget.config  ->  <add key="acme" value="https://nuget.internal.acme.com/..."/>
 
 ## 1. Claimability check — read-only public-registry lookups (Guide §4)
 
+*What & when:* run this on every name from §0 to find the ones you can actually register. Each line asks the public store for the name and prints only the **HTTP status code** — `404` means "not found" = **claimable** (the golden ones), `200` means taken. It's completely read-only (you're not publishing), so it's safe to run at scale. The `-o/dev/null -w '%{http_code}'` just tells curl "throw away the body, show me only the status number."
+
 ```
 npm:      curl -s -o/dev/null -w '%{http_code}' https://registry.npmjs.org/<name>          # 404 = UNCLAIMED
           curl -s https://registry.npmjs.org/-/org/<scope>/user                            # scope reserved?
@@ -44,6 +48,8 @@ Composer: curl -s -o/dev/null -w '%{http_code}' https://repo.packagist.org/p2/<v
 
 ## 2. Resolution: make the public copy win (Guide §6)
 
+*What & when:* a claimable name is useless unless the target's tooling will actually *pick* your public copy over their private one. This is the checklist of conditions that make that happen — the headline being **publish a high version number** (`99.99.99`) so "highest-version-wins" tooling grabs yours. Match one of these to the target's setup (from the config you found in §0) before you bother publishing.
+
 ```
 - publish a HIGH version so highest-version-wins resolution prefers yours:   "version": "99.99.99"
 - pip --extra-index-url: pip installs the HIGHEST version across the default(public)+extra(private) -> a higher public version wins
@@ -54,6 +60,8 @@ Composer: curl -s -o/dev/null -w '%{http_code}' https://repo.packagist.org/p2/<v
 ---
 
 ## 3. Benign beacon templates (execution proof ONLY — Guide §7)
+
+*What & when:* this is the actual proof package, used **only** on an authorized name after §1–§2 confirm it's worth it. The **install hook** (`preinstall` for npm, the body of `setup.py` for PyPI) runs one harmless "phone home" the moment the package installs. It sends a **beacon** — your OOB URL + a token + the machine's hostname — and nothing else. That single callback proves your code executed on their build; that *is* the finding, so there's never a reason to add data theft.
 
 > The install hook must do exactly ONE thing: a DNS/HTTP callback to YOUR OOB with a token + hostname/username. No env dumps,
 > no file reads, no shell, no persistence. `poc/benign_callback_pkg.py` generates these (and does NOT publish).
@@ -88,6 +96,8 @@ setup(name="acme-internal-utils", version="99.99.99",
 
 ## 4. Publish → confirm → UNPUBLISH (Guide §8/§16)
 
+*What & when:* the live proof, in order: publish the benign package, watch your listener for the target's build to phone home, then **immediately take it back down**. The unpublish step is not optional — it shrinks the window where a real attacker could abuse the name to almost nothing, which is exactly what keeps this responsible. Log the publish→unpublish timestamps for the report.
+
 ```
 npm:    npm publish --access public            # authorized scope name only
         npm unpublish <name>@99.99.99 --force  # IMMEDIATELY after the callback
@@ -101,6 +111,8 @@ PyPI:   python -m build && twine upload dist/*  # authorized name only
 
 ## 5. Related supply-chain (Guide §9–§11)
 
+*What & when:* when classic confusion doesn't fit (name already taken, or a namespace-strict ecosystem like Go), reach for these cousins. **Typosquat** = register a misspelling and wait for a fat-fingered install. **Repo-jacking** = claim a deleted GitHub username a dependency still points at. Same benign-beacon proof, same responsible discipline — just a different way in.
+
 ```
 TYPOSQUAT (hygiene, benign proof):  reqiests/requsts vs requests ; crossenv vs cross-env ; acme_utils vs acme-utils
 REPO-JACKING (Go/GitHub):  go.mod: require github.com/<deleted-user>/pkg  -> register that user -> host the module -> beacon
@@ -111,6 +123,8 @@ LOCKFILES:  npm ci / --require-hashes BLOCK pinned deps -> target `npm install` 
 ---
 
 ## 6. Tools
+
+*What & when:* the kit's own scripts (`poc/…`) plus the standard third-party gear. Rough pipeline: `manifest_scan.py` pulls names → `claimable_check.py` (or **confused**) flags the claimable ones → `benign_callback_pkg.py` builds the proof package → **interactsh/Collaborator** catches the callback. Everything before the publish step is read-only and safe to run broadly.
 
 | Tool | Use |
 |------|-----|
@@ -125,6 +139,8 @@ LOCKFILES:  npm ci / --require-hashes BLOCK pinned deps -> target `npm install` 
 ---
 
 ## 7. Triage rules (don't waste a report — and stay in bounds)
+
+*What & when:* the "is this actually a finding?" lookup, read top-down as severity climbs. The gate everything hinges on: a real report needs a **callback from the target's own build** carrying your token. A leaked name, a claimable name, or a callback from your own machine are leads or noise — not reports. The bottom two lines are the tripwires that get reports rejected or take you out of scope.
 
 ```
 internal name + PUBLIC 404 + reachable public resolver                          -> claimable candidate (HIGH); prove if authorized

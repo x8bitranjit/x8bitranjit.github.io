@@ -7,6 +7,8 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 ## Level 0 — Fundamentals
 
+> *Plain version:* a NoSQL query is a form the app fills out — "find a user where username = ___ and password = ___." NoSQLi is writing a **command** in the blank instead of a plain value: where they wanted your password you write `{"$ne": null}` ("any password that isn't empty"), and the database obeys, logging you in with no real password.
+
 **Q1. What is NoSQL injection?** Manipulating a NoSQL query by supplying input the developer expected to be a scalar (string/number) but which the datastore instead interprets as a **query operator** or **code**. It subverts the query's logic — bypassing auth, leaking data, or executing code.
 
 **Q2. How is it different from SQL injection?** SQLi breaks out of a **string** with quotes/keywords in a textual query language. NoSQLi usually injects **structured operators** (`$ne`, `$regex`) into a document/JSON query, or JS into a `$where` clause. There are no table joins/`UNION` in the classic sense; the "syntax" is JSON/BSON or a DB-specific expression language.
@@ -19,6 +21,8 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 **Q6. What are the two sub-families of NoSQLi?** (1) **Operator injection** — smuggle `$ne/$gt/$regex/$where/$or/...` where a scalar was expected. (2) **Syntax/JS injection** — break out of a string concatenated into a query or into a `$where`/Cypher/CQL/Lua/Painless expression.
 
+> *Plain version:* `$ne` = "not equal to." So `{"$ne": null}` means "match any record where this field is *not empty*" — i.e. basically everything. Dropped into a password slot, it turns "password must equal Y" into "password must be *anything*", and the login gate swings open.
+
 **Q7. What does `{"$ne": null}` do?** "Not equal to null" — matches essentially every document where the field exists, so the query returns everything (or the first match) → auth bypass / mass match.
 
 **Q8. What does `$regex` give an attacker?** Pattern matching. `.*` matches anything (widen a query); `^a` tests a prefix, enabling **char-by-char blind extraction** of secrets.
@@ -30,6 +34,8 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 ---
 
 ## Level 1 — Input formats & recon
+
+> *Plain version:* this is why NoSQLi is so easy — you don't need to send fancy JSON. An ordinary form field written `username[$ne]=x` gets *automatically rebuilt* by the framework's parser into the command object `{username: {$ne: "x"}}`. So a plain login form, with no JSON in sight, hands the database your injection. Devs forget the parser does this.
 
 **Q11. Why does `username[$ne]=x` in a form body matter?** Body parsers like Express's `qs` and PHP convert bracket notation into a **nested object**: `{username: {$ne: "x"}}`. So a plain form field becomes an operator object without any JSON — devs often forget this.
 
@@ -103,6 +109,8 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 ## Level 4 — Blind extraction (→ ATO)
 
+> *Plain version:* a game of 20 questions against the database. You can't ask for the password, but you *can* ask yes/no questions with `$regex`: "does it start with 'a'?" (`^a`). The page answers yes or no (login works or doesn't), you keep the letters that say yes, and rebuild the secret one character at a time. Aim it at a reset token = account takeover.
+
 **Q41. How does `$regex` blind extraction work?** With a boolean oracle, test `password:{"$regex":"^a"}`, `^b`, … until the response flips to TRUE, revealing the first char; then `^<known>x` for the next, char by char.
 
 **Q42. How do you find the secret's length?** `{"$regex":"^.{N}$"}` — increment N until it matches; that N is the exact length. Speeds up extraction and confirms completeness.
@@ -126,6 +134,8 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 ---
 
 ## Level 5 — Server-side JavaScript & aggregation
+
+> *Plain version:* `$where` lets a query carry a snippet of real JavaScript the database runs for each record — so injecting there means running code *inside the database*. On modern MongoDB it's caged (no shell, no network), so you use it to read fields and time delays; only old versions or a foolish Node `eval` turn it into a real shell.
 
 **Q51. What can injected `$where` JS do on modern MongoDB?** Read any field of the current document, run arbitrary JS **sandboxed** (no shell/network/require), `sleep()`, and heavy compute → blind exfil, timing oracles, and DoS. Not OS RCE by itself on current versions.
 
@@ -155,7 +165,7 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 **Q62. How do you dump all docs in CouchDB via Mango?** `POST /db/_find {"selector":{"_id":{"$gt":null}}}` — `$gt null` matches every document.
 
-**Q63. Elasticsearch — how does injection become RCE?** Dynamic scripting: Groovy **CVE-2014-3120** and MVEL **CVE-2015-1427** allow `{"script":"..."}` to run Java/OS commands. Modern ES sandboxes Painless, but misconfigs and old versions are RCE.
+**Q63. Elasticsearch — how does injection become RCE?** Dynamic scripting: MVEL **CVE-2014-3120** (the default script language in ES <1.2) and Groovy sandbox-bypass **CVE-2015-1427** (ES 1.3.x–1.4.x) allow `{"script":"..."}` to run Java/OS commands. Modern ES sandboxes Painless, but misconfigs and old versions are RCE.
 
 **Q64. Elasticsearch — non-RCE impact?** Query-DSL injection into `_search` (boolean/blind), and **unauthenticated clusters** exposing `_all`/`_cat/indices` → mass data disclosure.
 
@@ -189,7 +199,7 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 **Q77. How do you bypass regex filters on `$regex`?** Use `$where` JS extraction instead (`this.field.match(...)` / `charCodeAt`), or comparison operators (`$gt`/`$lt` narrowing) to binary-search values without `$regex`.
 
-**Q78. Can NoSQLi cause prototype pollution or vice-versa?** Related but distinct: crafted keys (`__proto__`) in JSON can pollute prototypes in JS apps ([Prototype Pollution](#/prototype/guide)), sometimes chaining with query building (a polluted `Object.prototype` can even inject operator keys into an otherwise-clean query). Watch for `__proto__`/`constructor` keys.
+**Q78. Can NoSQLi cause prototype pollution or vice-versa?** Related but distinct: crafted keys (`__proto__`) in JSON can pollute prototypes in JS apps ([../PrototypePollution/](../PrototypePollution/)), sometimes chaining with query building (a polluted `Object.prototype` can even inject operator keys into an otherwise-clean query). Watch for `__proto__`/`constructor` keys.
 
 **Q79. How do you evade WAF signatures for `$ne`/`$where`?** Alternate encodings/casing of keys the WAF matches, nesting (`$not:{$eq}`), moving the operator to a less-inspected format/param, and splitting via HPP. Always confirm the bypass with the differential test.
 
@@ -203,13 +213,13 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 **Q82. Turn a boolean oracle into ATO.** Blind-extract a victim's **password-reset token** (or session token) char-by-char, then complete the reset/replay the token → full account takeover.
 
-**Q83. Chain NoSQLi with IDOR.** A filter-injection (`userId[$ne]=me`) returns other users' objects; combine with predictable IDs to enumerate and read at scale ([IDOR](#/idor/guide)).
+**Q83. Chain NoSQLi with IDOR.** A filter-injection (`userId[$ne]=me`) returns other users' objects; combine with predictable IDs to enumerate and read at scale ([../IDOR/](../IDOR/)).
 
-**Q84. Chain NoSQLi with SSRF.** SSRF ([SSRF](#/ssrf/guide)) reaches an internal Redis/Elasticsearch/Mongo with no auth; then inject/command it directly for data or RCE.
+**Q84. Chain NoSQLi with SSRF.** SSRF ([../SSRF/](../SSRF/)) reaches an internal Redis/Elasticsearch/Mongo with no auth; then inject/command it directly for data or RCE.
 
-**Q85. Chain NoSQLi with JWT.** Extract a signing secret or user record blind, then forge tokens ([JWT](#/jwt/guide)) for privilege escalation/ATO.
+**Q85. Chain NoSQLi with JWT.** Extract a signing secret or user record blind, then forge tokens ([../JWT/](../JWT/)) for privilege escalation/ATO.
 
-**Q86. Chain NoSQLi through GraphQL/REST.** A GraphQL resolver or REST endpoint passes args into a Mongo query; the injection lives in the API layer ([GraphQL](#/graphql/guide), [REST](#/rest/guide)). Same operators, different entry point.
+**Q86. Chain NoSQLi through GraphQL/REST.** A GraphQL resolver or REST endpoint passes args into a Mongo query; the injection lives in the API layer ([../../API/GraphQL/](../../API/GraphQL/), [../../API/REST/](../../API/REST/)). Same operators, different entry point.
 
 **Q87. What's the RCE path on a MEAN/MERN stack?** Rare via Mongo itself (sandboxed JS); more likely via Elasticsearch/Redis/Neo4j in the same environment, or a Node `eval`/template sink fed by the injected "JS". Verify the sink before claiming RCE.
 

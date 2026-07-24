@@ -4,6 +4,8 @@
 > disclosure / blind extraction), not a reflected `*` or a lone 500. Work top-to-bottom **per LDAP sink**; stop and
 > report only when you've proven the directory's answer changed in your favor.
 
+*Why this matters:* LDAP injection hides in *enterprise* surfaces hunters skip — corporate/SSO/VPN logins, employee directories, group checks. Finding those sinks and fingerprinting AD vs OpenLDAP first is what tells you the attribute names and breakouts to use; guess the backend wrong and half your payloads aim at the wrong attributes.
+
 ## PHASE 0 — Recon & fingerprint (§3/§1)
 - [ ] Found every LDAP-backed feature: **login** (corporate/SSO/VPN/appliance), **search/directory** ("find people/employees"), **group/role checks**, "forgot username/account", signup uniqueness checks.
 - [ ] Grepped source/JS for `ldap_search`/`DirContext.search`/`DirectorySearcher`/`search_filter`/`ldapjs`.
@@ -16,12 +18,16 @@
 - [ ] Determined **context**: AND `(&(fixed)(x=INPUT))` vs OR `(|(fixed)(x=INPUT))`; **filter** vs **DN**.
 - [ ] Checked whether `*`/`(`/`)`/`\` are **escaped** (e.g. `\2a` shows in errors) → if so, plan DN/second-order/WAF-evasion.
 
+*Why this matters:* the entire class comes down to one proof — did the *directory's answer change*? Reflection and errors are leads, not findings. This phase nails the two things every later step needs: whether you're in an AND or OR question (decides the breakout), and whether you have a stable true/false oracle (unlocks blind extraction).
+
 ## PHASE 2 — Detect (§5–§8)
 - [ ] Special-char probes `* ( ) & | ! \ = %00` (each alone) → looked for result-count change / LDAP error / auth diff.
 - [ ] Proved **logic change** (not reflection): `q=*)(objectClass=*)` returns the whole tree vs 1 row for a specific value.
 - [ ] Determined **AND vs OR** breakout (§6): does `*)(objectClass=*)` widen? does `)(|(…` work (tolerant) or error (strict)?
 - [ ] **Error-based** (§7): triggered an LDAP error with `(`/`\`; captured backend + base DN from the message.
 - [ ] **Blind oracle** (§8): `…)(uid=alice)` vs `…)(uid=nobody999)` give a **stable, repeatable** different response.
+
+*Why this matters:* this is where the directory's keys get handed over — pick the highest impact you can cleanly prove (auth bypass → admin is Critical; a forged group check is High; mass disclosure scales with sensitivity). Every proof stays on your own test account with bounded reads — logging into real users or dumping the org adds legal risk, not bounty.
 
 ## PHASE 3 — Impact (§9–§15)
 - [ ] **Auth bypass (§9):** `admin)(&)` / `*)(uid=*))(|(uid=*` logs in → noted **which account** (admin → Critical).
@@ -37,6 +43,8 @@
 - [ ] `(`/`)` blocked → encode (`%28`/`%29`) or use **absolute-true `(&)`** (needs only `&`).
 - [ ] Trailing clauses block exploitation → **`%00`** truncation (C-backed servers).
 - [ ] Attribute keyword blocked → alias/swap (`cn`/`objectCategory` instead of `objectClass`), AD case-insensitivity.
+
+*Why this matters:* the gate that separates a paid finding from an auto-close is showing the directory's answer changed *in your favor* and tying it to your specific payload — a reflected `*` or a lone 500 is not enough. Re-test blind oracles for stability, confirm you exceeded intended search scope, and anchor to CWE-90 plus the outcome CWE.
 
 ## PHASE 5 — Validate → report
 - [ ] Proved the **directory's answer changed** (rows / auth result / stable oracle) — FP check §17.

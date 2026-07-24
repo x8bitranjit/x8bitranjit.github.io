@@ -15,6 +15,9 @@
 ---
 
 > ### ⚡ READ THIS FIRST — the four sentences that separate a paid IDOR from an N/A
+>
+> *In plain words — the anchor for this whole class:* IDOR is a **coat-check that hands you whatever coat number you name, without ever checking the ticket is yours.** You gave ticket #123 and got your own coat; you ask for #124 and the attendant hands over a stranger's coat — because nobody checks that the *ticket matches the person.* The lock on the door (your login) works perfectly; the missing step is "is this specific object *yours*?" That's the entire bug. And the proof mirrors the story: you need **two coats you own** — walk in as person A, ask for person B's coat, and show you walked out with it.
+>
 > 1. **IDOR = the server trusts a reference you control.** You send `id=124` instead of your own `id=123`, and the app returns or mutates object 124 **without checking you own it**. That's it. The whole game is *finding the reference* and *proving the missing ownership check*.
 > 2. **The proof is two accounts, never one.** Account **A** (attacker) accessing Account **B**'s (victim) private object — both accounts you control — is the only proof a triager accepts. "I changed the ID and got data back" with one account proves nothing (it might be *your* data, or public data). Capture B's object reference, replay it **in A's session**, show A received/changed B's data. (§4, §19)
 > 3. **Read is a finding; write and scale are the bounty.** A single read of one stranger's record is Low–Medium. The money is: **enumerate all records** (mass PII → Critical), **write** to a victim's object (**change their email/password → ATO**), **function-level** access (**BFLA → admin → RCE**), or **cross-tenant** access (SaaS isolation break). Always push read→enumerate and read→write. (§11–§17, §22)
@@ -136,6 +139,8 @@ IDOR is **authorization-validated** — your most important asset is **two authe
 
 # 2. IDOR / BOLA / BFLA Anatomy & the 2026 Reality
 
+> *In plain words:* the three related names all describe the same "attendant didn't check the ticket" failure at different scopes — **IDOR/BOLA** = handed you the wrong *object* (coat #124), **BFLA** = let you perform a *staff-only action* (walk behind the counter), **BOPLA/mass-assignment** = let you scribble on the *claim ticket* a field you shouldn't (write "VIP" on it). Same root cause: a missing authorization check.
+
 ## 2.1 What IDOR is (one paragraph)
 An application exposes a **direct reference to an internal object** — a database primary key, a username, a filename, a UUID, an S3 key — in a parameter the client controls. **IDOR is when the app uses that reference to fetch or mutate the object *without verifying the authenticated user is authorized for that specific object*.** The authentication is fine (you're logged in); the **authorization** is missing or wrong. Root cause: the developer wrote `SELECT * FROM invoices WHERE id = :id` instead of `... WHERE id = :id AND owner_id = :current_user`.
 
@@ -182,6 +187,8 @@ An application exposes a **direct reference to an internal object** — a databa
 ---
 
 # 4. Baseline — The Two-Account Oracle
+
+> *In plain words:* this is *why you need two coats you own.* With one account you can't tell "I got a stranger's coat" from "I got my own coat back" — so a triager can't either, and closes your report. The oracle is dead simple: note down B's ticket number, then walk up **as A** and hand over **B's** number. If you get B's coat → IDOR. If you get *your own* coat → the attendant is quietly checking who you are (safe). If you're refused → try the bypass tricks before giving up.
 
 This is the phase that makes IDOR **un-false-positive-able**. Skipping it is why reports get closed as "that's your own data."
 
@@ -293,6 +300,8 @@ If the reference is guessable, IDOR becomes **mass** IDOR (the difference betwee
 
 # 8. Access-Control Bypass Techniques
 
+> *In plain words:* a "no" at the front counter rarely means the whole building is locked. The app often guards *one door* — the plain `GET` — while the side doors (a different verb, the `.json` version, the old `/v1/` API, a wrapped-in-brackets id, or a nested child id under *your* parent) were never checked. Don't quit at the first 403; walk the whole toolbox below — one of these opens a large fraction of "but it returned 403" endpoints.
+
 When the direct swap returns 403/404, work this toolbox **before** concluding "protected." Each is a real, common gap.
 
 **8.1 HTTP method / verb tampering.** The `GET /api/users/123` may check ownership, but `POST`/`PUT`/`PATCH`/`DELETE` (or `HEAD`, `OPTIONS`) on the same path may not. Also try **method override**: `X-HTTP-Method-Override: PUT`, `_method=PUT`, or `?_method=DELETE`. **IF** `GET` is 403 but `PUT /api/users/123 {…}` succeeds → BFLA/IDOR on write.
@@ -343,6 +352,8 @@ GraphQL aliases / JSON-array batching                          → many objects,
 
 # 9. Mass Assignment / Owner-Field Tampering (BOPLA)
 
+> *In plain words:* here you don't grab someone else's coat — you scribble an extra line on *your own* claim ticket that the system trusts. Add `"role":"admin"` to a profile-update and you might promote yourself; add `"owner_id":<B>` and you might reassign an object to (or from) the victim. The trick is that the app often only *reads* the fields its own form sends, so a field you add by hand slips straight through. When a read is blocked, this "write your way in" path frequently wins instead.
+
 You're allowed the object, but you set a **property you shouldn't control** — adjacent to IDOR and a direct ATO/priv-esc path.
 
 **9.1 Inject the owner field.** On create/update, **add** a field the UI never sends:
@@ -376,6 +387,8 @@ PATCH /api/orders/7001   Content-Type: application/merge-patch+json
 
 # 10. BFLA — Broken Function-Level Authorization
 
+> *In plain words:* IDOR is "the attendant gave me the wrong coat"; BFLA is "the attendant let me walk behind the counter and run the whole coat-check." It's about *actions*, not objects — a normal user calling an admin-only operation (`POST /api/admin/users`, `.../role`, `.../impersonate`). The giveaway: the admin **web page** hides the button, but the underlying **API** never actually checks your rank. Almost always Critical, because it leads to self-promotion, impersonation, or dumping the whole dataset.
+
 Not "which object" but "which **operation**." A normal user invoking privileged functions.
 
 **10.1 Find privileged functions.** From JS/Swagger/GraphQL/mobile: `/api/admin/*`, `/api/users/{id}/role`, `/api/internal/*`, `*/delete`, `*/approve`, `*/impersonate`, `*/export-all`, feature-flag and billing endpoints. The admin **front-end** may hide the button, but the **API** is often unprotected.
@@ -407,6 +420,8 @@ DELETE /api/orders/8001       (B's order)              destructive cross-user
 > **IF** the leaked object contains a **password-reset token, API key, or session token** → escalate immediately to **ATO/RCE** (§12, §13). A read IDOR that returns auth material is Critical, not Medium.
 
 # 12. Write IDOR → Tamper → Account Takeover
+
+> *In plain words:* reading a stranger's coat is bad; *swapping the name tag on it* is worse. If the same missing check lets you **change** the victim's object, point it at their recovery email — set it to your inbox, trigger "forgot password," and the reset link lands with you. Now you log in as them. Reading is a finding; writing is the account takeover. Always verify the change actually stuck by re-reading as B — a `200 OK` alone proves nothing.
 
 The highest-frequency Critical IDOR.
 

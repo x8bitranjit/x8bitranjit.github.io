@@ -38,6 +38,8 @@
 
 # LEVEL 0 — FUNDAMENTALS
 
+> *Plain version:* the app mails its own blueprint to your browser so the site can run — every door (API), every hidden room (admin route), sometimes keypad codes someone forgot to erase (secrets). JS recon is reading that blueprint like a burglar. It's not one bug; it's the hub that feeds every other kit.
+
 ### Q1. What is "JavaScript file analysis" / JS recon as a discipline?
 It's the systematic mining of every client-side JavaScript asset the target serves — bundles, lazy-loaded chunks, inline scripts, service workers, source maps, mobile/RN bundles, third-party SDK config — to extract **secrets, hidden endpoints, parameters, application logic, and client-side vulnerabilities**. It's effectively **white-box recon on a black-box target**: modern SPAs ship the entire client (and sometimes config/secrets) to anyone. JS recon isn't a single bug class; it's the **hub that feeds every other kit** (XSS, SSRF, JWT, CORS, IDOR, file-upload).
 
@@ -56,6 +58,8 @@ A parameter bug is one finding. JS recon is **reconnaissance that multiplies you
 
 ### Q5. What asset types must you collect (and people forget)?
 Linked bundles, **dynamically-loaded chunks** (lazy routes — incl. the admin chunk that ships to everyone), **inline `<script>`** blocks (often hold config/keys/CSRF tokens), **service workers** (`/sw.js` — precache list = more URLs), **runtime config** (`/config.js`, `/env.js`, `manifest.json`), **third-party SDK init** blocks, **historical/archived** JS (Wayback/gau — rotated-but-live keys), **source maps** (`.js.map`), **WASM**, **mobile bundles** (React Native `index.android.bundle`, Cordova `www/`), and **subdomain/CDN** bundles (each app has its own).
+
+> *Plain version:* "I found a key in the JS" is like "I found a keypad code on the blueprint" — worthless if it's the lobby wifi password (most are, by design). The finding is "the code opens a real vault, and I checked that it does." Validate and exploit before reporting, or you get closed as Informational.
 
 ### Q6. What's the #1 mistake — and the "match vs impact" rule?
 Reporting a **regex match** or an **endpoint list** as a finding. A regex hit (`apiKey: "AIza…"`) is usually an intentionally-public, domain-restricted client key → **Informational**. The rule: *a JS artifact is recon; the finding is the live+privileged secret, the firing DOM XSS, or the working unauthorized API call — with demonstrated impact.* Validate and exploit before you report.
@@ -133,6 +137,8 @@ It's the **fastest path to secrets and base URLs**. Look for `window.__ENV__`, `
 ### Q24. Why read the route table early?
 It's the **fastest path to hidden routes**. SPA router config (React Router routes array, Vue Router, Angular `RouterModule.forRoot([...])`) enumerates every route — including `/admin`, `/internal`, `/debug`, `/impersonate`, role-gated paths — which become your authz/IDOR targets.
 
+> *Plain version:* the shipped bundle is the blueprint with all labels scrubbed off (`_0x4f2a`). A source map is the architect's *original labelled* drawing — devs upload it to debug and often forget to remove it. Grab it and you get real names, developer comments (`// TODO: remove hardcoded key`), and dead admin code back.
+
 ### Q25. What is a source map and why is it gold?
 A `.map` file (JSON) maps minified code back to the **original source**, and usually embeds the original files in **`sourcesContent`**. A reachable production source map reconstructs the entire commented TypeScript/JSX — variable names, dead admin code, secret comments, crypto/signing details. It's the single biggest "info" win and a force-multiplier for the other veins.
 
@@ -178,6 +184,8 @@ jsluice secrets -p out/js/*.js
 
 ### Q34. Which secret tools are worth it?
 **TruffleHog** (`--only-verified` actually calls the provider to confirm the key is live — huge time-saver), **gitleaks** (fast regex+entropy), **JSluice** (BishopFox — endpoints **and** secrets from JS with context), and the kit's `secret_scan.py` (entropy-gated + public-key suppression). Always treat output as **candidates**.
+
+> *Plain version:* never report a key you haven't *tried.* A raw match could be dead, rotated, a placeholder, or a public client key. Make one tiny read-only call (the key's own "who am I?" endpoint) — if it answers with a real identity, now you have a finding that starts at "this key works right now and can do X."
 
 ### Q35. What's the single golden rule before reporting a secret?
 **Validate that it's live AND privileged** with the most minimal, read-only call, then stop. A raw regex match could be dead, rotated, a placeholder, or a public client key. The finding starts at *"this key authenticates right now and can do X."*
@@ -243,6 +251,8 @@ Capture paths, full URLs, **parameters** (object keys passed to API calls, query
 ### Q47. Why do hidden endpoints matter so much?
 The bundle lists API routes the **UI never exposes** — `/api/admin/users/{id}/impersonate`, `/internal/…`, old `/v1/` versions. These are prime **IDOR/BOLA**, **broken authz**, **SSRF** (URL params), and **injection** targets. JS recon's payoff is that it removes guesswork — you attack the exact route/verb/params the devs built.
 
+> *Plain version:* when the "are you allowed?" check lives in the JavaScript, the lock is on the wrong side of the door — it's advice to the browser, not enforcement on the server. Call the admin API directly with a normal account and it often just opens. The bundle even told you the exact request to send.
+
 ### Q48. What is client-side-only authorization, and why is it the high-yield bug?
 When access control is implemented **only in JavaScript** (`if (user.role === 'admin') showAdminPanel()`) with no server enforcement. Call the underlying admin API **directly** with a normal account — if it works, that's broken access control / **privilege escalation** (often High). The JS literally tells you which call to make.
 
@@ -285,6 +295,8 @@ Read the internal **scoped package names** referenced in the bundle / `package.j
 
 ### Q60. How do I confirm a source→sink flow?
 Trace the data: does an attacker-controllable source reach a script-executing sink without sanitization? Use `Web/JSFiles/poc/dom_sinks.py` (ranks source→sink proximity) and **Burp DOM Invader** (auto-detects flows). Then craft a payload for the rendering context (`#<img src=x onerror=alert(document.domain)>`) and confirm it fires.
+
+> *Plain version:* `postMessage` is how one browser window talks to another. A handler that acts on the message *without checking who sent it* is like a door that opens for any knock. Any page that frames or opens the target can shove a script payload through that door and it runs in the target's origin = cross-origin DOM XSS → account takeover. Very common, easy to miss.
 
 ### Q61. postMessage handlers without an origin check?
 A `window.addEventListener('message', e => { el.innerHTML = e.data })` with **no `event.origin` validation** is cross-origin DOM XSS: any site that frames or `window.open()`s the target can post a script payload into the sink → script runs in the target's origin → **account takeover**. This is one of the highest-value JS-only bugs and is very common.

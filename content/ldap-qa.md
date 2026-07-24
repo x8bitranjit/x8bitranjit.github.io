@@ -40,11 +40,15 @@
 
 # LEVEL 0 — FUNDAMENTALS
 
+> *Plain version:* LDAP is the company's master directory (who works here, what they may do), and every login/search is a *question* put to it. LDAP injection is editing that question with the directory's own punctuation (`*`, `(`, `)`, `&`) so it answers your way — "username=admin AND (always-true)" makes the password check vanish. No code runs; you change what's asked.
+
 ### Q1. What is LDAP injection?
 A flaw where user input is concatenated into an **LDAP search filter** (RFC 4515) or a **distinguished name / DN** (RFC 4514) and sent to a directory server without escaping LDAP metacharacters (`* ( ) \ | & !`). By injecting filter syntax, the attacker changes **which entries match** — bypassing authentication (turning a password check into always-true), widening a search to disclose the whole directory, or building a boolean oracle to read attributes one character at a time. It is **CWE-90**.
 
 ### Q2. What is LDAP, and where is it used?
 LDAP (Lightweight Directory Access Protocol) queries a hierarchical **directory** — typically the organisation's user/group store. The big backends are **Active Directory** (Microsoft) and **OpenLDAP / 389-DS / ApacheDS / OpenDJ / eDirectory**. Apps use it for **login** ("use your corporate credentials"), **people/employee search**, **group/role membership** checks, address books, and appliance/VPN/printer auth. Because it's the source of truth for *identity and authorization*, injecting it pays.
+
+> *Plain version:* same idea as SQLi (edit a query you're not supposed to control) but a different grammar and a lower ceiling. LDAP has no "run a shell command" — its grammar is parentheses and `&`/`|` with the operator written *first* — so instead of quotes-and-comments you juggle brackets and wildcards, and the prize is auth bypass / data theft, not RCE.
 
 ### Q3. How is LDAP injection different from SQL injection?
 Both are injection into a query language, but LDAP is **not** a code/exec surface: there's no `xp_cmdshell`, no stacked statements, no UNION-to-RCE. LDAP injection's ceiling is **auth/authz bypass and data disclosure**, not RCE. The structure also differs — LDAP filters are **prefix/Polish notation** (`(&(a)(b))`, operators first) with explicit grouping, so "breaking out" means manipulating parentheses and boolean operators (`&`/`|`/`!`) and the wildcard `*`, not quotes and comments.
@@ -131,8 +135,12 @@ Still common in **enterprise** surfaces: intranet/SSO logins, VPN/appliance port
 
 # LEVEL 2 — FILTER SYNTAX, CONTEXTS & BREAKOUT
 
+> *Plain version:* the login asks the directory "is there someone with uid=X **AND** password=Y?" Put `admin)(&)` in the username and it becomes "uid=admin AND (always-true)" — one entry (admin) matches, and since the app treats "≥1 match = valid login," you're in as admin. You deleted the part of the question that asked for the password.
+
 ### Q20. Walk me through a vulnerable login filter.
 Typical: `(&(uid=$user)(userPassword=$pass))`. The app **searches** with this filter; if ≥1 entry matches it treats login as success (often binding as the returned DN). Set `$user = admin)(&)` and `$pass = anything` → `(&(uid=admin)(&))(userPassword=anything))`. The `(&)` is RFC 4526 **absolute-true**, so the AND reduces to "uid=admin AND true" → admin matches → you're in, password never checked.
+
+> *Plain version:* everything hinges on which kind of question you landed in. In an **AND** ("X and Y and Z") you have to make the *whole* thing true, so you add an always-true piece. In an **OR** ("X or Y or Z"), a *single* true piece already wins — much easier. Probe which one you're in before picking a payload.
 
 ### Q21. What's the difference between AND-context and OR-context injection?
 - **AND** `(&(fixed)(attr=INPUT))`: you're ANDed with a fixed clause, so you must make the **whole** thing match — widen with `*`, add an always-true clause (`*)(objectClass=*`), use absolute-true (`)(&)`), or break out of the group.
@@ -206,6 +214,8 @@ Because many apps implement login as **search-only**: build `(&(uid=$u)(userPass
 ### Q36. The password is hashed/compared in-app, not in the filter. Does bypass still work?
 Often yes, if only the **username** is in the filter and the app fetches the user then compares the password to the returned hash. Inject the username to make the search return a **different/privileged** entry (or the first entry), and depending on how the app compares, you may log in as them or learn their hash. If the password is also filtered, target the password clause too (`pass=*` presence). Test the app's exact logic.
 
+> *Plain version:* even a perfect login can be undone by a *second* directory question the app asks to decide permissions: "is user=you AND in-group=Admins?" If your identifier is injectable there, forge that answer to "always yes" and the app treats you as an admin — no membership required. Test these checks separately; they're often the bigger bug.
+
 ### Q37. How do I bypass an authorization / group-membership check?
 Many apps gate features with `(&(uid=$you)(memberOf=CN=Admins,…))`. If `$you` is injectable:
 ```
@@ -245,6 +255,8 @@ Quantify the disclosure (e.g. "returns all N users incl. emails") for the report
 
 ### Q43. What attributes are the high-value reads?
 **PII:** `cn`/`displayName`, `mail`, `telephoneNumber`, `title`, `department`, `manager`. **Authorization:** `memberOf` (who's admin). **Secrets:** `userPassword` (often not readable, but when it is → hashes), security-question attributes, custom secret fields. **AD-specific:** `sAMAccountName`, `userPrincipalName`, `servicePrincipalName`, `userAccountControl` (Q62).
+
+> *Plain version:* the page shows no directory data, but it *behaves* differently when your injected question is true vs false — that yes/no is a **game of 20 questions**. Ask "does admin's email start with 'a'?", read the yes/no off the response, then "…'ab'?", and rebuild hidden values one character at a time. No data shown ≠ safe.
 
 ### Q44. What is blind LDAP injection and how do I confirm it?
 No data is reflected, but the response **changes** depending on whether your injected filter matches. Confirm with a stable oracle:

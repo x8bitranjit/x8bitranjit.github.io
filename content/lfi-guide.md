@@ -14,6 +14,9 @@
 ---
 
 > ### ⚡ READ THIS FIRST — why most LFI reports underpay (or get closed)
+>
+> *In plain words — the anchor for this whole class:* an LFI parameter is a **fill-in-the-blank the server obeys** — `?page=___` means "fetch the file named `___` and show it." The app assumes you'll write `home` (and it reads `pages/home.php`). LFI is writing *directions-to-anywhere* into that blank — `../../../../etc/passwd` walks the server **up and out of its own folder** and hands you any file on disk. Two twists decide the payout: **(1)** reading `/etc/passwd` only proves you can *walk around* — the money is walking to the **secrets** (config, `.env`, keys); and **(2)** if the server *runs* whatever it fetches (PHP `include`) instead of just showing it, then sneaking your own text into a file it will fetch — a log line you poisoned, your own session file — makes it **run your code** = RCE.
+>
 > 1. **`/etc/passwd` is proof, not impact.** Reading `passwd` confirms traversal; it's a non-sensitive file by design. The bounty is **(a)** reading **secrets** (app config with DB/cloud creds, `.env`, private keys, `web.config`) or **(b)** turning the read into **RCE/shell** (§11–§16). Climb from "I can read a file" to "I can read your secrets / run my code."
 > 2. **LFI → RCE is the headline.** On PHP especially, an inclusion sink is frequently a path to code execution: **log poisoning**, **`php://filter` chain**, **session-file poisoning**, **`data://`/`expect://` wrappers**, **`/proc/self/environ`**, **phpinfo race**, or **LFI + upload**. Always try to escalate to a shell before reporting (§11–§16).
 > 3. **`php://filter` reads source without a shell.** `php://filter/convert.base64-encode/resource=config.php` returns the **base64 of the source** (not its executed output) — so you exfiltrate `config.php`, DB creds, keys, and the rest of the app's source. This is the fastest LFI win and the gateway to everything else (§9).
@@ -126,6 +129,8 @@ python3 poc/phpfilter_dump.py -u "https://target/?page=PHP" -r config.php
 
 ## 2.1 What LFI is
 A parameter influences a path passed to a file API. If you can steer that path with `../` (or an absolute path or a wrapper), you read — or, when the sink **executes** the file, *run* — content of your choosing.
+
+> *In plain words:* the single most important fork in this whole class is whether the server **shows** the file or **runs** it. "Show" (`readfile`) means you can *read* secrets — bad, but bounded. "Run" (PHP `include`) means any file you can get your own text into becomes *your code executing* — that's the RCE ceiling. Find out which one you have on day one; it decides your entire plan.
 
 ## 2.2 Read vs Include (decides your ceiling)
 ```
@@ -267,6 +272,8 @@ Substring checks:      include the allowed token somewhere harmless in the path.
 
 # 9. PHP & Protocol Wrappers
 
+> *In plain words:* PHP has special "file names" that aren't really files — they're instructions. `php://filter/convert.base64-encode/resource=config.php` says "fetch config.php but hand it to me **base64-encoded**" — and because it arrives encoded, the server *shows* you the source instead of running it, so you steal `config.php`, `.env`, and every secret even from a show-only sink. Others (`data://`, `expect://`) go the opposite way and hand the server *your* content to run. These wrappers are the fastest LFI win on PHP and the gateway to everything else.
+
 PHP wrappers turn an LFI into source disclosure and, often, RCE. **Always test these on a PHP target.**
 ```
 php://filter   → READ source (base64) without executing it — THE source/secret dumper (§10):
@@ -308,6 +315,8 @@ config.php  database.php  settings.php  wp-config.php  .env  app/config/*  secre
 
 # 11. LFI → RCE: Log Poisoning
 
+> *In plain words:* the classic "make it run my code" trick. The web server writes your User-Agent (and the URL you requested) verbatim into its log file. So you send a request whose User-Agent *is* `<?php system($_GET['c']); ?>` — now that PHP is sitting inside `access.log`, an ordinary on-disk file. Then you point the include sink at the log (`?page=…/access.log&c=id`), the server *runs* the log as PHP, and your line executes. You turned a text field you don't control into code the server obeys.
+
 If the sink **includes** files and you can write attacker text into a log the server will include, you get RCE.
 ```
 1. Find an includable log:  /var/log/apache2/access.log  /var/log/nginx/access.log  /var/log/auth.log
@@ -323,6 +332,8 @@ If the sink **includes** files and you can write attacker text into a log the se
 ---
 
 # 12. LFI → RCE: `php://filter` Chain (no file write)
+
+> *In plain words:* the modern universal escape hatch — RCE when there's *no* log you can poison, *no* upload, and remote URLs are off. It abuses the fact that `php://filter` can run a long assembly-line of text transforms; stack the right ones and the "file" that comes out the end *is* valid PHP you designed (`<?php system(...)`), which the include then runs. No file ever gets written anywhere — the payload is manufactured on the fly from the one LFI parameter. A generator script builds the (long, ugly) chain for you.
 
 Modern, file-write-free RCE: chain PHP filters to **synthesize arbitrary PHP bytes** from `php://filter` and have the include execute them — works even with `allow_url_include=Off` and no writable file.
 ```
@@ -434,6 +445,8 @@ Python:  open()/send_file traversal → read settings.py/.env; Jinja file includ
 Ruby:    render/File.read traversal → read secrets.yml/database.yml; ERB include → RCE possibility.
 ```
 > **If this → then that:** non-PHP stack → you usually get **disclosure** (read source/config/secrets) which is High when it's `web.config` conn strings, `.env`, `settings.py`, `database.yml`, or a **.NET `machineKey`** (forge auth → RCE). For RCE, pivot to the matching kit (SSTI for template engines; RFI/Upload for include sinks).
+
+> *In plain words:* sometimes the fill-in-the-blank bug isn't in the site's code at all — it's in the **web server or proxy in front of it** (Apache, nginx, IIS). Those had their own famous traversal holes (Apache 2.4.49's `.%2e/` bug), so you can read `/etc/passwd` — or even get RCE — by hitting the *server* directly, with no vulnerable app parameter needed. Fingerprint the server version first; these are one-request Criticals.
 
 ## 16.3 Server / infrastructure path traversal (the bug is in the *server*, not the app)
 Sometimes the traversal isn't in app code but in the **web server / proxy / framework** — these read (and sometimes execute) files regardless of language. Test them directly:

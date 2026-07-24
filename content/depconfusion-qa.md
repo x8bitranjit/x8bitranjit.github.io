@@ -5,6 +5,8 @@ Study guide + field reference. **Authorized + responsible-disclosure only.** The
 target's build** after publishing a name they use privately but never claimed — detect widely, publish narrowly and benignly,
 **unpublish**, report. Pair with `DEPENDENCY_CONFUSION_TESTING_GUIDE.md`.
 
+> **The whole bug in one breath (read this if you're new):** software is built by gluing together **packages** — reusable code chunks downloaded from an online store called a **registry** (npmjs.org, pypi.org, …). Companies also keep **private** packages with internal names, in their own store. Dependency confusion is when you publish a **public** package using one of those **internal names** at a **higher version number**, and the company's install tooling — the **resolver** — grabs *your* copy by mistake. Because installing a package can **run code**, your code executes inside their build machines. Think **office supplies ordered by nickname**: they mean the in-house "blue binder," but the ordering robot buys the newest "blue binder" it can find anywhere — including the fake one you listed publicly. The glosses below (marked *Plain version:*) translate the jargon as it appears.
+
 ---
 
 ## A. Fundamentals (1–14)
@@ -17,15 +19,18 @@ Alex Birsan, 2021 — he reached Apple, Microsoft, and dozens of others using **
 
 **3. Why does it reach RCE?**
 Package installs run **install hooks** (`preinstall`/`postinstall`, `setup.py`, `extconf.rb`), so pulling the attacker's package executes attacker code — usually inside **CI/CD**.
+*Plain version:* **RCE** = Remote Code Execution = your code runs on someone else's machine. An **install hook** is a script a package is allowed to run automatically the second it's installed — meant for setup chores, but it will run *anything*, including your beacon. So "download + install" quietly becomes "download + install + run the attacker's script."
 
 **4. Why is CI/CD the crown jewel?**
 The build environment holds cloud IAM roles, registry/signing credentials, and source, and its artifacts ship downstream — one install hook = org-wide compromise.
+*Plain version:* **CI/CD** is the company's automated build/test/deploy robot (Continuous Integration / Continuous Delivery). It's the perfect place for your code to land because that robot is trusted with all the master keys — cloud logins, code-signing keys, the full source. Run code there and you're standing in the vault.
 
 **5. The one-sentence mental model?**
 Find a name the org uses privately but hasn't claimed publicly, publish a higher-version public package with a benign beacon, and wait for their resolver to prefer yours.
 
 **6. What's the proof standard?**
 A DNS/HTTP callback from the **target's build egress** carrying your unique token — a benign beacon, never a payload.
+*Plain version:* a **callback** (a.k.a. **OOB**, out-of-band) is your published package "phoning home" to a listener you control. **Egress** = the target's outbound internet connection, so "build egress" means the phone call came *from inside their build*. The **token** is a random ID baked into your package so you can prove the call is yours and not a coincidence. That phone call *is* the finding.
 
 **7. Primary CWEs?**
 CWE-829 (inclusion from an untrusted control sphere), CWE-427 (resolution/search-path order), CWE-494 (download without integrity check).
@@ -60,6 +65,7 @@ npm, PyPI, RubyGems, Maven/Gradle, NuGet, Composer — and Go/Cargo mostly via r
 
 **16. The classic pip misconfig?**
 `--extra-index-url`: pip queries the default (public) **and** the extra index and installs the **highest version** across both.
+*Plain version:* pip has two flags. `--index-url` means "use ONLY this store" (safe). `--extra-index-url` means "also check this *extra* store on top of the public one, and take whichever has the biggest version." That "also check public + take highest" behaviour is exactly the door you walk through — publish `99.99.99` publicly and it wins.
 
 **17. The classic npm misconfig?**
 An unscoped internal name with the public registry as default, or a **scope (`@acme`) that wasn't reserved** on npmjs.
@@ -87,12 +93,15 @@ It merges public+private feeds under one URL; the merge policy may prefer the re
 
 **25. What's a transitive internal dependency risk?**
 A public package that depends on an internal name — confusion fires even if your top-level deps are pinned.
+*Plain version:* **transitive** = a dependency of a dependency. Your app needs package A, and A quietly needs internal package B. Even if the company carefully pinned A, B can still slip in unpinned — so the confusable name is buried two levels deep where nobody was looking.
 
 **26. Do lockfiles stop it?**
 Pinned lockfiles with hashes (`npm ci`, `pip --require-hashes`) block pinned deps — but `npm install` in CI, unpinned, or new/transitive deps remain exposed.
+*Plain version:* a **lockfile** records the *exact* version + a cryptographic **hash** (fingerprint) of every dependency. `npm ci` obeys it strictly and refuses anything whose fingerprint doesn't match — so it blocks the swap. But plain `npm install` will happily re-resolve and pull a "newer" public version, and anything not already in the lockfile (new or transitive) isn't protected. Lockfile ≠ automatically safe; it depends on *which install command* CI runs.
 
 **27. What is a scoped package?**
 `@scope/name` (npm). If the `@scope` isn't reserved publicly, an attacker can publish `@scope/anything`.
+*Plain version:* a **scope** is the `@company/` prefix on an npm name — like a brand's shelf in the store (`@acme/config`, `@acme/logger`). If the company never officially claimed the `@acme` shelf on the public store, **you** can put anything on it — meaning *every* `@acme/*` package they use is confusable at once, not just one.
 
 **28. Why check who owns a taken name?**
 A defensively-reserved placeholder is fine; a squatter who already owns it is a different problem.
@@ -155,6 +164,7 @@ The report needs the leak evidence (link/snippet) alongside the claimability pro
 
 **45. The core claimability test?**
 Query the public registry read-only: **404 = unregistered = claimable**.
+*Plain version:* **claimable** = "can I register this name myself?" You just ask the public store for the name. **404** (the web's "not found" code) means nobody owns it → you can → claimable. **200** ("found") means it's taken. You're only *looking*, not publishing — window-shopping for names still up for grabs.
 
 **46. npm claimability query?**
 `GET https://registry.npmjs.org/<name>` → 404 = unclaimed (scoped names URL-encode the `/`).
@@ -195,6 +205,7 @@ Lockfile-pinned with hashes, an unreachable public resolver, or the name being a
 
 **57. What must the install hook do — and only do?**
 One fire-and-forget DNS/HTTP callback to your OOB with a token + hostname/username; nothing else.
+*Plain version:* your proof package should do exactly one harmless thing on install — send a single "I ran, and I ran *here*" ping to your listener. **Fire-and-forget** = send it and don't wait for a reply. The ping carries only a random token + the machine's name. That's the maximum you ever need: proving execution is the finding, so there's no reason to steal anything.
 
 **58. What must the beacon NOT do?**
 No env dumps, no file reads, no reverse shell, no persistence, no destructive action.
@@ -250,6 +261,7 @@ It relies on human error, not resolver misconfiguration.
 
 **74. What is repo-jacking?**
 Registering a **freed** GitHub username/org referenced by a dependency (e.g. `go.mod: require github.com/deleted-user/pkg`) to control the module.
+*Plain version:* some packages are named by their full web address (`github.com/someuser/pkg`). If `someuser` deleted or renamed their account, that username is now **up for grabs** — you register it, host a package at the same path, and every project still importing that address downloads *your* code. It's hijacking an abandoned name, not confusing a resolver — the move to reach for when the ecosystem is too strict for classic confusion.
 
 **75. How does repo-jacking reach RCE?**
 The org's `go get`/build pulls the module from the re-registered account → your code in their build.
@@ -308,6 +320,7 @@ Everything lockfile-pinned with hashes and `npm ci`, or a full-path Go module (f
 
 **92. CVSS anchor for CI/CD RCE?**
 `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` ≈ 9–10.
+*Plain version:* that string is a severity recipe. Reading it: attackable over the internet (**AV:N**), easy/reliable (**AC:L**), no account needed (**PR:N**), no victim click (**UI:N**), your code crosses out of the public store into their *trusted* build (**S:C** — this "Scope: Changed" flag is what makes it Critical), and once inside it can read/alter/break everything (**C/I/A:H**). All maxed → this vector computes to a **perfect 10.0** (or ~9.x if you rate it **AC:H** because success depends on their build config — still Critical).
 
 **93. How do you de-duplicate?**
 One resolution root cause (e.g. an unreserved scope) = one report; list the confusable names and prove one with a callback.

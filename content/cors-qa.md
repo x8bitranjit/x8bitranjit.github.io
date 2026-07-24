@@ -40,6 +40,8 @@
 ### Q1. What is the Same-Origin Policy (SOP) in one breath?
 A browser security boundary: a page on `evil.com` **can send** a request to `api.target.com` (and the browser will include the victim's cookies if credentials are requested) but **cannot read** the response — the browser blocks the read unless the responding server explicitly opts in. "Origin" = scheme + host + port (`https://app.target.com:443`).
 
+> *Plain version:* your browser is a **librarian holding the victim's private file** (their `target.com` login). A page from `evil.com` may *ask* the librarian to fetch target.com's data, but the librarian won't *read the answer aloud* to a stranger — that refusal is SOP. The subtle part: `evil.com` can still make the *request* happen (which is why CSRF exists), it just can't *see the reply*. CORS is the target server handing the librarian a note that says "reading my replies aloud to these specific sites is fine."
+
 ### Q2. What is CORS, then?
 CORS is the server's **opt-in** to relax SOP: response headers (chiefly `Access-Control-Allow-Origin`) tell the browser "this *other* origin is allowed to read my responses." A CORS **misconfiguration** is the server wrongly opting in an attacker-controlled origin — so `evil.com` can read responses it shouldn't.
 
@@ -57,17 +59,23 @@ NOT A BUG   → ACAO: https://app.target.com (a fixed, correct value) → workin
 ### Q5. Why can't `*` be used with credentials?
 By spec, browsers **refuse** to expose a credentialed response when `Access-Control-Allow-Origin` is the literal wildcard `*`. So `*` only ever lets you read responses the server returns to **anyone unauthenticated**. People over-report bare `*`; it's usually **Informational**. The money bug is **origin *reflection* (or `null`) + `ACAC:true`**.
 
+> *Plain version:* `*` means "any site may read this" — but browsers hard-block pairing "any site" with "include the victim's login." It's a deliberate safety rule: the two can't coexist. So a bare `ACAO: *` can only ever hand out the *logged-out* version of a page (no secrets), which is why reporting it alone almost always gets closed as Info. The exploitable pattern is when the server **echoes your specific origin** back (reflection) alongside `ACAC: true` — that combo *is* allowed, and it's the one that leaks logged-in secrets.
+
 ### Q6. Why does CORS misconfiguration pay so well?
 Because it **defeats SOP for the attacker without needing XSS on the target**: a permissive credentialed CORS lets `evil.com` read the victim's **authenticated** response — typically `/api/me`, `/account`, `/api/keys`, `/graphql` — which holds a **session token, API key, PII, or CSRF token**. Read it cross-origin → impersonate the victim → **account takeover**.
 
 ### Q7. What's the #1 mistake — the "reflection vs read" rule?
 Reporting a reflected `Access-Control-Allow-Origin` as the finding. **Reflection is a condition, not impact.** A reflected origin **without** `ACAC:true`, or on a response with **no secret**, is Info. The finding is *reading another logged-in user's real secret cross-origin* — ideally one that grants ATO.
 
+> *Plain version:* "the header came back with my origin in it" is a *symptom*, not a *bug* — like noticing a door is unlocked. What matters is whether there's anything worth stealing *behind* the door and whether the door hands it over *with the victim's login attached*. Always chase all three — my origin trusted **+** credentials allowed **+** a real secret in the body — before you call it a finding.
+
 ### Q8. `Access-Control-Allow-Origin` reflects my origin — am I done?
 No. You need **three** things: (1) an **attacker-controlled** origin (or `null`) reflected, (2) **`ACAC:true`**, and (3) a response **body that contains a secret**. Confirm all three (log in as your test account and check the body actually holds a token/PII) before you get excited.
 
 ### Q9. Is `Origin: null` a real thing I can exploit?
 Yes. `null` is a legitimate origin the browser sends from **sandboxed iframes**, `data:`/`file:` documents, and some redirects. Many allowlists naively include `null`. If the server reflects `ACAO: null` + `ACAC:true`, **any** attacker can forge `null` (via a sandboxed iframe) and steal credentialed data. Always test `Origin: null`.
+
+> *Plain version:* the trap with `null` is that it *looks* like a safe thing to allowlist ("that's just local file testing") — but any attacker can *make their page report `null`* on demand by running the fetch inside a sandboxed iframe. So "allow `null` + credentials" isn't a narrow local-testing convenience; it's "allow literally anyone." That's why it's every bit as dangerous as reflecting all origins.
 
 ### Q10. What's the minimum to learn before testing CORS?
 How to set the `Origin` request header (Burp/curl — browsers won't let you spoof it), how to read ACAO/ACAC, the difference between a **simple** and a **preflighted** request, and how to host a small `fetch()` exfil page on an origin you control. Plus: curl proves the *header* condition, but only a **browser `fetch()`** proves the *exploit*.
@@ -138,6 +146,8 @@ The pattern of which origins are accepted reveals the rule (reflect / endsWith /
 ### Q22. What is "reflect-any" and why is it the cleanest finding?
 The server **echoes whatever `Origin` you send** into ACAO with credentials. Confirm with several distinct random origins — if each is echoed verbatim + `ACAC:true`, **any** attacker page can read credentialed responses. No bypass needed; this *is* the bug.
 
+> *Plain version:* "reflect-any" = the server does zero real checking — whatever origin you claim, it copies straight into the "you're allowed" header. It's the CORS equivalent of a bouncer who lets you in because you wrote your own name on the guest list. Test it with a couple of made-up domains: if `https://a1b2c3.example` comes back trusted too, it's genuinely reflecting everything, and you already control a trusted origin — no bypass work needed.
+
 ### Q23. How do I exploit `Origin: null`?
 Host a page with a **sandboxed iframe** (no `allow-same-origin`) — its document's origin is `null` — that runs the credentialed `fetch`:
 ```html
@@ -158,6 +168,8 @@ regex /target\.com/ loose/unanchored → https://target.com.evil.com
 
 ### Q25. Why are unescaped dots in a regex exploitable?
 A regex like `/target\.com/` that *isn't* anchored (`^…$`) matches anywhere in the origin → `https://target.com.evil.com` passes. And a dot that wasn't escaped (`target.com` written as `target.com` in regex) matches **any** character → `targetXcom` passes. Anchoring + escaping the origin regex is the fix.
+
+> *Plain version:* two classic regex slips. (1) **Not anchored** — the pattern looks for `target.com` *anywhere* in the string instead of requiring the whole string to be exactly that, so `target.com.evil.com` (which *contains* `target.com`) sails through. (2) **Un-escaped dot** — in regex a plain `.` means "any single character," so a rule written `target.com` actually also matches `targetXcom`, `target-com`, etc. The secure version pins both ends and escapes the dots: `^https://app\.target\.com$`.
 
 ### Q26. What's the parser-confusion / backtick trick?
 Browsers and servers can parse a malformed origin differently. Values like `https://target.com%60.evil.com` (backtick), `https://target.com&.evil.com`, or `https://target.com,evil.com` sometimes pass a server-side "starts with target.com" check while the browser treats the real origin as your domain. Test these in a **real browser** too.
@@ -201,6 +213,8 @@ An origin **you control** (or `null`) is reflected into `Access-Control-Allow-Or
 
 ### Q37. What is a "simple" request vs a "preflighted" one?
 A **simple** request goes directly (no preflight): method ∈ {GET, HEAD, POST}, only safelisted headers, and `Content-Type` ∈ {`x-www-form-urlencoded`, `multipart/form-data`, `text/plain`}. Anything else — `PUT`/`PATCH`/`DELETE`, a **custom header** (`Authorization`/`X-Api-Key`/`X-CSRF`), or `Content-Type: application/json` — triggers a **preflight `OPTIONS`** that must succeed first.
+
+> *Plain version:* the browser splits cross-origin requests into "simple" (ordinary-looking: a basic GET or form POST) and "non-simple" (anything fancier — a `PUT`/`DELETE`, a custom auth header, or a JSON body). For **simple** ones it just sends the request and checks CORS on the *reply*. For **non-simple** ones it first sends a quiet "may I?" probe (an `OPTIONS` **preflight**) and only proceeds if the server says yes. Why it matters for you: the everyday secret-stealing read is a *simple* GET, so there's **no preflight in your way** — a common source of over-thinking.
 
 ### Q38. For stealing a secret, do I even need the preflight to pass?
 Usually **no**. The classic theft is a credentialed **`GET`** of a JSON body that's *returned* — that's a **simple** request: the browser sends it (with cookies) and lets you read the body if `ACAO`+`ACAC` allow. You only need a permissive preflight for custom-header reads, writes, or reading response headers.
@@ -249,6 +263,9 @@ Don't over-focus on it for *reads* (the secret-stealing GET is simple). Do test 
 
 ### Q47. What's the core exploit?
 Your page on `attacker.com` makes the victim's browser fetch a **credentialed** response from the target and ships it to you:
+
+> *Plain version:* the whole attack in one breath — a logged-in victim opens your page; your JavaScript runs `fetch(target, {credentials:'include'})` which tells the browser to attach *their* cookies, so the server replies with *their* private data; the CORS misconfig then lets your script *read* that reply (SOP would normally block it); you forward it to your server. One page visit while logged in = their secret in your hands, no XSS on the target needed.
+
 ```html
 <script>
 fetch('https://api.target/api/me',{credentials:'include'})   // sends victim cookies
@@ -269,6 +286,8 @@ Two of **your own** accounts: log in as test user A, visit `attacker.com/exfil.h
 
 ### Q50. CORS to defeat CSRF protection — how?
 If the anti-CSRF token is in a CORS-readable endpoint (`/api/csrf`, or embedded in `/api/me`), steal it cross-origin, then submit the protected state-change *with* that token — defeating the CSRF defense entirely:
+
+> *Plain version:* many apps stop CSRF by requiring a secret token that only the real page knows. But if that token sits in a CORS-readable endpoint, the CORS bug hands it to you — so you first *read* the victim's CSRF token cross-origin, then *replay* it with a forged "change my email" request. The CSRF protection is only as strong as the token's secrecy, and CORS just leaked it. That's how a "read-only" CORS bug turns into a state-changing account takeover.
 ```html
 <script>fetch('/api/csrf',{credentials:'include'}).then(r=>r.json()).then(t=>
  fetch('/api/email',{method:'POST',credentials:'include',
@@ -341,6 +360,8 @@ Cross-reference the Host-Header kit's web-cache-poisoning methodology.
 
 ### Q69. What is Cross-Site WebSocket Hijacking (CSWSH)?
 WebSockets **don't honor SOP or CORS**. A `wss://` handshake is an HTTP `Upgrade` that carries the victim's cookies and isn't gated by ACAO. If the WS endpoint is **cookie-authenticated** and the handshake **doesn't validate `Origin`**, an attacker page can open a fully-authenticated cross-origin WebSocket as the victim → read their stream and act as them.
+
+> *Plain version:* WebSockets (the live connection behind chat/notifications) have a blind spot: **CORS doesn't apply to them at all.** When your evil page opens `new WebSocket('wss://target/chat')`, the browser still sends the victim's cookies, and nothing like ACAO stops you reading the messages. The server's *only* guard is to check the `Origin` header on the opening handshake — and teams who carefully hardened their CORS routinely forget the socket. If it's unchecked, you get a fully logged-in connection to the victim's live feed from your page. Think "CORS theft, but over a WebSocket nobody guarded" (CWE-1385).
 
 ### Q70. How do I test and exploit CSWSH?
 Confirm: replay the WS handshake with `Origin: https://evil.com` (Burp Repeater WS / wscat) — does the authenticated upgrade still succeed (101)? Exploit:

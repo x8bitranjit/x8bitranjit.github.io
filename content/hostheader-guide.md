@@ -14,6 +14,9 @@
 ---
 
 > ### ⚡ READ THIS FIRST — why most Host-header reports underpay (or get closed)
+>
+> *In plain words — the anchor for this whole class:* the `Host` header is a **"deliver to" label the visitor writes themselves.** Your browser fills it in with the real site, but you can scribble anything. It's harmless *until the server reuses your label* for something that matters — addressing the **password-reset envelope it mails to a victim** (→ they click a link pointing at *your* server → account takeover), filing a response in a **shared pigeonhole everyone reads** (→ web-cache poisoning → mass XSS), or deciding **which internal back-room door to open** (→ routing SSRF). So "the server echoed my label back" is a non-event; the finding is *which of those trusted uses your label reaches.*
+>
 > 1. **"Host is reflected" is not the bug.** It matters only when the reflected/trusted host is used **security-sensitively**: building a **password-reset link** (→ ATO), being **cached and served to others** (→ mass XSS/redirect), routing to **internal vhosts** (→ SSRF), or in an **absolute redirect** (→ open redirect/phishing). Find the *sink*, then prove the impact.
 > 2. **Password-reset poisoning is the headline ATO.** If the reset email's link is built from the request's Host, set `Host: evil.com` (or `X-Forwarded-Host: evil.com`), trigger a reset for the victim, and the email links to `evil.com/reset?token=...` — when the victim clicks, **you get their token → account takeover** (§11). This is the single highest-value Host-header outcome.
 > 3. **Web-cache poisoning turns one request into mass impact.** If a Host/`X-Forwarded-Host` is **reflected** *and* the response is **cacheable** (and the header is **unkeyed**), you poison the cached page for **every** user — store an XSS or a malicious redirect (§12). This is High–Critical because it hits all visitors.
@@ -121,6 +124,8 @@ python3 poc/cache_poison.py -u https://target/ --header X-Forwarded-Host
 
 ## 2.1 What it is
 HTTP requests carry a `Host` header naming the site you want. Frameworks expose it (`request.host`, `$_SERVER['HTTP_HOST']`, `X-Forwarded-Host` behind proxies) and developers often use it to **build absolute URLs** (reset links, redirects), **key caches**, or **route** to a backend. Since the client controls the header, trusting it is the bug.
+
+> *In plain words:* a "sink" is just *where your label ends up being used.* The same reflected `evil.com` is worthless in one spot and a Critical in another — worthless if it's only echoed on screen, a Critical if it's stitched into a victim's reset email or an internal routing decision. The list below is your map of "if the label lands here, this is the attack."
 
 ## 2.2 The sinks that matter (decides the attack)
 ```
@@ -250,6 +255,8 @@ TRUSTED (you DON'T see it, but it's used server-side):
 
 # 7. Bypassing Host Validation
 
+> *In plain words:* many apps *do* guard the front-door `Host` — but they leave a side window open. Behind a proxy, frameworks often trust **`X-Forwarded-Host`** (the "the real visitor asked for…" note a proxy is supposed to add) blindly, even when `Host` is locked down. So when `Host: evil.com` bounces, you almost always try `X-Forwarded-Host: evil.com` next — it's the single most productive bypass in this whole kit.
+
 When `Host` is validated, route around it:
 ```
 Forwarding headers (most reliable):  X-Forwarded-Host / X-Host / X-Forwarded-Server / X-Original-Host / Forwarded: host=
@@ -309,6 +316,8 @@ This is XSS sourced from a header. Weaponize via the **XSS kit** (session/token 
 
 # 11. Password-Reset Poisoning → Account Takeover ⭐
 
+> *In plain words:* the headline. When you click "forgot password," the site emails *you* a link with your reset token. If it builds that link's domain from *your* `Host` label, then setting `Host: evil.com` makes the reset email for the **victim** point at `evil.com/reset?token=…`. They click their own legit-looking email, their browser hands **your** server their token, and you reset their password. You test it entirely on your own account — spoof the host, read your own inbox, see the link now points at your domain.
+
 The highest-value Host-header bug. If the reset email's link is built from the request host, you steal the victim's reset token.
 ```
 1. Confirm the sink: request a reset for YOUR OWN account with Host: evil.com (or X-Forwarded-Host: evil.com).
@@ -328,6 +337,8 @@ The highest-value Host-header bug. If the reset email's link is built from the r
 ---
 
 # 12. Web-Cache Poisoning → Mass XSS/Redirect ⭐
+
+> *In plain words:* a cache is a shared pigeonhole — it saves one copy of a page and hands that same copy to everyone who asks. If your `Host` label gets reflected into a page **and** the cache saves the page **and** the cache ignores your label when filing it ("unkeyed"), then your one poisoned request becomes the copy served to *every* later visitor. Store an XSS that way and you've hit the whole user base at once. The safety rule: always poison a *unique* URL only you use (a cache-buster), prove the mechanic there, then describe the shared impact — never poison a real page.
 
 Turn a reflected host + a cache into a payload served to **everyone**.
 ```
@@ -374,6 +385,8 @@ Variants: /account%2F..%2F style, ;.css, ?.css, encoded delimiters; any "static-
 ---
 
 # 13. Routing-Based SSRF → Internal / Metadata → RCE/Cloud ⭐
+
+> *In plain words:* on some setups the front-end uses your `Host` label to decide **which back-room door to walk through** — which internal server answers you. Point it at an internal name or `169.254.169.254` (the cloud's internal "here are your keys" address) and you've turned a header into a tunnel past the firewall. Confirm blind cases by pointing `Host` at your own listener and watching for the ping from the server's IP. This is the sleeper Critical — a plain header becomes SSRF into the internal network and cloud.
 
 On some front-ends the Host header decides **which backend** the request is routed to — change it to reach internal-only systems.
 ```

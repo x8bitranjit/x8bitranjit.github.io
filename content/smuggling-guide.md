@@ -11,6 +11,8 @@
 
 > **Companion to the Host-Header / CORS / SSRF / XSS guides.** Request smuggling is one of the **highest-skill, highest-impact** web classes: by desyncing the front-end and back-end you **prepend bytes onto another user's request**, letting you **hijack victims' requests/sessions, poison the cache for everyone, bypass front-end security controls, and reach internal/admin endpoints.** The mistakes hunters make: (1) **DoS-ing the target** while probing (smuggling probes can knock out real users — discipline matters), and (2) reporting a **timing blip** without a concrete exploit. Read §4 (safe detection) and Part III (turn desync into impact) before you report.
 
+> 🧭 **New to this? Read this first — the whole idea in one picture.** Big websites aren't one server; they're usually **two machines in a row**: a **front-end** (a CDN/load-balancer/WAF that faces the internet, like a mailroom clerk at the front desk) and a **back-end** (the actual app server in the back office). To be fast, they keep **one shared pipe open** between them and send many people's requests down it back-to-back, like letters sliding down a single mail chute. For this to work, each request has to say **how long it is** so the back office knows where one letter ends and the next begins. **Request smuggling is making the two machines disagree about where your letter ends.** You write a request that the *front* clerk measures as ending in one place, but the *back* office reads as ending **earlier** — so the leftover bytes you wrote are treated as **the beginning of whoever's letter comes next down the chute.** That "whoever" is another real user. So you've secretly **stapled your text onto the front of a stranger's request** — and from there you can steal their session, redirect everyone, or sneak past the front desk's security to reach forbidden back-office rooms. That's the entire class. Two things follow from the picture: it's **cross-user** (you affect *other people's* traffic, which is why it pays so well), and it's **dangerous to test** (mess up the shared chute and you jam real users' mail — hence the heavy "do no harm" discipline in §4 and §18). Every scary term below — CL.TE, Transfer-Encoding, desync, downgrade — is just a specific *way* to make the two machines disagree, and each is explained in plain English the first time it appears.
+
 ---
 
 > ### ⚡ READ THIS FIRST — why request smuggling is high-impact (and high-responsibility)
@@ -125,7 +127,10 @@ python3 smuggler/smuggler.py -u https://target/        # CL/TE permutations
 ## 2.1 What it is
 Two servers in a chain reuse a TCP connection (keep-alive). If they **measure request length differently**, the front-end forwards bytes the back-end interprets as the **start of the next request**. You "smuggle" a prefix that attaches to whatever request comes next on that connection — often **another user's**.
 
+*In plain words:* "**keep-alive**" is just the two servers agreeing to keep the one pipe (TCP connection) open and pour many requests through it instead of opening a fresh pipe each time (slow). That's the *enabling condition* — because requests share a pipe, leftover bytes from yours can spill into the next one. The bug is that the front-end and back-end **count the length of your request differently**, so the front-end sends along some bytes it thinks are still part of your request, but the back-end has already decided your request ended — so it treats those extra bytes as the **first line of the next request in the pipe.** Those extra bytes are your "**smuggled prefix**": whatever you put there gets glued onto the front of the next person's request. If the next person is a victim, you've just modified their request without them knowing.
+
 ## 2.2 The length-disagreement classes
+*In plain words — the two "length rules" that cause all the trouble:* HTTP gives a request **two different ways** to say how long its body is, and that's the root of everything. **`Content-Length` (CL)** is the simple one: a header that says "my body is exactly 6 bytes." **`Transfer-Encoding: chunked` (TE)** is the other: instead of a total, the body arrives in labeled chunks and ends when it hits a chunk of size **`0`** (the "I'm done" marker). Trouble starts when a request contains **both** (or a weird version of one), and the two servers pick *different* rules — the front-end trusts the byte-count while the back-end trusts the `0`-marker, or vice-versa. They now disagree about where the request ends, and that gap is the smuggle. The class names are just "who-trusts-what": **CL.TE** = **C**ontent-**L**ength at the front, **T**ransfer-**E**ncoding at the back (and TE.CL is the mirror); **TE.TE** = both understand chunked, but you disguise the header so only one still obeys it; **H2.\*** = the HTTP/2 versions (§7); **CL.0** = one server ignores the length entirely and reads it as zero. Don't memorize them yet — just hold "**two ways to measure length, and the two servers picked different ones.**"
 ```
 CL.TE  → Front-end uses Content-Length; Back-end uses Transfer-Encoding (chunked). 
 TE.CL  → Front-end uses Transfer-Encoding; Back-end uses Content-Length.
@@ -173,6 +178,8 @@ CL.0 / client-side desync → back-end ignores the body (treats CL as 0) → the
 
 ## 4.1 The safe timing test (CL.TE / TE.CL)
 The idea: craft a request where, **if** the back-end uses the "wrong" length, it **waits** for bytes that never come → a measurable delay; if not, it returns fast. (Turbo Intruder / `poc/desync_timing.py` implement the canonical PortSwigger timing probes.)
+
+*In plain words — why timing is the SAFE way to detect this:* the danger with smuggling probes is leaving a "half a letter" stuck in the shared chute that then grabs a real user's request. The timing test avoids that by design. You send a request crafted so that **if** the two servers disagree on length, the back-end ends up **waiting for more bytes that you never send** — so it just sits there until it times out (say, 5+ seconds). If the servers *agree*, the response comes back instantly. So a **consistent, repeatable delay = a desync signal**, and — crucially — because the back-end was only *waiting* (not being fed a leftover prefix), nothing gets stapled onto a real user's request. You get your yes/no answer without touching anyone else's traffic. That's why you always start here before any "real" smuggle.
 ```
 CL.TE timing:  send headers with Transfer-Encoding: chunked and a Content-Length that makes the back-end wait
                for more chunked data → DELAY indicates the back-end honored TE while the front-end honored CL.
@@ -201,6 +208,8 @@ your follow-up is "poisoned" by your own prefix), the desync is confirmed — wi
 > Full byte-exact templates are in `REQUEST_SMUGGLING_ARSENAL.md`. Use Burp/Turbo Intruder for exact bytes.
 
 # 5. CL.TE & TE.CL
+
+*In plain words — walk through the CL.TE example below slowly, it's the whole class in miniature:* your request has **both** length headers — `Content-Length: 6` and `Transfer-Encoding: chunked`. The **front-end obeys Content-Length**, so it counts 6 bytes of body (`0\r\n\r\nG` is exactly 6 bytes) and thinks "the whole request is here, forward all 6 bytes." The **back-end obeys Transfer-Encoding: chunked**, so it reads the body as chunks — sees the `0` chunk, which means **"body finished"**, and stops there. But that leaves one leftover byte the front-end forwarded: **`G`**. The back-end doesn't throw it away — it treats `G` as **the first byte of the next request** in the pipe. So when the next real user's request arrives (say `POST /... `), the back-end actually reads `GPOST /...` — your `G` got glued onto the front of their request. In a real attack you make that leftover a whole malicious request line instead of a lone `G`. **TE.CL is the mirror image** (front-end trusts chunked, back-end trusts Content-Length) and is fiddlier because you have to hand-size a complete smuggled request to match the back-end's byte count. Pick whichever one the timing test (§4) pointed at — don't blast both at a live site.
 
 ```
 CL.TE (front-end: Content-Length; back-end: chunked):
@@ -233,6 +242,8 @@ TE.CL (front-end: chunked; back-end: Content-Length):
 # 6. TE.TE — Obfuscating Transfer-Encoding
 
 Both ends support `Transfer-Encoding`, but you **obfuscate** the header so only **one** end honors it → it degrades to CL.TE or TE.CL.
+
+*In plain words:* sometimes *both* servers understand `Transfer-Encoding`, so neither ignores it and you can't get the CL-vs-TE disagreement of §5. The fix is to **write the `Transfer-Encoding` header slightly "wrong"** — a space before the colon, a tab, a typo like `xchunked`, weird quoting — in a way that **one** server still recognizes as valid (and obeys) while the **other** shrugs and ignores it. The moment one server ignores it, that server falls back to `Content-Length` and the other keeps using chunked → you're back to a CL-vs-TE disagreement. It's the same bug, reached by disguising the header just enough to split the two servers' opinions. Each line below is one disguise; the space-before-colon and tab versions are the most productive in practice.
 ```
 Transfer-Encoding: xchunked
 Transfer-Encoding : chunked          (space before colon)
@@ -250,6 +261,8 @@ Content-Length: 5\r\nTransfer-Encoding: chunked   (both present → which wins?)
 # 7. HTTP/2 Desync (H2.CL / H2.TE / CRLF / downgrade)
 
 When the edge speaks **HTTP/2** to you but **HTTP/1.1** to the origin, the edge **downgrades** your request — and your injected length/CRLF desyncs the origin.
+
+*In plain words — why this matters even on "patched" sites:* HTTP/2 was supposed to *end* smuggling, because in HTTP/2 every request's length is tracked by the protocol itself (no ambiguous CL-vs-TE to argue about). **But** most CDNs still talk old **HTTP/1.1** to the origin behind them — so the front-end **translates** (downgrades) your shiny HTTP/2 request back into an HTTP/1.1 one before forwarding it. That translation is a fresh chance to smuggle: if you sneak a `Content-Length` or a `Transfer-Encoding` header (or a `\r\n` — a raw newline) *inside* your HTTP/2 request, HTTP/2 harmlessly ignores it, but when the front-end rewrites everything into HTTP/1.1, your smuggled header **reappears as a real header** and desyncs the HTTP/1.1 origin — exactly like §5, just introduced during the downgrade. The practical lesson: a site can be fully immune to classic HTTP/1.1 smuggling and **still** be wide open through the HTTP/2→1.1 downgrade, so **whenever the edge speaks HTTP/2 to you, always test these vectors** even after the plain CL.TE/TE.CL tests fail. (James Kettle's "HTTP/2: The Sequel is Always Worse" is the source paper.)
 ```
 H2.CL:  include a Content-Length in the H2 request that disagrees with the actual body → on downgrade, the origin
         uses your CL and mis-frames the next request.
@@ -273,6 +286,8 @@ Target endpoints that "shouldn't" have a body (static assets, 301/302 redirector
 
 ## 7.2 Client-side desync (CSD) — browser-powered, no front-end needed
 PortSwigger's "browser-powered request smuggling." Some servers can be desynced by the **victim's own browser** via a cross-origin `fetch()` with keep-alive — **no proxy/front-end required**:
+
+*In plain words:* everything so far needed a front-end/back-end pair to disagree. Client-side desync is a twist where **a single server** desyncs with **the victim's own browser** as the second party. You build an attacker web page; when a victim visits it, your JavaScript quietly makes their browser send a specially-malformed request (using `fetch` with keep-alive) whose leftover bytes then prefix the **victim's very next request to that site** — on the same browser connection. So you smuggle onto the victim *through their own browser*, no proxy required, just by getting them to open your page. It's powerful (it reaches victims directly, like an XSS delivery) and correspondingly dangerous — so you only ever demonstrate it against **your own** browser and session.
 ```
 □ The server has a CL.0-style desync reachable over a normal connection. An attacker page makes the victim's browser
   send a poisoned request whose trailing bytes prefix the victim's NEXT same-connection request → request hijack /
@@ -334,6 +349,8 @@ Pause-based desync (browser-powered, Kettle 2024): induce a desync by PAUSING mi
 # 9. Request Hijacking / Capturing Another User's Request
 
 The crown jewel: prepend a prefix that makes the back-end **store or reflect the *next* (victim's) request** — capturing their headers (cookies/auth) or body.
+
+*In plain words — how "staple text onto a stranger's request" becomes "steal their login":* pick a feature that **saves or echoes back whatever you send it** — a search box that logs your query, a comment field, a "your feedback" box. Now smuggle a prefix that starts a request to *that* feature but is deliberately left **unfinished** (its declared body is longer than what you sent). The back-end, waiting to fill up that body, grabs the **next thing down the pipe — the victim's entire request, cookies and all — and saves it as the body of your comment/search.** Then you simply go read your own comment/search history and there sits the victim's `Cookie:` / `Authorization:` header in plain text. Copy their session cookie into your browser and you're logged in as them → **account takeover, Critical.** To prove it **safely** you capture your *own* second session (open a second browser/account, let *that* be the "victim"), show you captured its cookie, and describe the cross-user impact — you never actually harvest a real user's data.
 ```
 Technique: smuggle a request to an endpoint that STORES or REFLECTS the request (a comment/feedback/search-log/
 profile field). The victim's in-flight request gets appended to your smuggled body and ends up stored/reflected.
@@ -348,6 +365,8 @@ cross-user impact — don't harvest real victims' data.
 # 10. Bypassing Front-End Security Controls (WAF / auth / internal)
 
 The front-end enforces WAF rules, auth, and path restrictions on the **request it sees** — but the **smuggled** prefix reaches the back-end **unfiltered**.
+
+*In plain words:* the front desk (front-end) is where all the security checks live — the WAF that blocks attack payloads, the rule that says "nobody outside can visit `/admin`," the login wall. But those checks only inspect the request the front desk **can see**. Your smuggled prefix is *hidden inside* another request's body, so the front desk waves the visible part through and never examines the smuggled part — which then pops out at the **back office and runs unchecked.** So you can hide a request to `/admin` (front desk would've blocked it) or a SQL-injection payload (WAF would've caught it) inside a smuggle, and it reaches the back-end as if it came from a trusted insider. Smuggling essentially lets you **mail a request straight to the back office, bypassing the front desk's security entirely** — and its severity then depends on what that newly-reachable back-office endpoint lets you do (§13).
 ```
 □ WAF bypass: the front-end blocks an attack (SQLi/XSS/path); smuggle the malicious request to the back-end past it.
 □ Auth/path bypass: front-end blocks /admin or requires auth; smuggle a request to /admin that the back-end serves
@@ -361,6 +380,8 @@ The front-end enforces WAF rules, auth, and path restrictions on the **request i
 # 11. Web-Cache Poisoning via Smuggling → Mass XSS/Redirect
 
 Combine smuggling with the cache to serve a malicious response to **everyone**.
+
+*In plain words — how one request attacks a whole site:* many sites put a **cache** in front (a CDN that saves a copy of popular pages so it can hand them out fast without re-asking the app). Normally that's harmless. But if you can smuggle, you can make the cache **store your malicious response under a legitimate URL's name.** The trick: smuggle so that the response the cache saves for, say, the homepage is actually *your* content — a redirect to `evil.com`, or a page with your XSS in it. From then on, **every visitor who requests that URL gets served your poisoned copy from the cache** — you didn't attack them one by one, you poisoned the well once and it hits everyone until the cache expires. That amplification (one request → mass XSS/redirect for all users) is why smuggling+cache is High–Critical. (The Host-Header kit §12 covers cache poisoning in depth; smuggling is just another road to the same mass-impact destination.)
 ```
 □ Smuggle a request whose RESPONSE (a redirect/XSS/attacker content) gets cached under a popular URL's key → every
   user requesting that URL gets the poisoned response. (Smuggling provides the "response splitting"/desync to
@@ -452,9 +473,13 @@ Confirm and exploit with **minimal, benign** payloads on **your own** connection
 | **Confirmed, controllable desync, no exploit built** | **Medium** | Up sharply once you build any impact above. |
 | **Timing signal only / tool flag** | **— (not a finding)** | Confirm deterministically first. |
 
+*In plain words — how to read the severity table and score:* smuggling's severity comes from **who you affect and what you steal/reach**, not from the desync itself. A confirmed desync you haven't exploited is only Medium; the moment it captures another user's session, poisons the cache for everyone, or bypasses the front desk into an RCE-able endpoint, it's High–Critical. One quirk unique to this class: it usually scores **AC:H** ("Attack Complexity: High") because you need timing/positioning to land it — but the massive **cross-user** impact (S:C = "Scope: Changed," meaning your bug spills onto *other* users/systems) pushes it right back up to High–Critical anyway. So don't let AC:H talk you out of a high rating; the reproducible cross-user harm is what triagers weigh.
+
 **CVSS / CWE:**
 - Request smuggling → capture/poisoning: `AV:N/AC:H/PR:N/UI:N/S:C/C:H/I:H/A:H`-ish → High–Critical. **CWE-444** (Inconsistent Interpretation of HTTP Requests / "HTTP Request Smuggling").
 - Add outcome CWEs: CWE-79 (XSS via cache/stored), CWE-384 (session), CWE-918/CWE-94 if you reach SSRF/RCE.
+
+> *Decoding the vector:* **CWE-444** is the official ID for request smuggling ("Inconsistent Interpretation of HTTP Requests" — literally "the two servers read it differently"). In the string: **AV:N** = remote/over-the-network, **AC:H** = high complexity (needs the timing/positioning described above), **PR:N** = no privileges/login needed, **UI:N** = no victim interaction required, **S:C** = **Scope Changed** (the key one — your bug affects components/users *beyond* the one you attacked), and **C:H/I:H/A:H** = high impact to confidentiality, integrity, and availability. The `S:C` cross-user scope is exactly why this class rates so high despite `AC:H`.
 
 ---
 

@@ -11,6 +11,8 @@
 
 > **Companion to the Recon · FileUpload · XXE · OAuth-SSO · Host-Header guides** (they find or feed SSRF — Recon locates the fetch sinks, FileUpload/XXE reach it via SVG/external entities, OAuth-SSO via `request_uri`/`jku`, Host-Header via routing-based SSRF). Same philosophy: *find* is Part I–II, *get paid* is Part III–IV. SSRF is one of the **highest-paying** web classes because a single fetch can reach **cloud metadata → IAM credentials → full cloud-account takeover**. But it's also the class most often reported at the wrong severity — "the server pinged my collaborator" is *confirmation*, not *impact*. Read Part III before you celebrate a callback.
 
+> 🧭 **New to this? Start here — what SSRF actually is.** "Server-Side Request Forgery" sounds scary; the idea is simple. Lots of websites have a feature where **you give them a link and their server goes and fetches it** — "paste a URL and we'll grab a preview," "import your profile picture from this address," "send our webhook to your URL," "turn this web page into a PDF." Normally you point those at some outside address and it's harmless. **SSRF is when you trick that server into fetching something it was never meant to** — like its *own* internal address, a database sitting behind the company firewall, or a special cloud address that hands out the keys to the whole cloud account. Think of the server as a **hotel concierge**: you're a guest stuck in the lobby (the public internet), but the concierge can walk anywhere in the building (the internal network). You can't get into the manager's office yourself — so you write a note and ask the concierge to go there *for you*. SSRF is getting the concierge to fetch things from rooms **you** could never reach. The reason it pays so well: one of those "rooms" (the cloud metadata address, §11) literally stores the master credentials, and Part III shows how to walk the concierge straight to it. Every scary term below (metadata, gopher, DNS rebinding, IMDS) is explained in plain English the first time it appears.
+
 ---
 
 > ### ⚡ READ THIS FIRST — why most SSRF reports underpay (or get closed)
@@ -135,7 +137,10 @@ python3 poc/redirect_server.py --to "http://169.254.169.254/latest/meta-data/"  
 ## 2.1 What SSRF is
 The application takes an attacker-influenced URL/host and **the server** makes a request to it. You borrow the server's network position — past the firewall, with its cloud identity. The bug is the server reaching somewhere it shouldn't *on your behalf*.
 
+*In plain words:* the key word is **server-side** — the fetch is made by *their* machine, not *your* browser. That's the whole point: your browser is stuck outside on the public internet, but their server lives *inside* the network, behind the firewall, holding a cloud identity badge. When you make the server fetch a URL for you, every request goes out with **its** address and **its** permissions, not yours. So a request that would be blocked coming from you sails right through coming from the server. You're not hacking the URL itself — you're **borrowing the server's network card and its cloud badge** to reach places that trust it. (This is why a later check — "did the request come from *my* IP or the *server's* IP?" in §4 — is the make-or-break test: only a server-sourced request is real SSRF.)
+
 ## 2.2 Observability classes (decides your technique)
+*In plain words:* "observability" just means **how much you get to see** of what the server fetched — and that decides which techniques you'll use. Three levels: **in-band** = the server shows you the fetched content (you can literally *read* the internal page/data it grabbed — easiest and most powerful); **semi-blind** = you don't see the content, but something *measurable* differs depending on what you aimed at (the response is slower, or the status code/error changes) — that difference is an **oracle**, a yes/no signal you can use to map the network even without seeing bodies; **blind** = you see nothing at all in the app, and your only evidence is that your **out-of-band (OOB) listener** — a server *you* control that just logs who connects to it — got pinged. Blind isn't worthless; it just means you'll escalate with redirects/gopher instead of reading responses (§15).
 ```
 IN-BAND      → the fetched response is returned to you (you SEE internal data). Easiest; highest immediate impact.
 SEMI-BLIND   → you don't see the body, but status code / timing / error / response size differ by target → an ORACLE.
@@ -167,6 +172,8 @@ BLIND        → no visible difference; only your OOB host logs the hit → conf
 # 3. Reconnaissance — Find Every URL-Fetch Sink
 
 Most hunters test one obvious `url=` param. The high-impact sinks are the **server-side processors**.
+
+*In plain words — what "sink" means and why you hunt them:* a **sink** is just any spot where a URL you supply gets **fed to the server's fetching code**. The obvious sink is a box literally labeled `url=`, but the ones that pay are the *hidden* processors — a feature that quietly fetches a link behind the scenes: pasting a link that auto-generates a preview, an "import from URL," an avatar-by-link, a webhook, a "save as PDF" button, an RSS reader, even certain HTTP headers (`X-Forwarded-For`, `Referer`) that some servers fetch. Your recon job is to **list every place the server might fetch something on your behalf**, because each one is a candidate for the whole attack chain. The checklist below is a map of where these sinks hide; grepping the site's JavaScript for fetch-like functions (`fetch(`, `axios`, `curl`, `file_get_contents`) with a user-controlled argument uncovers the non-obvious ones.
 
 ```
 □ Obvious params:     anything that takes a URL/host/path (list in §2.3). Fuzz param NAMES (Arjun, param-miner).
@@ -224,6 +231,8 @@ Most hunters test one obvious `url=` param. The high-impact sinks are the **serv
 
 Once SSRF is confirmed, find how far in you can reach — this sets the severity ceiling.
 
+*In plain words — this is the single most important idea in SSRF:* proving the server fetches a URL is step one, but the **value** of the bug is entirely about **how far *inside* you can steer it.** Picture concentric rings around the server: the outermost ring is the **public internet** (boring — the feature is *meant* to fetch there, so reaching it proves little); the next ring in is **`127.0.0.1`/localhost** (the server talking to *itself* — internal admin tools often listen here with no password); further in are the **internal network hosts** (`10.x`, `192.168.x` — databases, dashboards, CI servers); and the bullseye is the **cloud metadata address `169.254.169.254`** (the credential vault, §11). So the drill below just walks the server from the outer ring toward the bullseye, one probe at a time, to find the deepest ring it'll reach. **That deepest ring is your severity ceiling** — external-only is Low, metadata is Critical. If an inner ring is blocked but an outer one works, you've found a *filter*, and Part II (§6–§9) is how you sneak past it.
+
 ```
 Probe, in order (each a separate test):
   http://YOUR.oast.fun/            → external (baseline)             → confirms fetch
@@ -244,6 +253,8 @@ Probe, in order (each a separate test):
 # 6. IP & Host Obfuscation Bypasses
 
 When a filter blocks `127.0.0.1`/`169.254.169.254`/internal ranges by string-matching, encode the IP so it still resolves to the same address but dodges the match. (Full set + a generator in `poc/ip_encoder.py`.)
+
+*In plain words:* an IP address like `127.0.0.1` is really just a number wearing a familiar costume — the same address can be written as one big decimal (`2130706433`), in hex (`0x7f000001`), in octal, or shortened (`127.1`), and they all point to the exact same place. Here's the exploit: the app's **filter** reads the text and thinks *"nope, that's not `127.0.0.1`, looks safe"* — but the **operating system's networking code** unwraps the costume and connects to `127.0.0.1` anyway. Two different pieces of software read the same string and **disagree** about what it means, and you live in that disagreement. So when a filter blocks the obvious form, you just hand it a differently-dressed version of the same address. (Quick sanity check for `2130706433 = 127.0.0.1`: it's the four bytes `127·0·0·1` packed into one 32-bit number — `127×256³ + 0 + 0 + 1`. The `poc/ip_encoder.py` helper generates every form for you.)
 
 ```
 Target 127.0.0.1:
@@ -282,6 +293,8 @@ Services that resolve any name to an embedded IP let you supply a *hostname* (pa
 ```
 
 ## 7.2 DNS rebinding (defeat TOCTOU allowlists)
+*In plain words — it's a bait-and-switch on the address book.* A careful app defends itself by first **looking up** your domain's IP and checking "is this a safe, public address?" — and only then fetching it. DNS rebinding beats that by making your domain answer the **look-up** and the **fetch** with *different* IPs. You control your domain's DNS and set a super-short expiry (TTL) so the answer is allowed to change instantly: the **first** time the app asks "what's `evil.com`?", you answer with a harmless public IP (the check passes ✅); a split-second later when the app actually connects, it asks again and you now answer `169.254.169.254` (it fetches the credential vault ❌). Same domain name, two different answers, milliseconds apart. The technical name is a **TOCTOU** bug — "Time Of Check to Time Of Use" — because the address was safe at *check* time and dangerous at *use* time. This is the go-to bypass whenever an app "resolves, validates the IP, then fetches" as two separate look-ups.
+
 When the app **validates** the host's IP (resolves it, checks it's public) and then **re-resolves** to fetch — supply a domain whose DNS answer **changes between the two lookups** (low TTL): first a public IP (passes the check), then `169.254.169.254`/internal (used for the fetch).
 ```
 1. Control a domain with a DNS server (or use a rebinding service: rebind.network, 1u.ms, taviso's rbndr).
@@ -295,6 +308,9 @@ When the app **validates** the host's IP (resolves it, checks it's public) and t
 # 8. Redirect-Based Bypasses
 
 If the fetcher **validates the initial URL** (must be an allowed host) but **follows redirects**, host a URL on an allowed/your domain that `30x` redirects to the internal/metadata target. The validation passes on the first URL; the fetch lands internal.
+
+*In plain words:* a redirect (`301`/`302`) is a web page saying "not here — go over *there* instead," and browsers/servers usually follow it automatically. The trick exploits a lazy checker that only inspects the **first** URL you give it: you hand it a link to **your own harmless server**, which passes the "is this allowed?" check, and then your server replies "302 — actually go to `http://169.254.169.254/…`." The app's fetcher obediently follows the redirect *inward*, but it already approved you at the door. The checker guarded the entrance and ignored where you went next. (`poc/redirect_server.py` is a tiny server that does exactly this — you point it at whatever internal target you want.)
+
 ```
 1. Server allows http://YOUR.com/x  (or only checks the first hop).
 2. YOUR.com/x  →  302 Location: http://169.254.169.254/latest/meta-data/iam/security-credentials/
@@ -312,6 +328,8 @@ Use `poc/redirect_server.py --to <internal-url>`. Also try:
 # 9. Allowlist / Denylist Bypasses (Parser Confusion)
 
 URL parsers disagree about where the *host* is. Exploit the gap between the **validator's** parse and the **fetcher's** parse.
+
+*In plain words:* a URL can be surprisingly ambiguous about **which part is the real destination**, and different bits of software guess differently. Take `http://allowed.com@169.254.169.254/`. To a human (and a sloppy validator) it *looks* like it's going to `allowed.com`. But everything before the `@` in a URL is actually just a **username** (the old `http://user@host/` format) — so the real host is `169.254.169.254`, and that's where the HTTP client connects. The validator reads "allowed.com ✅"; the fetcher connects to the metadata IP. Same string, two readings, and you exploit the mismatch. The lines below are all variations on this theme — `@`, `#` (fragment), backslashes, extra dots, and Unicode look-alike characters — each one a different way to make the checker and the fetcher disagree about the true host. Try them one at a time and watch which one actually reaches your internal target.
 ```
 Credentials trick:   http://allowed.com@169.254.169.254/      (validator sees allowed.com; client connects to the host AFTER @)
 Fragment:            http://169.254.169.254/#@allowed.com      /  http://169.254.169.254/#.allowed.com
@@ -333,6 +351,8 @@ Double-encoding:     %2569.254 ... (validator decodes once, client twice)
 # 10. Protocol Smuggling (gopher / dict / file / ftp)
 
 `http(s)` is just one scheme. The others massively change impact — **always test which the fetcher accepts** (point the sink at each and observe).
+
+*In plain words:* the "scheme" is the bit before the `://` — `http`, `https`, `file`, `gopher`, `dict`. Most people only think of `http`, but a URL fetcher that also accepts the others is far more dangerous, so **always test each one.** `file://` makes the server read files off its **own disk** (secrets, config, cloud keys — §14) instead of fetching a web page. The star of the show is **`gopher://`** — an ancient protocol whose superpower is that it lets you send **completely raw, arbitrary bytes** to any port on any internal machine. Why does that matter? Because most internal services (databases, caches, mail servers) speak their own plain-text "language" over a TCP port, and normally you can only *speak* to them if you're inside the network. `gopher://` turns "the server fetches a URL" into "the server types whatever I want at any internal service" — so you can issue real database commands, write files, or send raw HTTP POSTs to unauthenticated internal APIs. That's why gopher is the usual path from SSRF all the way to **RCE (running your own code on their box)** — see §13. `dict://` is a weaker cousin, good for reading a service's banner/version.
 ```
 file://    → read local files (§14):  file:///etc/passwd  file:///proc/self/environ  file:///C:/Windows/win.ini
 gopher://  → send ARBITRARY bytes to any TCP service (§13): the king of SSRF→RCE.
@@ -355,6 +375,8 @@ http(s)    → standard fetch / GET internal APIs / metadata
 # 11. Cloud Metadata — The Crown Jewel
 
 The metadata service hands out **temporary IAM credentials** and instance config. SSRF → metadata → creds → cloud-account compromise = **Critical**. Try this first when metadata is reachable.
+
+*In plain words — what `169.254.169.254` is and why it's the jackpot:* when a server runs in the cloud (AWS, Google, Azure…), it needs a way to ask "who am I and what am I allowed to do?" without a password baked into its code. The cloud provides this via a magic internal address — **`169.254.169.254`**, called the **metadata service** (AWS calls it **IMDS**, Instance Metadata Service) — that *only the server itself* is supposed to be able to reach. Ask it the right URL and it cheerfully returns **live temporary credentials** (an AWS access key + secret + token) that carry whatever permissions the server has — often read/write to storage buckets, databases, the works. So the chain is: **SSRF makes the server ask `169.254.169.254` for its own keys → the keys come back in the response → you now have the server's cloud identity → you can do anything it could.** That's a full cloud-account compromise, and it's exactly how the 2019 **Capital One breach** (100M+ records) happened. This is why "try metadata first" — it's the shortest path from a webhook field to a Critical. One wrinkle: AWS added **IMDSv2**, which requires a two-step handshake (grab a token with a `PUT`, then send it back as a header) — a plain URL-fetch can't add headers, so v2 needs `gopher://` or a header-capable sink (covered in §11.1); if you can't clear that bar, say so honestly rather than claiming creds you couldn't reach.
 
 ## 11.1 AWS (IMDS)
 ```
@@ -446,6 +468,8 @@ With internal HTTP reach (in-band or an oracle), map the internal network and fi
 
 `gopher://` sends **arbitrary bytes** to a TCP port, so you can speak a service's protocol directly. This turns SSRF into **unauthenticated internal command execution** — frequently RCE. Use **Gopherus**/`poc/gopher_redis.py` to build payloads.
 
+*In plain words — how "fetch a URL" becomes "run my code on their server":* internal services like **Redis** (a database/cache on port 6379) usually have **no password at all**, because the company assumed "only trusted machines inside the network can reach it." SSRF breaks that assumption — the server *is* a trusted inside machine, and gopher lets you type raw Redis commands at it. So you don't guess a password; there is none. Once you can send Redis whatever you want, there's a well-known trick: tell Redis to **save its data as a file** — but choose the *filename and folder* to be something the system will later execute (a scheduled `cron` job, an SSH key, or a web page in the site's folder). Redis obligingly writes your booby-trapped file, the system runs it, and now **your** commands execute on their server = **RCE (Remote Code Execution)**, the highest-severity outcome in web security. The important discipline (§23): you *prove* you control Redis with a **harmless** command first (set a marker key and read it back — that alone is already Critical), and only do the file-writing escalation with explicit authorization, because that step actually changes the server.
+
 ## 13.1 Redis → RCE (the classic)
 Redis (6379) commonly has no auth internally. Via gopher you can write a file the server later executes:
 ```
@@ -473,6 +497,8 @@ Raw HTTP POST to internal APIs → trigger state-changing internal actions that 
 # 14. Local File Read (`file://`)
 
 If the fetcher accepts `file://`, you read arbitrary local files — secrets, config, cloud creds, source.
+
+*In plain words:* `file://` tells the fetcher to open a file from the **server's own hard drive** instead of going out to the internet. So the same feature that fetches web pages now reads whatever file you name — and servers keep juicy things on disk: `/etc/passwd` (the classic harmless proof that the read works), `/proc/self/environ` (the program's environment variables, which frequently hold secret tokens and cloud keys), `.aws/credentials` (AWS keys sitting in a file), `.env`/`config.php` (app database passwords), and Kubernetes service-account tokens (cluster access). Convention is to prove the capability with a **non-sensitive** file first (`/etc/hostname` or `/etc/passwd`) and only read a real secret to the minimum extent needed to show impact (§23) — you don't need to dump someone's whole keyring to earn the finding.
 ```
 file:///etc/passwd                                  proof
 file:///proc/self/environ                           env vars (often secrets/tokens)
@@ -491,6 +517,8 @@ Also `file://` via the PDF/headless path (§16) and via XXE (FileUpload guide §
 # 15. Blind SSRF — Confirmation & Escalation
 
 No visible response — but blind SSRF is still High–Critical if you escalate it.
+
+*In plain words:* "blind" means the app **never shows you** what the server fetched — you're operating in the dark. Beginners assume that makes the bug worthless. It doesn't, for two reasons. **(1) You can still "see" by side channels:** even without the content, you can tell an *open* internal port from a *closed* one by how the server *reacts* — a request to a live service comes back at a different speed or with a different error than a dead one. That yes/no signal (an **oracle**) is enough to map the whole internal network blind, like echolocation. **(2) You can still *act* without seeing:** many high-impact moves don't need a response at all — a gopher command that *writes* a file to Redis (§13) or a raw POST that *changes* internal state works fine blind; you don't need to read the reply to have done the damage. And you can often route the unseen response somewhere you *can* see it — bounce it via a redirect into an error message, a stored field, or a generated PDF (§16/§17). So blind SSRF that you escalate to metadata or a gopher write is still **Critical**; blind that reaches nothing but external hosts is the only genuinely-Low case.
 ```
 □ CONFIRM:  OOB callback (DNS+HTTP) with server source IP (§4). DNS-only hit still confirms server-side resolution.
 □ MAP (oracle): even blind, use TIMING (open port responds slow/fast vs closed) and STATUS/ERROR differences to
@@ -620,10 +648,14 @@ Confirm on the **production** host/cloud (metadata creds are environment-specifi
 | **External-only / blind-external SSRF** | **Low–Info** | — | Don't lead with it. |
 | **SSRF used to bypass an IP allowlist (e.g., hit a partner API)** | **Medium** | — | Context-dependent abuse. |
 
+*In plain words — how to read this table:* an SSRF's severity is **whatever it finally reached**, nothing more. The exact same "the server fetched my URL" bug is *Low* if it only touches the outside internet and *Critical* if it touches the metadata credential vault — so you rate the **destination and the loot**, not the fetch. The columns just say: what it's typically worth on its own, what it becomes when chained, and the one fact that bumps it. Rule: find the row that matches the deepest ring you reached (§5) and the concrete thing you obtained (creds / RCE / internal data / file), and rate *that*.
+
 **CVSS / CWE:**
 - Metadata-creds SSRF: `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N` → Critical (~9.x). **CWE-918**.
 - Internal read: scope-changed, `C:H` → High.
 - Anchor to **CWE-918** (SSRF); add the outcome (CWE-200 info-exposure, or RCE chains) where relevant.
+
+> *Decoding that CVSS string (you don't have to memorize it — the calculator builds it):* **CWE-918** is the standard ID for "SSRF." In the vector, **AV:N** = attackable over the network (remote), **AC:L** = low effort, **PR:L** = you need some low-privilege access (a normal logged-in user), **UI:N** = no victim needs to click anything, **C:H/I:H** = high damage to confidentiality and integrity (you got the keys), and the important one — **S:C** = **Scope: Changed**, meaning the bug in the web app spilled over to compromise a *different* system (the cloud account). That scope-change is a big part of why metadata SSRF scores ~9.x Critical instead of merely High.
 
 ---
 

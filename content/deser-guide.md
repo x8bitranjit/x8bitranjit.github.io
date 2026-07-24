@@ -28,6 +28,13 @@ Ruby `Marshal.load` / `YAML.load`, Node `node-serialize` / `serialize-javascript
 ---
 
 ## 0. Read this first — why deserialization is the crown-jewel RCE class
+
+> *In plain words — the anchor for this whole class:* **serialization** is flat-packing a piece of furniture into a box with
+> an **assembly instruction card**; **deserialization** is a worker who builds whatever that card says — no questions asked.
+> Normally the card reads "attach leg A to panel B." The attack is that **you write the card**, and the app's worker
+> (the deserializer) will faithfully follow a step that says *"…and now run this command on the server."* You're not
+> smuggling a value past a filter — you're handing over the whole instruction sheet, and *rebuilding* it is what runs code.
+
 When an app turns bytes back into an object, a **type-confusion / gadget** attacker doesn't just change *data* — they
 control **which code runs during reconstruction**. Language deserializers call "magic" lifecycle hooks
 (`readObject`/`__wakeup`/`__destruct`/`__reduce__`/`OnDeserialization`), and a chain of already-loaded library classes
@@ -60,6 +67,11 @@ execution. Everything else is: recognizing the format, choosing the tool, and ge
 # PART I — FIND & RECOGNIZE
 
 ## 1. Where serialized data lives (find the sinks)
+
+> *In plain words:* look for anywhere the app hands *you* an object to hold and later takes it back — a cookie, a hidden
+> `__VIEWSTATE` field, a "remember me" token, an uploaded file. If it round-trips through your browser, you can rewrite
+> the "instruction card" before returning it.
+
 Deserialization hides in any channel that round-trips an object through the client or an untrusted source:
 - **Cookies / session tokens** — the classic. A base64 blob in a session/auth cookie that the server deserializes.
 - **.NET `__VIEWSTATE`** (hidden form field) — huge: if the MAC is off or the machine key is known, ViewState deserializes to RCE.
@@ -71,6 +83,12 @@ Deserialization hides in any channel that round-trips an object through the clie
 - **Grep source/JS** for the sink calls (see Scope) and for base64 blobs handed to a deserializer.
 
 ## 2. Recognize the format / language (the signatures)
+
+> *In plain words:* every language stamps a little "made by" mark on the front of its serialized blobs. Read that mark
+> and you instantly know which factory made it — which tells you which tool and which gadgets to grab. Java blobs start
+> `rO0`, PHP looks like `O:4:"User"…`, .NET is `AAEAAAD/////`, Python pickle begins `\x80`. Get the language wrong and
+> every payload you try afterwards is aimed at the wrong door.
+
 The blob's **first bytes / base64 prefix** identify the deserializer — this decides your entire approach:
 ```
 Java (ObjectInputStream)   hex AC ED 00 05        base64 starts "rO0AB"            gzip+b64: "H4sI"
@@ -86,6 +104,12 @@ Java JSON gadgets          Jackson: nested "@class"/polymorphic; Fastjson: "@typ
 `poc/deser_detect.py` fingerprints these automatically (incl. base64/gzip). Once you know the language, jump to its section.
 
 ## 3. Confirm your input is deserialized (safely)
+
+> *In plain words:* before firing a live round, ring the doorbell. First **poke** the blob (change a byte) — if the app
+> throws a deserialization error, you've proven it really rebuilds your input into an object. Then send a **URLDNS** blob:
+> a harmless object whose only trick is to make the server do a **DNS lookup** to your listener. A ping back = "yes, it
+> deserializes" — proven with **zero code execution**, so it's the safe first knock before any RCE gadget.
+
 - **Tamper test:** change one byte / field of the blob → a **deserialization error / stack trace / different behavior**
   proves the server is parsing it as an object (not opaque). A stack trace naming `ObjectInputStream`/`unserialize`/
   `BinaryFormatter`/`pickle` confirms the sink and the language.
@@ -101,6 +125,12 @@ Java JSON gadgets          Jackson: nested "@class"/polymorphic; Fastjson: "@typ
 # PART II — EXPLOIT PER LANGUAGE
 
 ## 4. Java — `ObjectInputStream` & friends ★ the classic RCE
+
+> *In plain words:* Java can't run *arbitrary* injected code, but it has thousands of pre-built library "machines"
+> (gadgets) already loaded. A **gadget chain** wires a handful of them together so that "rebuild this object" quietly
+> ends in "run this command." **ysoserial** is a vending machine for these chains — but each chain only works if the
+> matching library is installed on the target (the *classpath*), so you **probe first, then fire the one that fits**.
+
 **Signature:** `AC ED 00 05` / base64 `rO0AB`. **Sink:** `readObject()`, plus RMI/JMX/JNDI, T3 (WebLogic), and JSON
 libs (below).
 
@@ -123,6 +153,13 @@ then pick the matching chain. Don't spray — probe, then fire the right one.
 - **RMI/JNDI** — `marshalsec` runs a malicious LDAP/RMI server; the app fetches+deserializes → RCE (this is the Log4Shell family too — §15).
 
 ## 5. PHP — `unserialize()` & phar ★ object injection → POP chain
+
+> *In plain words:* PHP serialized data is **human-readable** (`O:4:"User":2:{…}` literally spells out an object's class
+> and fields), so you can often edit it by hand — flip `isAdmin` from `0` to `1` and you may just walk in as admin. For
+> full RCE, a **POP chain** (PHPGGC builds these) strings the app's own classes together until one runs a command. And
+> the sneaky part — **phar** — means you don't even need an `unserialize()` call: any file operation on a `phar://` path
+> unpacks a hidden object for you.
+
 **Signature:** `O:4:"User":2:{s:4:"name";s:3:"bob";s:7:"isAdmin";b:1;}`. **Sink:** `unserialize()` on cookies/params, or
 **`phar://`** (below).
 
@@ -148,6 +185,12 @@ phar -o evil.phar Monolog/RCE1 system id` builds it. This is the modern high-val
 PHP); loose comparisons (`==`) in magic methods enable auth bypass.
 
 ## 6. .NET — `BinaryFormatter` / ViewState ★ RCE
+
+> *In plain words:* almost every classic ASP.NET page ships a big base64 `__VIEWSTATE` field — a serialized object the
+> page rebuilds on every postback. If the site forgot to lock it with a signature (**MAC off**), you rewrite that object
+> into an RCE gadget and get **unauthenticated** code execution — one of the highest-value real-world findings. If the
+> MAC is on, you need the secret **machineKey**; that's exactly what the XXE/LFI kits go fetch from `web.config`.
+
 **Signatures:** `AAEAAAD/////` (BinaryFormatter), `__VIEWSTATE` base64. **Sinks:** `BinaryFormatter`, `LosFormatter`,
 `ObjectStateFormatter` (ViewState), `SoapFormatter`, `NetDataContractSerializer`, `Json.NET` with `TypeNameHandling`,
 `XmlSerializer` with attacker-controlled type.
@@ -167,6 +210,12 @@ Unauthenticated ViewState RCE (no MAC) = instant Critical. **Json.NET** `TypeNam
 `{"$type":"System.Windows...ObjectDataProvider", ...}` gadget → RCE.
 
 ## 7. Python — `pickle` / PyYAML ★ trivial RCE
+
+> *In plain words:* pickle is the easiest RCE in this whole kit. An object can declare its own "rebuild me" recipe via
+> `__reduce__` — and the recipe is literally *"call this function with these arguments."* Make the function `os.system`
+> and the argument your command, and `pickle.loads` runs it. No gadget hunting. This is why "upload your ML model"
+> features (models are pickles: `.pkl`/`.pt`/`.joblib`) are a live RCE surface.
+
 **Signature:** `\x80\x04...` (pickle), `!!python/object/apply:` (YAML). **Sink:** `pickle.loads`, `yaml.load` (unsafe
 loader), `jsonpickle`, `shelve`, `dill`, `marshal`.
 **Pickle** is the easiest RCE of all — `__reduce__` returns a callable+args executed on load:
@@ -202,6 +251,12 @@ cross-ref the (coming) Prototype-Pollution kit.
 # PART III — GADGET-LESS, ESCALATE & IMPACT
 
 ## 10. No known gadget chain — what now?
+
+> *In plain words:* no ready-made RCE chain doesn't mean "give up." If the blob *is* your session, just **edit who you
+> are** (`isAdmin → true`) — that's auth bypass with no code exec. If you have source, hand-build a chain from the app's
+> own classes. And even a bare **URLDNS confirmation** with no working RCE is still a real, reportable High — "the app
+> deserializes my untrusted input" is a known-dangerous condition on its own.
+
 - **Object tampering for auth bypass (no RCE needed):** if the serialized blob is a **session/user object**, flip fields
   — PHP `s:7:"isAdmin";b:0;` → `b:1;`, or Java/.NET a `role`/`isAdmin` property, or a Python pickle of a dict. Re-sign if
   it's unsigned. Privilege escalation / auth bypass is a valid High–Critical even without command execution.
@@ -272,6 +327,12 @@ in business terms ("unauthenticated RCE via the session cookie"). **Redact**, pr
 - **SSTI / mass assignment**: different classes; don't mislabel a template-eval or property-bind as deserialization.
 
 ## 16. SAFE-PoC discipline (this is RCE — maximum care)
+
+> *In plain words:* you're holding a loaded gun, so prove it fires without shooting anything valuable. Ring the doorbell
+> (DNS callback) or make the server pause a few seconds (`sleep`), then at most run `id`/`whoami` for the screenshot —
+> and **stop**. No reverse shells, no reading other people's data, no persistence. Delete any file you uploaded and shut
+> down your listener. One benign callback is worth more to a report than a shell you weren't authorized to pop.
+
 - **OOB-first proof:** confirm with a **DNS/HTTP callback** (URLDNS / a unique-token curl) or a **bounded `sleep`** before
   any command. That proves code execution without touching data.
 - **One benign command** max (`id`/`whoami`/`hostname`/`nslookup <token>`) — capture output, then **STOP**. No reverse

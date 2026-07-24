@@ -9,6 +9,7 @@
 ---
 
 ## PHASE 0 — Recon & Lab (§1/§3)
+*Why this matters:* you can't race a rule you haven't named. This phase builds your target list — every action that enforces a **limit** (money, attempts, "one per user," stock) — and, for each, the one-sentence **invariant** it protects ("balance ≥ 0," "coupon used once," "≤5 OTP tries"). That invariant is literally what your whole proof will measure, so writing it down now is not busywork — it's the yardstick for everything that follows. Confirming HTTP/2 here decides which weapon you'll use in Phase 2.
 - [ ] Listed **limited / once-only / stateful** actions (money, OTP/2FA/reset, coupon/bonus, vote, stock, state).
 - [ ] For each, wrote down the **invariant** it protects (the thing you'll try to break).
 - [ ] Confirmed protocol: **HTTP/2** (single-packet viable) or HTTP/1.1 (last-byte-sync).
@@ -16,10 +17,12 @@
 - [ ] Using **my own** accounts/balances/coupons only.
 
 ## PHASE 1 — Baseline ★ (§4) — CONTROL FIRST
+*Why this matters:* the control is you being a scientist — do the action **once, slowly, the intended way** and record exactly what "correct" looks like. This is what makes a race un-false-positive-able: without a clean "1× → balance $90" baseline, your later "N× → balance −$400" means nothing to a triager, because they can't tell whether *your race* broke it or it was already broken. Skipping the control is the #1 rookie mistake, and you usually can't recapture a clean baseline after you've disturbed the state.
 - [ ] Ran the action **once**; recorded the response **and** the invariant value after (balance/count/used/attempts).
 - [ ] Confirmed I can **read the invariant** before and after (wallet, count endpoint, used-flag).
 
 ## PHASE 2 — Land the Race (§5–§8)
+*Why this matters:* this is the craft — **making the requests arrive together**. A normal loop spreads them over tens of milliseconds; the race window is sub-millisecond, so they never collide. Single-packet (HTTP/2) and last-byte-sync (HTTP/1.1) exist purely to defeat that jitter. The two boxes people skip and regret: **connection warming** (the first request on a cold connection is slow and smears your timing) and **widening the window** before giving up — "only one success" often means *your window was too thin*, not *the endpoint is safe*.
 - [ ] **Single-packet (HTTP/2)** (§5): Burp group → duplicate 20–30× → **"Send group in parallel"**.
 - [ ] **Turbo Intruder** (§6) for higher N / varying payloads (OTP brute-race) / gate-and-release.
 - [ ] **HTTP/1.1 last-byte-sync** (§7) if no HTTP/2 (raise N; jitter remains).
@@ -30,6 +33,7 @@
 - [ ] ✅ Confirmed N requests landed in the same window (timing or simply >1 success).
 
 ## PHASE 3 — IMPACT ⭐ (§9–§13)
+*Why this matters:* a broken invariant is only worth as much as what it breaks — so this phase steers the overrun toward the outcomes that actually pay. The order of the boxes is deliberate, roughly highest-impact first: **file-upload TOCTOU → RCE** (the only race that reaches code execution, Critical), **financial double-spend** (money created), and the **security-gate races** (OTP/2FA/predictable-token/OAuth-code → **account takeover**). Chase those before the business-abuse ones. The last box — stating the impact in one plain sentence — is what turns "I found a race" into a rateable finding.
 - [ ] **Financial double-spend** (§9): withdraw/transfer/refund > balance → **negative**; coupon/credit applied N×.
 - [ ] **Security-gate** (§10): OTP/2FA/reset/login rate-limit bypass → brute the code → **ATO**.
 - [ ] **Predictable / time-seeded token** (§10.5): issue victim+self tokens simultaneously → collide → reset → **ATO**.
@@ -41,6 +45,7 @@
 - [ ] Stated impact: *"Racing <action> broke <invariant>, enabling <double-spend $ / ATO / business abuse>."*
 
 ## PHASE 4 — Validate → Severity → Report (§15–§20)
+*Why this matters:* the final gate that decides whether your report is accepted or closed. A valid race report must be able to say one sentence: **"one action gives the normal result; the parallel burst gives an impossible result; and it happens again every time."** That's control + delta + **reproducibility**, measured on the *state* not the status. Reproducing it 3× also neutralises the triager's favourite down-rate ("AC:H, too flaky") — single-packet makes the timing reliably satisfiable, so a repeatable PoC keeps the severity where the impact puts it.
 - [ ] ★ **CONTROL (1×) vs PARALLEL (N×)** delta on the **invariant**, with state read-out (not just statuses).
 - [ ] **Repeated ≥2–3×** (state reset between) → reproducible; noted success rate.
 - [ ] Passed the **false-positive filter** (§16): NOT idempotent N×200, NOT single-success/locked, NOT client-only, NOT non-reproducible, NOT impact-less.

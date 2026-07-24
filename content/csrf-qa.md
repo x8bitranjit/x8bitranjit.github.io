@@ -34,8 +34,12 @@
 ### Q1. What is CSRF in one sentence?
 CSRF forces a victim's **already-authenticated browser** to send a **state-changing request** that the attacker chose, **without the victim's intent**, by abusing the browser's habit of automatically attaching credentials (cookies, HTTP Basic auth, client certs) to requests — "**confused deputy**" / "**ambient authority**" abuse.
 
+> *Plain version:* your browser is an **over-eager assistant that auto-staples your ID badge (session cookie) onto every letter going to a site you're logged into** — regardless of who wrote the letter. CSRF is a stranger writing "*change this account's email to mine*," tricking your assistant into mailing it, and the site obeying because your badge rode along. "Confused deputy" = the browser is a deputy with your authority, tricked into acting for the attacker. No password stolen, no script on the target — just your own logged-in browser used as a puppet.
+
 ### Q2. Why does CSRF even work? (the root cause)
 Browsers auto-send a site's cookies on **any** request to that site — including requests triggered by a *different* site (an `<img>`, a form auto-submit, `fetch`). The server can't tell "the user clicked this in our app" from "a malicious page made the user's browser send it." If the server authorizes purely on the auto-sent cookie and has no *unpredictable, attacker-unknowable* proof of intent, it's CSRF-able.
+
+> *Plain version:* the root cause is that cookies are attached based on **where the request goes, not who started it.** The server sees a request to itself, carrying a valid cookie, and has no way to know whether the victim clicked its own button or whether an evil page made the browser fire it. The only fix is to demand something the attacker *can't* know or send — a random anti-CSRF token, or a cookie rule (SameSite) that withholds the cookie for sneaky cross-site requests. If neither is in place, it's forgeable.
 
 ### Q3. What three conditions must ALL be true for classic CSRF?
 **IF** (a) the action is **state-changing/sensitive** (change email, transfer money, add admin…), **AND** (b) the app relies on an **automatically-sent credential** (session cookie, Basic auth) with no extra proof, **AND** (c) the request has **no unpredictable parameter** the attacker can't guess/obtain (no valid CSRF token, no custom header the attacker can't set, SameSite not blocking it) → **THEN CSRF is possible.** Remove any one condition → no CSRF.
@@ -44,11 +48,15 @@ Browsers auto-send a site's cookies on **any** request to that site — includin
 - **XSS** = attacker runs script **in** the target origin (full read+write, steals tokens, reads responses).
 - **CSRF** = attacker triggers a request **to** the target from the *outside*; they **cannot read the response** cross-origin (Same-Origin Policy blocks that), they only cause the *side effect*. CSRF is "write-only / blind." If you have XSS you don't need CSRF (XSS is strictly stronger and bypasses all CSRF defenses).
 
+> *Plain version:* the one-line difference: **XSS lets you *read and write* as the victim; CSRF lets you only *write* (cause an action), blind.** With CSRF you can make the victim's browser *do* something (change email, transfer money), but you can't see the reply — the same-origin wall still stops you reading it. That's why CSRF exploits target *actions with side effects*, not data reads. And it's why XSS "outranks" CSRF: if you can run script on the target you already have everything CSRF gives you and more.
+
 ### Q5. What is the real-world impact of CSRF?
 Whatever the forged action does: **change email → password reset → account takeover**, change password directly, transfer funds, add an admin/SSH key/API key, disable 2FA, link an attacker OAuth account, change DNS on a router, delete data, change privacy/security settings. Severity = the most sensitive single-request action you can forge (often **High–Critical / ATO**).
 
 ### Q6. What's "ambient authority" and which credentials enable CSRF?
 Any credential the browser sends **automatically**: session **cookies** (most common), **HTTP Basic/Digest** auth, **NTLM/Kerberos** (intranet), **TLS client certs**. **IF** auth is via `Authorization: Bearer <token>` that JS must attach manually (and it's *not* in a cookie) → **THEN** there's usually **no CSRF** (the attacker's page can't add that header cross-origin). Token-in-cookie = CSRF-able; token-in-header-only = generally safe from CSRF.
+
+> *Plain version:* "ambient authority" = credentials the browser sends *for you, automatically*, without the page having to do anything. Cookies are the big one, but Basic-auth, corporate NTLM/Kerberos, and client certificates count too — which is why intranet gear is so CSRF-prone. The litmus test: if the app logs you in with a **cookie**, an attacker's page can piggyback on it → CSRF possible. If it logs you in with a token that JavaScript must *manually* put in an `Authorization` header, the attacker's cross-site page can't add that header → no CSRF. So **the very first thing to check is: cookie auth or header-token auth?**
 
 ### Q7. Does CSRF require the victim to be logged in?
 Yes for state-changing CSRF (you ride their session). **Exception: Login CSRF** (Q60) forces the victim *into the attacker's* account, which doesn't need a victim session. Also "pre-auth" CSRF exists on endpoints reachable without auth.
@@ -58,6 +66,8 @@ No — Same-Origin Policy stops the attacker's origin from reading the cross-ori
 
 ### Q9. GET vs POST — does CSRF only work on POST?
 No. **IF** a state change is reachable via **GET** → CSRF is *trivial* (`<img src=...>`) and even **SameSite=Lax** doesn't fully protect it (top-level navigation). State changes should never be GET. POST CSRF needs an auto-submitting form (Q12).
+
+> *Plain version:* people think "CSRF = POST," but a **GET that changes state** is the easiest CSRF of all and the one that survives the modern default. Under SameSite=Lax, a top-level navigation via GET (a clicked link or `window.location`) *still carries the cookie* — so a sensitive action wired to GET (`/account/delete?confirm=1`) is forgeable with a bare link. That's why "never use GET for state changes" is rule #1 of the defense, and why hunting GET-based sensitive endpoints is your fast win against Lax.
 
 ### Q10. What's the attacker's mindset / mental checklist?
 For every sensitive request ask: *"Can a random evil website make the victim's browser send this exact request, with their cookies, and have the server accept it?"* Then probe each defense layer (token, SameSite, Origin/Referer, Content-Type, custom header) and find the one that's missing or bypassable.
@@ -116,6 +126,8 @@ Testing the PoC in the **same browser** where the app is open (same-site context
 # LEVEL 2 — DEFEATING CSRF TOKENS
 
 ### Q21. The request has a CSRF token. First tests?
+> *Plain version:* a CSRF token is a secret random value the real page puts in its forms that an attacker can't know — so the server can tell genuine from forged. But a token only protects if the server (a) *actually checks it* and (b) checks it *belongs to this user*. The tests below probe exactly those two: does deleting/blanking it still work (not really checked), and does *your own* account's token work in the victim's request (not tied to the victim). Either failure = the token is just for show.
+
 Run this sequence; each is an independent bypass:
 1. **Remove** the token parameter entirely → does it still work? (token only checked *if present*).
 2. **Empty** the token (`csrf=`) → accepted?
@@ -182,6 +194,8 @@ Forge the unprotected step (e.g., add a delivery address, set a recovery email *
 ### Q36. What is the SameSite cookie attribute and why does it matter most today?
 `SameSite` on `Set-Cookie` controls whether the cookie is sent on **cross-site** requests. It's the dominant *modern* CSRF defense (Chrome defaults cookies to **Lax** since v80/2020). Values: **Strict**, **Lax**, **None**. First thing to check: `Set-Cookie:` on the session cookie — note its SameSite.
 
+> *Plain version:* `SameSite` is the cookie rule that decides "will the browser auto-attach me on a cross-site request?" — and since 2020 it's the single biggest reason CSRF reports get closed. **`None`** = attach on everything (CSRF fully alive). **`Lax`** (today's default even when unset) = attach only when the victim does a top-level *navigation* with GET (clicks a link), **not** on a background POST/fetch — so old-style form-POST CSRF dies. **`Strict`** = never attach cross-site (CSRF basically dead unless you get a same-site foothold). So your whole plan hinges on this one attribute — read it before doing anything.
+
 ### Q37. IF session cookie is `SameSite=None` (and Secure) → ?
 Cookie is sent on **all** cross-site requests → **classic CSRF fully in play** (subject to tokens/Origin checks). Common on apps needing cross-site embedding. Best-case for the attacker.
 
@@ -201,6 +215,8 @@ Cookie is **not sent on any cross-site request, including top-level navigation**
 
 ### Q41. Important: SameSite is "same-SITE", not "same-ORIGIN". Why does that matter?
 "Site" = registrable domain (eTLD+1). `a.target.com`, `b.target.com`, and `target.com` are all the **same site**. **IF** you control or XSS **any subdomain** (subdomain takeover, a vulnerable sibling app, user-content subdomain) → requests from there are same-site → SameSite (even Strict) won't block them. Subdomain takeover + CSRF is a powerful combo.
+
+> *Plain version:* the gotcha that saves many "Strict" targets for the attacker: SameSite cares about the **site** (the registrable domain like `target.com`), not the exact **origin**. So `blog.target.com` and `api.target.com` are *different origins* but the *same site* — and Strict cookies flow freely between them. Translation: if you can run code on **any** subdomain (an XSS there, or you take over a forgotten `*.target.com` DNS record), your requests count as "same-site" and the cookie is sent *even under Strict*. That's why one weak subdomain undoes a site-wide SameSite=Strict.
 
 ### Q42. How do attackers turn a SameSite=Lax target into a hit via redirects?
 **IF** the target site itself has an **open redirect** that the victim hits via **top-level navigation** (allowed under Lax) and that redirect issues the state-changing GET — or you chain a same-site page to issue the request — the cookie rides along. Lax blocks *cross-site subresource* POSTs, not *same-site* issuance.
@@ -246,6 +262,8 @@ Many frameworks parse params regardless of content-type, or accept form-encoded 
 
 ### Q51. The `enctype="text/plain"` JSON-CSRF trick — how?
 A form with `enctype="text/plain"` sends the body as `name=value` joined lines and **doesn't URL-encode**. You shape inputs so the raw body is **valid JSON**:
+
+> *Plain version:* the problem: JSON APIs usually need `Content-Type: application/json`, which a plain HTML form *can't* send (and `fetch` with it triggers a CORS preflight you can't pass cross-site). The trick: a form *can* send `text/plain`, and you can craft the field name/value so the resulting raw body just *happens to be valid JSON*. If the server is lenient and parses that text/plain body as JSON anyway, you've CSRF'd a JSON endpoint with nothing but an HTML form — no preflight, no JavaScript. It only works when the server doesn't strictly enforce the JSON content-type.
 ```html
 <form action="https://t/api/account" method="POST" enctype="text/plain">
   <input name='{"email":"attacker@evil.com","ignore":"' value='"}'>
@@ -289,6 +307,8 @@ The attacker page can't attach that header cross-origin → **no CSRF**. **BUT I
 ### Q59. What is CSRF-to-Account-Takeover (the money chain)?
 Forge a single sensitive write that yields control: **change-email CSRF** (no current-password required) → attacker triggers password reset to the new email → ATO. Or **change-password CSRF** if no current password is needed. Or **add recovery phone/email**, **link attacker OAuth**, **add an API key/SSH key**. Always look for "change email/password without re-auth."
 
+> *Plain version:* raw CSRF is boring to a triager — the money is aiming it at an action that hands you the account. The evergreen chain: CSRF the victim into **changing their account email to yours**, then hit "forgot password" and receive their reset link → you own the account. That's why throughout this kit the advice is "don't report *a missing token*, report *account takeover*." Same forged request, but the second framing is what pays.
+
 ### Q60. What is **Login CSRF** and why is it useful?
 The attacker forges a **login** request that logs the **victim into the attacker's account**. The victim then unknowingly uses the attacker's account — entering payment cards, search history, uploaded files, OAuth links — which the attacker later retrieves. Also enables **OAuth/account-stitching** attacks. Defense: CSRF-protect the login form too (often forgotten).
 
@@ -311,6 +331,8 @@ Forge a logout to disrupt the victim (low sev alone) — but combined with **Log
 **IF** GraphQL requires `application/json` + CSRF token/custom header → blocked. Test the content-types and GET support.
 
 ### Q66. What is **cookie tossing / cookie injection** and how does it beat double-submit?
+> *Plain version:* "double-submit" is a stateless CSRF defense: the server puts a random token in a cookie **and** expects the same value in the form, then just checks the two match — no server-side memory needed. Its fatal flaw: it only checks the two are *equal*, not that they're the *victim's*. So if you can plant a cookie in the victim's browser for the target (via a subdomain XSS, a sibling site setting a `Domain=.target.com` cookie, or header injection — collectively "cookie tossing"), you set **both** the cookie and the form field to *your own* known value → they match → defense bypassed. It's only as strong as your inability to write a cookie on the domain.
+
 **Double-submit CSRF defense**: server sets a random token in a cookie and expects the same value echoed in the request body/header; it just checks they're equal (no server-side state). **IF** the attacker can **write a cookie** into the victim's browser for the target site — via an **XSS on a subdomain**, a **sibling app that sets a domain cookie**, **HTTP response/header injection**, or a **less-secure HTTP subdomain** ("cookie tossing" from `sub.target.com` setting a `Domain=.target.com` cookie) — **THEN** the attacker sets BOTH the cookie and the body token to *their own* known value → they match → defense bypassed. Double-submit is only as strong as the integrity of that cookie.
 
 ### Q67. Clickjacking-assisted CSRF — when do I use it?

@@ -20,6 +20,8 @@
 > 4. **Raw CSRF is discounted; the ATO is the bounty.** "CSRF on change-email" is a finding because it → **account takeover**, not because a token was missing. Lead with the impact chain: CSRF → change recovery email/password/2FA → ATO (§11, §22).
 > 5. **Prove it in a real, default browser.** A valid CSRF PoC is an HTML page that, when the logged-in victim opens it in **Chrome with default settings**, performs the action. If your PoC only works with SameSite disabled, it's not a real-world bug — say so or don't report it (§19, §23).
 >
+> **In plain words — the analogy (used throughout):** your browser is an **over-eager assistant who automatically staples your ID badge (your session cookie) onto every letter addressed to a site you're logged into** — no matter *who* wrote the letter. CSRF is a stranger writing the letter ("*change this account's email to mine*"), tricking your assistant into mailing it, and the site obeying because your badge rode along and it looks like *you* sent it. The whole attack is abusing that autopilot. **`SameSite` is a newer rule the assistant follows about *when* to staple the badge on** — and since 2020 the default (`Lax`) means the assistant *won't* staple it onto the sneaky cross-site letters (a background POST), only onto letters you clearly walked in and delivered yourself (clicking a link = a top-level GET). That default is why most old-school CSRF quietly stopped working — and why the whole first half of this guide is about the narrow cases where the badge still gets stapled.
+>
 > **Where the money is (memorize this order):** ① **CSRF → ATO** (change email/password/2FA/recovery, with no old-password & a bypassable/absent token) → ② **CSRF on financial/admin actions** (transfer, add-admin, role change) → ③ **CSRF + self-XSS → stored XSS → ATO** (turning a "won't fix" self-XSS into impact) → ④ **OAuth CSRF** (missing `state` → account linking takeover) → ⑤ *then* login CSRF and low-value-action CSRF as **Low**, and logout/preference CSRF as **Info** (often N/A).
 
 ---
@@ -131,6 +133,8 @@ python3 -m http.server 8000      # then open http://localhost:8000/poc.html in t
 ## 2.1 What CSRF is
 The attacker makes the **victim's browser** send an **authenticated, state-changing** request to the target. It works because the browser **automatically attaches the session cookie** to requests to that site — even when the request originates from the attacker's page. The server can't tell the request wasn't intended by the user.
 
+> *In plain words:* the key insight is that **cookies are sent by the browser automatically, based on *where the request is going*, not *who started it*.** So when your evil page tells the victim's browser "POST to target.com/change-email," the browser goes "oh, target.com — I have a cookie for that" and attaches the victim's login without asking. To the server it looks identical to the victim clicking the button themselves. That's why CSRF needs no password and no XSS — it just borrows the victim's already-logged-in browser as a puppet. (And that's also why it *only* works for cookie auth: a `Authorization: Bearer` token isn't auto-attached, so there's nothing to borrow.)
+
 ## 2.2 The four preconditions (ALL must hold)
 ```
 1. COOKIE-based session that the browser auto-sends   → if auth is a Bearer header/localStorage token: NO CSRF.
@@ -141,6 +145,8 @@ The attacker makes the **victim's browser** send an **authenticated, state-chang
 If any precondition fails, there's no CSRF. **Precondition 1 + the cookie's SameSite is the whole ballgame in 2026.**
 
 ## 2.3 The SameSite cookie attribute (the modern gatekeeper)
+> *In plain words:* `SameSite` is the cookie setting that decides "when will the browser auto-attach me on a cross-site request?" — and it's *the* thing that makes or breaks CSRF in 2026. Three values: **`Strict`** = never send on anything cross-site (CSRF basically dead). **`Lax`** (today's *default*, even if the site sets nothing) = only send when the victim does a **top-level navigation with GET** — i.e. clicks a link or the address bar changes — but **not** on a background cross-site POST/`fetch`/image/iframe. **`None`** = send on everything cross-site (classic CSRF fully alive; used by SSO/embeds/payment iframes). So your first question on any target is always "what's this session cookie's SameSite?" — it tells you whether you're hunting a GET action (Lax), anything goes (None), or should walk away (Strict).
+
 ```
 SameSite=Strict  → cookie NEVER sent on any cross-site request. CSRF effectively dead for this cookie.
 SameSite=Lax     → cookie sent only on TOP-LEVEL GET navigations (clicking a link / window.location).
@@ -187,6 +193,8 @@ CSRF only matters on **sensitive state changes**. Map them and rank by impact.
 # 4. Baseline — Is It Even CSRF-able?
 
 **Do this before building any PoC.** Five questions decide whether CSRF is possible and what (if anything) blocks it.
+
+> *In plain words:* this is the **gate that saves you from the #1 CSRF mistake** — reporting a "CSRF" that a browser silently blocks. Before you build anything, answer: is the login a **cookie** (the auto-attached thing CSRF needs)? what's that cookie's **SameSite**? is there a **token**, and is it actually checked? does the server check **Referer/Origin** or demand **JSON/a custom header**? Each answer either rules CSRF out or tells you exactly which control you must bypass. Crucially, **Burp Repeater will lie to you here** — it runs same-site and sends your own cookie+token, so *everything* "works" in Repeater. The only truth is a cross-site PoC in a real default browser (§4.2).
 
 ## 4.1 The five baseline questions (per action)
 ```
@@ -236,6 +244,8 @@ Bearer/localStorage auth                                                        
 # 5. Anti-CSRF Token Bypasses
 
 A token is only protective if it's **validated and bound to the victim's session.** Test each weakness:
+
+> *In plain words:* an anti-CSRF token is a secret random value the real page embeds in its forms, which the attacker's page can't know or guess — so the server can tell a genuine submission from a forged one. But a token only works if the server actually **checks it** *and* checks it **belongs to this specific user**. Two shockingly common failures: (1) the server never really validates it (delete the token → still accepted), or (2) it accepts *any* valid token, not just the victim's (so you grab a token from *your own* account, paste it into the attack, and it passes). Either way the token is just decoration. Always test both before assuming a token protects the action.
 ```
 □ Token NOT validated:        remove the token param entirely / send empty → still accepted? ⇒ CSRF.
 □ Token not tied to session:  use YOUR OWN valid token in the victim's request (tokens are interchangeable) ⇒ CSRF
@@ -257,6 +267,8 @@ This is the heart of modern CSRF. Your bypass depends on the cookie's SameSite v
 
 ## 6.1 GET-based state change (works under default Lax)
 `SameSite=Lax` **still sends the cookie on top-level GET navigations.** So if a sensitive action accepts **GET**, a simple link/redirect/`window.location` fires it cross-site:
+
+> *In plain words:* here's the crack in the default-Lax armor. Lax blocks sneaky background requests but **still attaches the cookie when the victim "walks in the front door"** — a top-level navigation via GET (they click your link, or your JS runs `window.location=...`). So if the target foolishly lets a *sensitive action* happen over a plain GET (`/account/delete?confirm=1`), you don't need any bypass at all — a link or a redirect fires it and the cookie tags along under default Lax. The catch (next paragraph): this only works for **top-level navigations**; an `<img>` or hidden `<iframe>` is a *background* request, so Lax withholds the cookie there.
 ```html
 <!-- Lax allows this: top-level GET navigation carries the cookie -->
 <a href="https://target.com/account/email/change?email=attacker@evil.com">click</a>
@@ -273,6 +285,8 @@ Chrome historically allowed cross-site **top-level POST** to send Lax cookies **
 
 ## 6.4 Same-site position (defeats even Strict)
 `SameSite` is about **site** (eTLD+1), not origin. A request from `sub.target.com` is **same-site** to `target.com` → cookies flow. So:
+
+> *In plain words:* "same-**site**" is looser than "same-**origin**." Origin = exact scheme+host+port; site = just the registrable domain (`target.com`, technically eTLD+1). So `evil.target.com` and `api.target.com` are *different origins* but the *same site* — and SameSite cookies (even `Strict`!) flow between them. The consequence: if you can run code on **any** subdomain of the target (via an XSS there, or by taking over a dangling subdomain), your request counts as same-site and the cookie is sent even under Strict. That's why "we set SameSite=Strict" isn't safe if a single subdomain is hackable — and why CSRF chains with subdomain XSS/takeover.
 ```
 □ XSS on any subdomain → run the "CSRF" request from there (it's same-site → cookie sent even if Strict). (XSS guide)
 □ Subdomain takeover (Recon guide §17) → host your page on a target subdomain → same-site requests.
@@ -298,6 +312,8 @@ Some frameworks honor `_method=PUT/DELETE` in a body or `X-HTTP-Method-Override`
 
 ## 6.7 The 307 / 308 method-preserving redirect trick
 A normal cross-site form gets you a **GET or simple POST**. A **307 (or 308)** redirect is special: the browser **re-sends the SAME method AND body** to the redirect target (302/303 downgrade to GET; 307/308 do **not**). That lets you turn one request into another that you couldn't craft cross-site directly:
+
+> *In plain words:* redirects come in two flavors that matter here. A `302`/`303` redirect tells the browser "go there, but as a fresh **GET**" — it throws away your POST body. A `307`/`308` redirect says "go there and **repeat exactly what you just sent**" — same method, same body. That's a gift: if the target has any endpoint that answers `307` and lets you influence where it points, you can send a cross-site POST to *it*, and the browser faithfully re-POSTs your original body onward to the *real* sensitive endpoint — reaching methods/bodies a plain HTML form could never craft directly. (And if that 307 lands on a same-site URL, it combines with the client-side-redirect trick above so the cookie survives even Strict.)
 ```
 □ Reach a method/endpoint forms can't produce: point a cross-site simple POST at a target URL that 307-redirects to the
   SENSITIVE endpoint → the method + body are preserved to the second endpoint (which a plain form couldn't target).
@@ -409,6 +425,9 @@ Requirements: the page is framable (no XFO/frame-ancestors), the action complete
 # 11. Account-Takeover CSRF
 
 The headline outcome. CSRF a victim into an action that hands you their account.
+
+> *In plain words:* a missing CSRF token by itself is boring — triagers close it. What makes CSRF *pay* is aiming it at an action that hands you the account. The cleanest chain: CSRF the victim into **changing their account email to *your* inbox**, then click "forgot password" and receive their reset link — now you own the account. Even better if the change needs no current-password confirmation. The lesson threaded through this whole guide: don't report "no CSRF token," report "a logged-in victim who opens my page loses their account." Same request, completely different severity.
+
 ```
 A) Change email/recovery → reset password:
    CSRF the "change email" (or "change recovery email") to an inbox YOU control → request password reset → own the account.
@@ -454,6 +473,8 @@ Modern apps are JSON APIs. CSRF them when (a) the API also accepts urlencoded/mu
 # 14. CSRF + Self-XSS → Stored XSS
 
 A powerful chain that **rescues a "won't fix" self-XSS**: if an input is XSS-vulnerable but only the user can inject into their own field (self-XSS), use **CSRF to inject the payload into the victim's own field** → it becomes **stored/effective XSS** in the victim's session.
+
+> *In plain words:* "self-XSS" is XSS you can only fire in *your own* account (e.g. your own profile bio executes your own script) — programs reject it because an attacker can't make a victim paste a payload into their own settings. **CSRF removes that excuse.** You use CSRF to *save the XSS payload into the victim's own field for them* — now it's their account running your script, i.e. real stored XSS in their session → account takeover. Two bugs each rated "won't fix" (self-XSS) or "low" (CSRF) combine into one High–Critical. This is the classic way to make a self-XSS actually pay.
 ```
 1. Find a self-XSS (a field that XSSes only when YOU put a payload in YOUR own profile).
 2. Find/confirm CSRF on the "update that field" action.
@@ -466,6 +487,8 @@ A powerful chain that **rescues a "won't fix" self-XSS**: if an input is XSS-vul
 # 15. OAuth / SSO CSRF
 
 OAuth flows have their own CSRF: the **`state` parameter** is the anti-CSRF token of OAuth. Missing/unvalidated `state` → **account-linking takeover**.
+
+> *In plain words:* in a "Login/Connect with Google" flow, the `state` parameter is meant to be a random value that ties the final callback back to the browser that *started* the flow — exactly the job a CSRF token does. If the app doesn't check `state`, you can start the OAuth flow with **your** Google account, capture the resulting callback, and CSRF the *victim* into completing it — so the victim's app account gets **linked to your Google identity**. Now you just click "Login with Google" and you're inside their account. Missing `state` is CSRF wearing an OAuth costume, and it's a frequently-missed, high-impact bug.
 ```
 □ Missing/ignored state on the callback → attacker can force the victim to link the ATTACKER's social account to the
   victim's app account (or vice-versa) → attacker logs in via "Login with Google" as the victim. → ATO.
@@ -578,7 +601,7 @@ CSRF has the **longest** false-positive list of any class in this series. Intern
 | **Logout CSRF / missing-token-no-impact** | **Info/N-A** | — | Don't lead with it. |
 
 **CVSS / CWE:**
-- CSRF→ATO: `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` → High (~8.x). `UI:R` (victim opens the page) is inherent to CSRF. **CWE-352**.
+- CSRF→ATO: `AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N` → High (**8.1**). `UI:R` (victim opens the page) is inherent to CSRF. Scope is **S:U** — the forged request acts on the *same* application/security authority (the victim's own account), so it doesn't cross a scope boundary; that's part of why CSRF→ATO lands High, not Critical. (Contrast the CORS kit, where an *attacker origin* reads a *different* origin's data → `S:C`.) **CWE-352**.
 - Anchor to **CWE-352** (CSRF); add the outcome (CWE-639/287 for ATO) where relevant. `UI:R` is why CSRF rarely scores Critical alone — the ATO chain is what pushes it up.
 
 ---

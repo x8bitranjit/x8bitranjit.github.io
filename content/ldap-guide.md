@@ -14,6 +14,9 @@
 ---
 
 > ### ⚡ READ THIS FIRST — why LDAP injection pays
+>
+> *In plain words — the anchor for this whole class:* LDAP is the company's **master directory** — the official list of who works here and what each person is allowed to do — and every login or people-search is a **question put to that list.** A login doesn't "check your password" so much as *ask the directory*: "is there an employee with username = X **AND** password = Y?" If the directory answers "yes, one match," the guard waves you in. LDAP injection is **editing that question using the directory's own punctuation** (`*`, `(`, `)`, `&`) so it instead asks "username = admin **AND** (always-true)" — the password half of the question evaporates and you walk in as admin. You never run code; you just change *what the directory is asked*, and the app blindly trusts the answer for **who you are** and **what you may do.**
+>
 > 1. **The prize is AUTH BYPASS, not RCE.** If the login filter is `(&(uid=$user)(userPassword=$pass))` and you can inject `*` / `)(` / `(&)`, you turn the password check into *always-true* and **log in as any user — including admin (Critical ATO)**. That's the headline; everything else supports it.
 > 2. **The second prize is the whole directory.** A search/"people-finder" filter that accepts `*` leaks **every user, email, phone, title, manager, group membership** — and on misconfigured servers, readable **`userPassword` / hashes**. Mass PII + cred disclosure = High.
 > 3. **AND vs OR context is the whole game.** Your input lands inside `(&(...)(x=INPUT))` (AND) or `(|(...)(x=INPUT))` (OR). The breakout differs. Probe it first (§5/§6) — get the context right and a "filtered" target still falls.
@@ -126,6 +129,8 @@ ldapsearch -x -H ldap://dc.target.local -b "dc=target,dc=local" "(uid=*)" # dire
 
 ## 2.1 What it is
 User input is concatenated into an **LDAP search filter** (or a **DN**) and sent to the directory without escaping the LDAP metacharacters. By injecting filter syntax, you **change which entries match** — turning a password check into always-true (auth bypass), widening a search to the whole tree (disclosure), or building a boolean oracle to read attributes (blind extraction). LDAP is a *query* language, not a code/shell surface, so the outcome is **auth/authz bypass and data disclosure**, rarely RCE.
+
+> *In plain words:* LDAP's grammar looks alien because the operator comes *first* and everything is wrapped in parentheses — `(&(A)(B))` means "A **AND** B", `(|(A)(B))` means "A **OR** B", `(uid=*)` means "anyone who has a uid at all." Once you can read those, injection is just adding or rearranging those parentheses and `&`/`|` so the question answers the way you want. The two magic tokens: `*` ("match anything") and `(&)` (RFC 4526's "always true").
 
 ## 2.2 LDAP filter syntax you must know (RFC 4515)
 ```
@@ -270,6 +275,8 @@ user=*)(uid=*))(|(uid=*  pass=x  → logs you in / different response       = au
 
 # 6. AND vs OR Breakout — the core technique
 
+> *In plain words:* everything hinges on whether your input sits in an **AND** question or an **OR** question. In an AND (`username=X AND password=Y`) you're fighting the other clauses — you must make the *whole* thing true (add an always-true piece, or `*`). In an OR (`match this OR that`), a *single* true piece already wins the whole question, so it's much easier. So step one is always: probe which one you're in (does `*)(objectClass=*)` suddenly return everyone?), then pick the matching breakout.
+
 Where your input lands inside the boolean structure decides the breakout. **Probe the context first** (does `*)(objectClass=*)` widen results?), then use the matching payload.
 
 ## 6.1 AND context — `(&(fixed)(attr=INPUT))`
@@ -322,6 +329,8 @@ Read it:   the error usually names the backend, the bad filter, sometimes the BA
 
 # 8. Blind LDAP Injection
 
+> *In plain words:* most login forms won't *show* you directory data — but they still behave differently when your injected question is true vs false (a different message, length, or "login OK/failed"). That yes/no difference is a **20-questions oracle**: you ask "does admin's email start with 'a'?" and read the yes/no off the page, then "…start with 'ab'?", and so on — reconstructing hidden values one character at a time. No data shown ≠ safe; a stable true/false difference is a fully confirmed injection.
+
 No data, no error — but the response **differs** depending on whether your injected filter **matches**. That difference is a boolean oracle (status, length, body text, redirect, or login success/fail). Read data through it, like boolean-based SQLi.
 
 ## 8.1 Build the oracle (true vs false)
@@ -357,6 +366,8 @@ Speed it up: range with >=/<= to binary-search:(&(uid=admin)(userPassword>=m*)) 
 > Every PoC uses **your own test accounts**, benign reads, and **no mass data dump** (§20). The finding is **altered filter logic with a concrete impact** (auth bypass / disclosure / extraction), not a reflected `*`.
 
 # 9. Authentication Bypass
+
+> *In plain words:* the headline. The login asks "is there someone with uid=X **AND** password=Y?" Inject `admin)(&)` into the username and the question becomes "uid=admin **AND** (always-true)" — the password clause is now irrelevant, one entry (admin) matches, and the app, which treats "≥1 match = valid login," logs you in as admin. You didn't guess the password; you deleted the part of the question that asked for it.
 
 The headline. Login filters are usually `(&(uid=$user)(userPassword=$pass))` (AND) — turn the password clause into always-true.
 ```
@@ -395,6 +406,8 @@ PORTSWIGGER-style:     a "search" for `*` returning all users is the canonical l
 ---
 
 # 11. Authorization / Privilege-Escalation Bypass
+
+> *In plain words:* even when the login is bulletproof, apps often ask the directory a *second* question to decide what you're allowed to do: "is user=you **AND** in-group=Admins?" If your identifier is injectable there too, you forge that answer to "always yes" (`)(memberOf=*` or `)(&)`) and the app thinks you're an admin — privilege escalation without ever being in the group. Test these group/role checks separately from the login; hunters miss them, and they're often the bigger bug.
 
 Often higher-impact than the login: many apps gate features with an LDAP **membership check** like `(&(uid=$you)(memberOf=CN=Admins,...))`. If `$you` is injectable, forge the answer.
 ```

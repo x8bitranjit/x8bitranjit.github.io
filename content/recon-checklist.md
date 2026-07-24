@@ -8,12 +8,14 @@
 ---
 
 ## PHASE 0 — Scope & Select (§3)
+*Why this matters:* the policy decides what you're *allowed* to touch — and a brilliant bug on an out-of-scope host pays **$0 and can get you banned or sued**. Reading it also tells you *where the surface is* (acquisitions in scope → a whole extra world of soft targets; ASN in scope → naked IPs with no DNS). Picking a good target is itself recon: broad scope + a real backend = more unduplicated, higher-paying bugs.
 - [ ] Read policy; wrote `in_scope.txt` / `out_scope.txt`.
 - [ ] Confirmed wildcard? acquisitions? ASN? mobile/API in scope?
 - [ ] Noted out-of-scope assets + banned issue types + rate/automation rules + safe-harbor.
 - [ ] Target is worth the time (broad scope + real backend + auth/APIs). If not → pick another (§3.2).
 
 ## PHASE 1 — Go Wide / Assets (§4–§7)
+*Why this matters:* this is where you win on **coverage** — finding the forgotten hosts nobody else mapped, which is the whole cure for duplicate reports. Go *wide*: expand the org first (acquisitions/ASN are the least-hunted surface), then list *every* subdomain via passive (silent, third-party data) and active (your own DNS queries) enumeration. The two under-used passes here — **permutations** and org-expansion — are precisely where your edge over the crowd comes from.
 - [ ] **Org expand** (§4): ASN, reverse-whois, acquisitions, favicon/analytics-ID pivots → extra root domains.
 - [ ] **Passive subs** (§5): subfinder + amass + crt.sh + chaos (+ GitHub subs). API keys configured.
 - [ ] Grepped passive list for `admin/internal/staging/dev/uat/vpn/jenkins/jira/git/api`.
@@ -22,6 +24,7 @@
 - [ ] Merged → `subs_all.txt` (the complete asset list).
 
 ## PHASE 2 — Resolve & Probe (§8–§11)
+*Why this matters:* a list of subdomain *names* is useless until you know which are alive and *what they are*. Probing turns names into a **map of real, identified services** — and the single most important habit is **sorting by "interesting"** (auth/admin/api/dev), because your manual time is finite and belongs on the hosts with a backend behind them. The origin-IP hunt here is the trick that later lets your payloads bypass the WAF.
 - [ ] `httpx` probe all subs (status/title/tech/cname/ip), multi-port.
 - [ ] Built `live.txt`; **sorted by interesting** (auth/api/admin/dev/dashboards), not alphabetically.
 - [ ] Flagged `401/403` auth walls (bypass candidates) and `5xx`/redirects.
@@ -31,6 +34,7 @@
 - [ ] **vhost fuzz** (§11) on shared IPs for no-DNS sites.
 
 ## PHASE 3 — Go Deep (interesting hosts only) (§12–§16)
+*Why this matters:* now you drill into the *few* interesting hosts to find the actual doors — endpoints, parameters, and APIs. This is where the two "others miss" jackpots live: **source maps** (rebuild the app's original source code) and **JS mining** (read the app's blueprint). Note the scope discipline — you go deep on the 50 hosts that matter, never all 5,000; deep-crawling the marketing site while the API sits untouched is the classic time-sink.
 - [ ] **History** (§12): gau/wayback/katana → `urls_all.txt`; **gf-routed** to xss/ssrf/redirect/idor/sqli/lfi.
 - [ ] Extracted forgotten sensitive files + **all historical param names**.
 - [ ] **Content disco** (§13): ffuf dirs/files (context-matched list); recursed into found dirs.
@@ -42,6 +46,7 @@
 - [ ] **APIs** (§16): found swagger/openapi; tested old API versions; GraphQL introspection (or clairvoyance).
 
 ## PHASE 4 — High-Value ⭐ (§17–§22) — run early, pays fast
+*Why this matters:* these are the **fast, clean, high-severity, low-dupe** wins — a subdomain takeover or a verified leaked key can be a Critical in your *first hour*, before you've even opened the main app. That's why the phase says "run early" despite its high number. Two rules keep them valid: **verify** secrets before believing them (most matches are dead keys), and prove buckets/takeovers with a **benign** marker you clean up — never touch real data.
 - [ ] **Subdomain takeover** (§17): nuclei/subzy across full list; checked cookie scope → ATO escalation.
 - [ ] **Secrets** (§18): GitHub dorks + trufflehog on org & commit **history**; `.tfstate`; **verified** before believing.
 - [ ] **Cloud buckets** (§19): cloud_enum/s3scanner; tested read (and benign write).
@@ -52,12 +57,14 @@
 - [ ] **Internet-wide dorking (§22.2):** Shodan/Censys (cert-CN + favicon hash) → CDN origin IP / exposed panels ; Google/GitHub dorks → leaked secrets ; Postman/Pastebin/Docker Hub.
 
 ## PHASE 5 — Route → Impact ⭐ (§23–§25)
+*Why this matters:* **this is the entire point of recon** — a pile of hosts is worthless until each one becomes "test bug class X here because Y." Routing converts "I found 3,000 endpoints" into "these 40 are IDOR/SSRF candidates worth my time," ranked by impact-per-hour. Equally important is the *skip* list: consciously dropping the info-disclosure noise and dead static hosts so you don't waste hours filing things programs auto-close.
 - [ ] Every interesting asset mapped to a **bug class** via the matrix (§23).
 - [ ] Built a **ranked testing queue** by impact-per-hour (Tier-1 criticals → Tier-2 API/authz) (§24).
 - [ ] Consciously **dropped time-wasters** (info-disclosure noise, dead static hosts, no-impact redirects) (§25).
 - [ ] For each queued item, wrote a one-line **hypothesis** ("`/api/v1/` may have BOLA via `id`").
 
 ## PHASE 6 — Automate & Monitor (§26–§29)
+*Why this matters:* recon isn't a one-shot — the target's surface changes every week, and **new assets are the least-tested, least-duped surface there is**. Automating the breadth and setting monitoring means you get *alerted the hour a new subdomain ships* and can test it before the crowd's weekly scans even notice — a standing first-mover advantage. And OPSEC keeps you paid and legal: in scope, rate-limited, and logged.
 - [ ] Wrapped recon in `scripts/x8bit_recon.sh` (idempotent, `anew`-based, polite rate).
 - [ ] **Monitoring set** (§27): daily subdomain/CT/JS diff → `notify` (first-mover on new assets). ⭐
 - [ ] Applied red-team trust-edge thinking (weak sub → main app via CORS/cookie/SSO) (§28).

