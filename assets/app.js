@@ -808,6 +808,10 @@ function enhanceChecklist(root){
   const ths  = Array.from(table.tHead.rows[0].cells);
   const rows = Array.from(table.tBodies[0].rows);
   const sevIdx = ths.findIndex(t=>/^\s*severity\s*$/i.test(t.textContent));
+  // wrap the table in a horizontal-scroll container so columns get full, readable width
+  const scroll = el('div','cl-scroll');
+  table.parentNode.insertBefore(scroll, table);
+  scroll.appendChild(table);
   const bar = el('div','cl-toolbar');
   const search = document.createElement('input');
   search.type='search'; search.className='cl-search'; search.placeholder='Filter test cases (id, payload, category, CWE…)';
@@ -817,7 +821,7 @@ function enhanceChecklist(root){
   });
   const count = el('span','cl-count');
   bar.appendChild(search); if(sevIdx>=0) bar.appendChild(sev); bar.appendChild(count);
-  table.parentNode.insertBefore(bar, table);
+  scroll.parentNode.insertBefore(bar, scroll);
   function apply(){
     const q = search.value.trim().toLowerCase(), s = sev.value;
     let shown=0;
