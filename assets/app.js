@@ -738,6 +738,7 @@ function buildNav(){
   const nav = document.getElementById('nav');
   nav.innerHTML = '';
   nav.appendChild(buildNavFilter(nav));
+  const _clout = el('div','cl-outline'); _clout.id='clOutline'; _clout.style.display='none'; nav.appendChild(_clout);
   NAV.forEach(node=>{
     if(node.kind==='home'){ const a=link(node.label,node.route); a.classList.add('nav-home'); nav.appendChild(a); return; }
     const sec = el('div','nav-sec'+(node.open?'':' collapsed'));
@@ -801,17 +802,41 @@ function buildNavFilter(nav){
   return box;
 }
 
-/* ---- interactive checklist grids: text filter + severity filter + click-to-sort ---- */
+/* ---- interactive checklist grids: category grouping + left outline + filter/severity/sort/CSV ---- */
 function enhanceChecklist(root){
   const table = root && root.querySelector('table');
   if(!table || !table.tHead || !table.tBodies[0]) return;
   const ths  = Array.from(table.tHead.rows[0].cells);
+  const ncol = ths.length;
   const rows = Array.from(table.tBodies[0].rows);
+  const body = table.tBodies[0];
   const sevIdx = ths.findIndex(t=>/^\s*severity\s*$/i.test(t.textContent));
-  // wrap the table in a horizontal-scroll container so columns get full, readable width
+  const catIdx = ths.findIndex(t=>/(^|\b)(test )?category\b/i.test(t.textContent));
+
+  // wrap the table so columns get full, readable width and scroll sideways
   const scroll = el('div','cl-scroll');
   table.parentNode.insertBefore(scroll, table);
   scroll.appendChild(table);
+
+  // group rows by Test Category (first-appearance order) and insert styled divider rows
+  const groups = [];
+  if(catIdx>=0){
+    const map = new Map();
+    rows.forEach(tr=>{
+      const c = (tr.cells[catIdx] ? tr.cells[catIdx].textContent.trim() : '') || 'Uncategorized';
+      if(!map.has(c)){ map.set(c, {cat:c, rows:[]}); groups.push(map.get(c)); }
+      map.get(c).rows.push(tr);
+    });
+    groups.forEach((g,gi)=>{
+      const dr = document.createElement('tr'); dr.className='cl-cat'; dr.id='clsec-'+gi;
+      const td = document.createElement('td'); td.colSpan=ncol; td.textContent=g.cat; dr.appendChild(td);
+      g.divider = dr;
+      body.appendChild(dr);
+      g.rows.forEach(tr=>body.appendChild(tr));
+    });
+  }
+
+  // toolbar: search + severity + CSV + count (sticky, above the table)
   const bar = el('div','cl-toolbar');
   const search = document.createElement('input');
   search.type='search'; search.className='cl-search'; search.placeholder='Filter test cases (id, payload, category, CWE…)';
@@ -824,7 +849,26 @@ function enhanceChecklist(root){
   const count = el('span','cl-count');
   bar.appendChild(search); if(sevIdx>=0) bar.appendChild(sev); bar.appendChild(dl); bar.appendChild(count);
   scroll.parentNode.insertBefore(bar, scroll);
-  // ---- CSV export (built from the on-screen, cleaned table; visible rows only) ----
+
+  // left-sidebar "On this checklist" outline (one entry per category, jumps to its divider)
+  const outline = document.getElementById('clOutline');
+  const outItems = [];
+  if(outline && groups.length){
+    outline.innerHTML='';
+    const t = el('div','cl-outline-title'); t.textContent='On this checklist';
+    outline.appendChild(t);
+    const list = el('div','cl-outline-list');
+    groups.forEach(g=>{
+      const a = document.createElement('a'); a.className='cl-outline-item'; a.href='#'+g.divider.id;
+      a.textContent = g.cat + ' (' + g.rows.length + ')';
+      a.addEventListener('click', e=>{ e.preventDefault(); g.divider.scrollIntoView({behavior:'smooth',block:'start'}); });
+      list.appendChild(a); outItems.push({a, g});
+    });
+    outline.appendChild(list);
+    outline.style.display='';
+  }
+
+  // CSV export (from the on-screen cleaned rows; respects the current filter)
   const cellText = node => { const c=node.cloneNode(true); c.querySelectorAll('br').forEach(br=>br.replaceWith('\n')); return c.textContent.replace(/ /g,' ').replace(/[ \t]+\n/g,'\n').trim(); };
   const csvCell  = s => /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s;
   dl.addEventListener('click', ()=>{
@@ -837,6 +881,8 @@ function enhanceChecklist(root){
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(url), 1500);
   });
+
+  let grouped = groups.length>0;
   function apply(){
     const q = search.value.trim().toLowerCase(), s = sev.value;
     let shown=0;
@@ -845,10 +891,19 @@ function enhanceChecklist(root){
       const okS = !s || (sevIdx>=0 && tr.cells[sevIdx].textContent.trim().toLowerCase()===s);
       const show = okQ && okS; tr.style.display = show?'':'none'; if(show) shown++;
     });
+    if(grouped){
+      groups.forEach(g=>{
+        const vis = g.rows.some(tr=>tr.style.display!=='none');
+        g.divider.style.display = vis?'':'none';
+      });
+      outItems.forEach(oi=>{ oi.a.style.display = (oi.g.divider.style.display==='none')?'none':''; });
+    }
     count.textContent = shown+' / '+rows.length+' rows';
   }
   search.addEventListener('input', apply);
   sev.addEventListener('change', apply);
+
+  // click-to-sort; sorting flattens the grouping (dividers removed)
   const rank = {critical:5,high:4,medium:3,low:2,info:1};
   let cur=-1, dir=1;
   ths.forEach((th,idx)=>{
@@ -862,9 +917,11 @@ function enhanceChecklist(root){
         if(isSev)  return ((rank[x.toLowerCase()]||0)-(rank[y.toLowerCase()]||0))*dir;
         return x.localeCompare(y, undefined, {numeric:true})*dir;
       });
-      const tb=table.tBodies[0]; rows.forEach(tr=>tb.appendChild(tr));
+      if(grouped){ grouped=false; groups.forEach(g=>g.divider.remove()); if(outline) outline.style.display='none'; }
+      rows.forEach(tr=>body.appendChild(tr));
       ths.forEach(t=>t.classList.remove('sort-asc','sort-desc'));
       th.classList.add(dir>0?'sort-asc':'sort-desc');
+      apply();
     });
   });
   apply();
@@ -982,6 +1039,7 @@ async function route(){
   const navR = meta.nav || r;                  // code pages highlight their parent ('jwt/poc')
   const content = document.getElementById('content');
   content.innerHTML = `<div class="loading">Loading…</div>`;
+  const _clout = document.getElementById('clOutline'); if(_clout){ _clout.innerHTML=''; _clout.style.display='none'; }
   document.querySelectorAll('.nav-link').forEach(a=>a.classList.toggle('active', a.dataset.route===navR));
   // expand the FULL chain that owns the active page (kit → group → section) so it's always visible
   const activeLink = document.querySelector('.nav-link.active');
@@ -1027,7 +1085,7 @@ async function route(){
       `<div class="site-foot">x8bitranjit · security knowledge base · authorized testing only.</div>`;
     const mdRoot = content.querySelector('.md');
     assignHeadingIds(mdRoot);
-    buildPageToc(mdRoot);
+    if(!r.startsWith('checklist/')) buildPageToc(mdRoot); else buildPageToc(null);
     mdRoot.querySelectorAll('pre code').forEach(b=>{ try{hljs.highlightElement(b);}catch(e){} });
     if(r.startsWith('checklist/')) enhanceChecklist(mdRoot);
     document.title = meta.title + ' · x8bitranjit';
