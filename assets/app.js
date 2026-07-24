@@ -738,7 +738,6 @@ function buildNav(){
   const nav = document.getElementById('nav');
   nav.innerHTML = '';
   nav.appendChild(buildNavFilter(nav));
-  const _clout = el('div','cl-outline'); _clout.id='clOutline'; _clout.style.display='none'; nav.appendChild(_clout);
   NAV.forEach(node=>{
     if(node.kind==='home'){ const a=link(node.label,node.route); a.classList.add('nav-home'); nav.appendChild(a); return; }
     const sec = el('div','nav-sec'+(node.open?'':' collapsed'));
@@ -850,22 +849,9 @@ function enhanceChecklist(root){
   bar.appendChild(search); if(sevIdx>=0) bar.appendChild(sev); bar.appendChild(dl); bar.appendChild(count);
   scroll.parentNode.insertBefore(bar, scroll);
 
-  // left-sidebar "On this checklist" outline (one entry per category, jumps to its divider)
-  const outline = document.getElementById('clOutline');
-  const outItems = [];
-  if(outline && groups.length){
-    outline.innerHTML='';
-    const t = el('div','cl-outline-title'); t.textContent='On this checklist';
-    outline.appendChild(t);
-    const list = el('div','cl-outline-list');
-    groups.forEach(g=>{
-      const a = document.createElement('a'); a.className='cl-outline-item'; a.href='#'+g.divider.id;
-      a.textContent = g.cat + ' (' + g.rows.length + ')';
-      a.addEventListener('click', e=>{ e.preventDefault(); g.divider.scrollIntoView({behavior:'smooth',block:'start'}); });
-      list.appendChild(a); outItems.push({a, g});
-    });
-    outline.appendChild(list);
-    outline.style.display='';
+  // floating "On this checklist" minimap (left edge) — one entry per category, jumps to its divider
+  if(groups.length){
+    renderMiniToc(groups.map(g=>({label:g.cat+' ('+g.rows.length+')', level:2, target:g.divider})), 'On this checklist');
   }
 
   // CSV export (from the on-screen cleaned rows; respects the current filter)
@@ -896,7 +882,6 @@ function enhanceChecklist(root){
         const vis = g.rows.some(tr=>tr.style.display!=='none');
         g.divider.style.display = vis?'':'none';
       });
-      outItems.forEach(oi=>{ oi.a.style.display = (oi.g.divider.style.display==='none')?'none':''; });
     }
     count.textContent = shown+' / '+rows.length+' rows';
   }
@@ -917,7 +902,7 @@ function enhanceChecklist(root){
         if(isSev)  return ((rank[x.toLowerCase()]||0)-(rank[y.toLowerCase()]||0))*dir;
         return x.localeCompare(y, undefined, {numeric:true})*dir;
       });
-      if(grouped){ grouped=false; groups.forEach(g=>g.divider.remove()); if(outline) outline.style.display='none'; }
+      if(grouped){ grouped=false; groups.forEach(g=>g.divider.remove()); renderMiniToc([]); }
       rows.forEach(tr=>body.appendChild(tr));
       ths.forEach(t=>t.classList.remove('sort-asc','sort-desc'));
       th.classList.add(dir>0?'sort-asc':'sort-desc');
@@ -970,41 +955,45 @@ function assignHeadingIds(root){
 
 /* ---- Notion-style on-page Table of Contents (right floating minimap → expands on hover) ---- */
 let _tocScrollHandler = null;
-function buildPageToc(root){
-  // "On this page" now renders in the LEFT sidebar (shared #clOutline container), not the right panel
-  const box = document.getElementById('clOutline');
-  if(!box) return;
+/* shared floating minimap (left edge, hover-expands) — used by pages (headings) and checklists (categories) */
+function renderMiniToc(entries, title){
+  const toc = document.getElementById('pageToc');
+  if(!toc) return;
   if(_tocScrollHandler){ window.removeEventListener('scroll', _tocScrollHandler); _tocScrollHandler = null; }
-  box.innerHTML = ''; box.style.display = 'none';
-  const heads = root ? Array.from(root.querySelectorAll('h1,h2,h3')).filter(h=> h.id && h.textContent.trim()) : [];
-  if(heads.length < 3) return;                         // too short to be worth an outline
-
-  box.appendChild(elText('div','cl-outline-title','On this page'));
-  const listEl = el('div','cl-outline-list');
+  toc.innerHTML = ''; toc.classList.remove('show');
+  if(!entries || !entries.length) return;
+  const inner = el('div','toc-inner');
+  inner.appendChild(elText('div','toc-title', title || 'On this page'));
+  const listEl = el('div','toc-list');
   const items = [];
-  heads.forEach(h=>{
-    const lvl = +h.tagName[1];
-    const a = el('a','cl-outline-item lvl-'+lvl);
-    a.href = '#'+h.id; a.title = h.textContent; a.textContent = h.textContent;
-    a.addEventListener('click',(e)=>{ e.preventDefault(); scrollToAnchor(h.id); });
-    listEl.appendChild(a);
-    items.push({ a, h });
+  entries.forEach(en=>{
+    const a = el('a','toc-item lvl-'+(en.level||2));
+    a.href = '#'; a.title = en.label;
+    a.appendChild(el('span','toc-dash'));                 // dash first (left edge), text expands to its right
+    a.appendChild(elText('span','toc-text', en.label));
+    a.addEventListener('click',(e)=>{ e.preventDefault(); if(en.target) en.target.scrollIntoView({behavior:'smooth',block:'start'}); });
+    listEl.appendChild(a); items.push({ a, el:en.target });
   });
-  box.appendChild(listEl);
-  box.style.display = '';
+  inner.appendChild(listEl); toc.appendChild(inner); toc.classList.add('show');
 
-  // scroll-spy: the last heading scrolled past 130px from the top is the active one
   const spy = ()=>{
-    let active = items[0];
-    for(const it of items){ if(it.h.getBoundingClientRect().top <= 130) active = it; else break; }
+    let active = items.find(it=> it.el && it.el.offsetParent!==null) || items[0];
+    for(const it of items){
+      if(!it.el || it.el.offsetParent===null) continue;   // skip hidden (filtered) targets
+      if(it.el.getBoundingClientRect().top <= 130) active = it; else break;
+    }
     items.forEach(it=> it.a.classList.toggle('active', it === active));
-    if(listEl.scrollHeight > listEl.clientHeight){      // keep the active marker visible in a tall list
-      listEl.scrollTop = Math.max(0, active.a.offsetTop - listEl.clientHeight / 2);
+    if(active && inner.scrollHeight > inner.clientHeight){
+      inner.scrollTop = Math.max(0, active.a.offsetTop - inner.clientHeight / 2);
     }
   };
   _tocScrollHandler = ()=> requestAnimationFrame(spy);
   window.addEventListener('scroll', _tocScrollHandler, { passive:true });
   spy();
+}
+function buildPageToc(root){
+  const heads = root ? Array.from(root.querySelectorAll('h1,h2,h3')).filter(h=> h.id && h.textContent.trim()) : [];
+  renderMiniToc(heads.length >= 3 ? heads.map(h=>({label:h.textContent, level:+h.tagName[1], target:h})) : [], 'On this page');
 }
 
 /* ---- markdown rendering (HTML sanitised — these guides contain live payloads) ---- */
@@ -1036,7 +1025,6 @@ async function route(){
   const navR = meta.nav || r;                  // code pages highlight their parent ('jwt/poc')
   const content = document.getElementById('content');
   content.innerHTML = `<div class="loading">Loading…</div>`;
-  const _clout = document.getElementById('clOutline'); if(_clout){ _clout.innerHTML=''; _clout.style.display='none'; }
   document.querySelectorAll('.nav-link').forEach(a=>a.classList.toggle('active', a.dataset.route===navR));
   // expand the FULL chain that owns the active page (kit → group → section) so it's always visible
   const activeLink = document.querySelector('.nav-link.active');
