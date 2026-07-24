@@ -971,38 +971,35 @@ function assignHeadingIds(root){
 /* ---- Notion-style on-page Table of Contents (right floating minimap → expands on hover) ---- */
 let _tocScrollHandler = null;
 function buildPageToc(root){
-  const toc = document.getElementById('pageToc');
-  if(!toc) return;
+  // "On this page" now renders in the LEFT sidebar (shared #clOutline container), not the right panel
+  const box = document.getElementById('clOutline');
+  if(!box) return;
   if(_tocScrollHandler){ window.removeEventListener('scroll', _tocScrollHandler); _tocScrollHandler = null; }
-  toc.innerHTML = ''; toc.classList.remove('show'); document.body.classList.remove('has-toc');
+  box.innerHTML = ''; box.style.display = 'none';
   const heads = root ? Array.from(root.querySelectorAll('h1,h2,h3')).filter(h=> h.id && h.textContent.trim()) : [];
-  if(heads.length < 3) return;                         // too short to be worth a TOC
+  if(heads.length < 3) return;                         // too short to be worth an outline
 
-  const inner = el('div','toc-inner');
-  inner.appendChild(elText('div','toc-title','On this page'));
-  const listEl = el('div','toc-list');
+  box.appendChild(elText('div','cl-outline-title','On this page'));
+  const listEl = el('div','cl-outline-list');
   const items = [];
   heads.forEach(h=>{
     const lvl = +h.tagName[1];
-    const a = el('a','toc-item lvl-'+lvl);
-    a.href = '#'+h.id; a.dataset.target = h.id; a.title = h.textContent;
-    a.appendChild(elText('span','toc-text', h.textContent));
-    a.appendChild(el('span','toc-dash'));
+    const a = el('a','cl-outline-item lvl-'+lvl);
+    a.href = '#'+h.id; a.title = h.textContent; a.textContent = h.textContent;
     a.addEventListener('click',(e)=>{ e.preventDefault(); scrollToAnchor(h.id); });
     listEl.appendChild(a);
     items.push({ a, h });
   });
-  inner.appendChild(listEl);
-  toc.appendChild(inner);
-  toc.classList.add('show'); document.body.classList.add('has-toc');
+  box.appendChild(listEl);
+  box.style.display = '';
 
   // scroll-spy: the last heading scrolled past 130px from the top is the active one
   const spy = ()=>{
     let active = items[0];
     for(const it of items){ if(it.h.getBoundingClientRect().top <= 130) active = it; else break; }
     items.forEach(it=> it.a.classList.toggle('active', it === active));
-    if(inner.scrollHeight > inner.clientHeight){       // keep the active marker visible in a tall list
-      inner.scrollTop = Math.max(0, active.a.offsetTop - inner.clientHeight / 2);
+    if(listEl.scrollHeight > listEl.clientHeight){      // keep the active marker visible in a tall list
+      listEl.scrollTop = Math.max(0, active.a.offsetTop - listEl.clientHeight / 2);
     }
   };
   _tocScrollHandler = ()=> requestAnimationFrame(spy);
