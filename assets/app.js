@@ -737,9 +737,11 @@ function renderRecent(){
 function buildNav(){
   const nav = document.getElementById('nav');
   nav.innerHTML = '';
+  nav.appendChild(buildNavFilter(nav));
   NAV.forEach(node=>{
     if(node.kind==='home'){ const a=link(node.label,node.route); a.classList.add('nav-home'); nav.appendChild(a); return; }
     const sec = el('div','nav-sec'+(node.open?'':' collapsed'));
+    sec.dataset.def = node.open?'open':'closed';
     const grp = el('button','grp'); grp.innerHTML = `<span>${node.label}</span><span class="chev">▾</span>`;
     grp.onclick = ()=> sec.classList.toggle('collapsed');
     sec.appendChild(grp);
@@ -751,6 +753,7 @@ function buildNav(){
       // section with collapsible sub-groups (e.g. Mobile → Android / iOS)
       (node.groups||[]).forEach(g=>{
         const grpEl = el('div','nav-group'+(g.open?'':' collapsed'));
+        grpEl.dataset.def = g.open?'open':'closed';
         const gh = el('button','group-head'); gh.innerHTML = `<span>${g.label}</span><span class="chev">▾</span>`;
         gh.onclick = ()=> grpEl.classList.toggle('collapsed');
         const gch = el('div','group-children');
@@ -762,6 +765,90 @@ function buildNav(){
     sec.appendChild(ch);
     nav.appendChild(sec);
   });
+}
+
+/* ---- sidebar quick-filter: type to find any kit/checklist/section ---- */
+function buildNavFilter(nav){
+  const box = el('div','nav-filter');
+  const inp = document.createElement('input');
+  inp.type='search'; inp.className='nav-filter-input';
+  inp.placeholder='Filter menu…'; inp.setAttribute('aria-label','Filter navigation');
+  box.appendChild(inp);
+  const visible = e => e.style.display !== 'none';
+  inp.addEventListener('input', ()=>{
+    const q = inp.value.trim().toLowerCase();
+    if(!q){
+      nav.querySelectorAll('.kit,.nav-link').forEach(e=>e.style.display='');
+      nav.querySelectorAll('.nav-sec').forEach(s=>{ s.style.display=''; s.classList.toggle('collapsed', s.dataset.def==='closed'); });
+      nav.querySelectorAll('.nav-group').forEach(g=>{ g.style.display=''; g.classList.toggle('collapsed', g.dataset.def==='closed'); });
+      return;
+    }
+    const kits  = Array.from(nav.querySelectorAll('.kit'));
+    const links = Array.from(nav.querySelectorAll('.nav-link')).filter(a=>!a.closest('.kit-pages'));
+    kits.forEach(k=>{ k.style.display = k.querySelector('.kit-head').textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    links.forEach(a=>{ a.style.display = a.textContent.toLowerCase().includes(q) ? '' : 'none'; });
+    nav.querySelectorAll('.nav-group').forEach(g=>{
+      g.classList.remove('collapsed');
+      const any = Array.from(g.querySelectorAll('.kit,.nav-link')).some(e=>visible(e) && !e.closest('.kit-pages'));
+      g.style.display = any ? '' : 'none';
+    });
+    nav.querySelectorAll('.nav-sec').forEach(s=>{
+      s.classList.remove('collapsed');
+      const any = Array.from(s.querySelectorAll('.kit,.nav-link')).some(e=>visible(e) && !e.closest('.kit-pages'));
+      s.style.display = any ? '' : 'none';
+    });
+  });
+  return box;
+}
+
+/* ---- interactive checklist grids: text filter + severity filter + click-to-sort ---- */
+function enhanceChecklist(root){
+  const table = root && root.querySelector('table');
+  if(!table || !table.tHead || !table.tBodies[0]) return;
+  const ths  = Array.from(table.tHead.rows[0].cells);
+  const rows = Array.from(table.tBodies[0].rows);
+  const sevIdx = ths.findIndex(t=>/^\s*severity\s*$/i.test(t.textContent));
+  const bar = el('div','cl-toolbar');
+  const search = document.createElement('input');
+  search.type='search'; search.className='cl-search'; search.placeholder='Filter test cases (id, payload, category, CWE…)';
+  const sev = document.createElement('select'); sev.className='cl-sev';
+  ['All severities','Critical','High','Medium','Low','Info'].forEach(o=>{
+    const op=document.createElement('option'); op.value = o==='All severities'?'':o.toLowerCase(); op.textContent=o; sev.appendChild(op);
+  });
+  const count = el('span','cl-count');
+  bar.appendChild(search); if(sevIdx>=0) bar.appendChild(sev); bar.appendChild(count);
+  table.parentNode.insertBefore(bar, table);
+  function apply(){
+    const q = search.value.trim().toLowerCase(), s = sev.value;
+    let shown=0;
+    rows.forEach(tr=>{
+      const okQ = !q || tr.textContent.toLowerCase().includes(q);
+      const okS = !s || (sevIdx>=0 && tr.cells[sevIdx].textContent.trim().toLowerCase()===s);
+      const show = okQ && okS; tr.style.display = show?'':'none'; if(show) shown++;
+    });
+    count.textContent = shown+' / '+rows.length+' rows';
+  }
+  search.addEventListener('input', apply);
+  sev.addEventListener('change', apply);
+  const rank = {critical:5,high:4,medium:3,low:2,info:1};
+  let cur=-1, dir=1;
+  ths.forEach((th,idx)=>{
+    th.classList.add('cl-sortable');
+    th.addEventListener('click', ()=>{
+      dir = (cur===idx)? -dir : 1; cur=idx;
+      const isCvss=/cvss/i.test(th.textContent), isSev=/severity/i.test(th.textContent);
+      rows.sort((a,b)=>{
+        let x=a.cells[idx].textContent.trim(), y=b.cells[idx].textContent.trim();
+        if(isCvss) return ((parseFloat(x)||0)-(parseFloat(y)||0))*dir;
+        if(isSev)  return ((rank[x.toLowerCase()]||0)-(rank[y.toLowerCase()]||0))*dir;
+        return x.localeCompare(y, undefined, {numeric:true})*dir;
+      });
+      const tb=table.tBodies[0]; rows.forEach(tr=>tb.appendChild(tr));
+      ths.forEach(t=>t.classList.remove('sort-asc','sort-desc'));
+      th.classList.add(dir>0?'sort-asc':'sort-desc');
+    });
+  });
+  apply();
 }
 function buildItem(it){
   if(it.kit){
@@ -923,6 +1010,7 @@ async function route(){
     assignHeadingIds(mdRoot);
     buildPageToc(mdRoot);
     mdRoot.querySelectorAll('pre code').forEach(b=>{ try{hljs.highlightElement(b);}catch(e){} });
+    if(r.startsWith('checklist/')) enhanceChecklist(mdRoot);
     document.title = meta.title + ' · x8bitranjit';
     window.scrollTo(0,0);
   }catch(e){
