@@ -116,6 +116,9 @@ No — severity depends on **what the key unlocks and its scope**. A read-only k
 ### Q20. Prevention + focus for M1?
 No client-embedded secrets; runtime-fetched scoped/short-lived tokens; platform key stores for on-device secrets; scope/rotate/monitor keys; never log credentials; certificate-bound/attested tokens where possible. The mindset: assume the app is open-source to the attacker.
 
+### Q20a. What can Frida do at runtime that static analysis can't (M1/M3/M5/M7)?
+Frida hooks a *running* app to read/alter it live — the mobile red-team workhorse across categories: **dump secrets from memory** (keys/tokens decrypted at runtime that aren't in the binary — M1); **bypass root/emulator/debugger detection** (M7); **disable SSL pinning** (`objection android sslpinning disable` → intercept traffic — M5); **flip client-side auth** (hook `isAdmin()`/`isPremium()`/biometric callbacks → `true` — M3); **call internal methods** directly; and **trace crypto** (hook `Cipher`/`SecretKeySpec` to catch a hardcoded key — M10). Quick start: `objection -g <pkg> explore`, then `android hooking search classes <name>` / `android hooking watch class_method <m>`. It turns "the check lives in the app" into "the check is bypassed." → `Android/ADB/`.
+
 ---
 
 # §M2 — INADEQUATE SUPPLY CHAIN SECURITY
@@ -168,7 +171,7 @@ Because the attacker **controls the client** — any check done in the app (isAd
 **How to test**
 
 ### Q30. What's the #1 M3 test?
-**Call the API directly, bypassing the app**: replay/craft backend requests without the client UI → is authorization re-checked server-side? A client-side gate falls immediately. Then run the **two-account BOLA/IDOR** test on object IDs (`user_id`/`account_id`/`order_id`). → `../Web/IDOR/`, `../API/REST/`.
+**Call the API directly, bypassing the app**: proxy the traffic (Burp) or reconstruct the request from the decompiled code, then replay/craft backend requests without the client UI → is authorization re-checked server-side? A client-side gate (an `if(isAdmin)` in the app, a hidden screen) falls immediately. Then run the **two-account BOLA/IDOR** test on object IDs (`user_id`/`account_id`/`order_id`) and try **privileged endpoints** as a low-priv user (BFLA). This is where the mobile Critical usually lives — the app was just the map. → `../Web/IDOR/`, `../API/REST/`.
 
 ### Q31. How do you test token handling and local/biometric auth?
 **Tokens**: how are session/refresh tokens issued, stored (M9), transmitted (M5), expired, rotated? JWT flaws (`alg:none`/weak secret) → `../Web/JWT/`. **Biometric/local auth**: does it gate only the **UI**, or actually protect the data/keys? Bypass by hooking the success callback (Frida) — if data is still reachable, the biometric was cosmetic.
@@ -196,6 +199,9 @@ Mechanically identical (swap an object ID → another user's data) — the diffe
 
 ### Q37. Prevention + CWEs for M3?
 Enforce **all authN + authZ server-side**; per-object checks (defeat BOLA); strong, short-lived, rotated tokens bound to the session; secure token storage (Keystore/Keychain) + transport (TLS+pinning); server-side session invalidation; treat biometric/local auth as a UX gate backed by server-side + keystore-bound protection. CWEs: CWE-287, CWE-639 (BOLA), CWE-306 (missing auth), CWE-863.
+
+### Q37a. How do you bypass biometric / local auth on a mobile app?
+The bug: biometric/PIN gates the **UI**, not the **data/keys**. Test with **Frida/objection** — hook the auth callback and force success: objection `android biometrics bypass`, or a Frida script overriding `BiometricPrompt.AuthenticationCallback.onAuthenticationSucceeded` / (iOS) `LAContext.evaluatePolicy` to return `true`. If the protected screen/data is then reachable, the biometric was **cosmetic** (M3). The *correct* pattern binds a **hardware-Keystore key that requires biometric to unlock** (`setUserAuthenticationRequired(true)`), so the data is cryptographically gated — you can't hook past that. → `Android/ADB/`, `../Web/AccountTakeover/`.
 
 ---
 
@@ -277,6 +283,15 @@ By default (targetSdk ≥ 24), apps only trust **system** CAs, not user-installe
 
 ### Q54. Prevention + CWEs for M5?
 TLS everywhere (no cleartext); proper cert + hostname validation (never trust-all); **certificate/public-key pinning** (non-trivial to bypass); `networkSecurityConfig` (no user CAs, no cleartext); don't send sensitive data to third parties insecurely; re-validate security-critical decisions server-side (don't trust a tamperable response). CWEs: CWE-319 (cleartext), CWE-295 (improper cert validation), CWE-297.
+
+### Q54a. What concrete certificate-validation bugs do you look for (M5)?
+Decompile and grep for **trust-all** code that accepts any cert (trivial MITM even without pinning):
+- A custom `X509TrustManager` whose `checkServerTrusted()` is **empty** (throws nothing).
+- `HostnameVerifier` returning `true` for all hosts (`ALLOW_ALL_HOSTNAME_VERIFIER`).
+- OkHttp/`SSLSocketFactory` wired to a trust-all manager; WebView `onReceivedSslError` calling `handler.proceed()` (ignoring cert errors).
+- `android:usesCleartextTraffic="true"`, or a permissive `networkSecurityConfig` (`cleartextTrafficPermitted`, user CAs trusted).
+
+Each = a network attacker reads/tampers traffic → session theft / response tampering (flip `isPremium`/`authSuccess`). → `../Web/HostHeader/`, `Android/ADB/`.
 
 ---
 
@@ -394,6 +409,22 @@ Export only what must be; guard exported components with signature/custom permis
 ### Q78. CWEs for M8?
 CWE-926 (improper export of components), CWE-749 (exposed dangerous method), CWE-89 (provider SQLi), CWE-22 (provider traversal), CWE-16, CWE-489 (debuggable).
 
+### Q78a. Give the concrete `adb` commands to exploit an exported component / ContentProvider.
+```
+# launch an exported Activity (reach a post-auth screen / bypass login)
+adb shell am start -n com.target.app/.SecretActivity
+# send a crafted Intent to an exported Service / Broadcast Receiver
+adb shell am startservice -n com.target.app/.CmdService --es cmd "..."
+adb shell am broadcast -a com.target.app.ACTION -e data "..."
+# query an exported ContentProvider (read private data)
+adb shell content query --uri content://com.target.app.provider/users
+# provider SQL injection (unsanitized selection clause)
+adb shell content query --uri content://.../users --where "1=1) UNION SELECT password FROM secrets--"
+# path traversal via openFile
+adb shell content read --uri content://.../files/../../databases/app.db
+```
+No root needed if the component is exported. **`drozer`** automates provider enumeration + injection. → `Android/ADB/`, `../Web/SQLi/`, `../Web/PathTraversal/`.
+
 ---
 
 # §M9 — INSECURE DATA STORAGE
@@ -438,6 +469,9 @@ Sensitive data written to **logcat**, **HTTP/WebView cache**, temp files, or **b
 
 ### Q87. Prevention + CWEs for M9?
 Don't store sensitive data unless necessary; use platform secure storage (Keystore-backed encryption / EncryptedSharedPreferences; iOS Keychain) with **hardware-backed keys** (never hardcoded); keep sensitive data out of external storage/logs/caches/backups (`allowBackup=false`, `FLAG_SECURE`); wipe on logout; encrypt at rest with keys the attacker can't recover. CWEs: CWE-312 (cleartext storage), CWE-522, CWE-200, CWE-921.
+
+### Q87a. What exactly do you look for in app storage, and how do you prove ATO?
+On a rooted/emulator/`run-as` device, pull and inspect: `/data/data/<pkg>/shared_prefs/*.xml` (grep for `token`/`auth`/`session`/`password`/`refresh`), `databases/*.db` (open with `sqlite3`, dump the tables), `files/`, `cache/`, WebView cache, and iOS Keychain/plist. **Prove ATO by steal-and-replay:** take a stored **session/refresh token**, drop it into a fresh Burp request to the backend (`Authorization: Bearer <token>`) — if it returns the victim's data, that's account takeover from device access/backup/co-located app. Also try **`adb backup -f app.ab <pkg>`** (if `allowBackup=true`) to extract the same data with no root. A token in `shared_prefs` is only a finding once you *replay* it. → `../Web/AccountTakeover/`, `Android/ADB/`.
 
 ---
 

