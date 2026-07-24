@@ -818,20 +818,20 @@ function enhanceChecklist(root){
   scroll.appendChild(table);
 
   // group rows by Test Category (first-appearance order) and insert styled divider rows
+  // group by CONSECUTIVE category runs so the original testing order is preserved (no row reordering)
   const groups = [];
   if(catIdx>=0){
-    const map = new Map();
+    let prev=null, cur=null;
     rows.forEach(tr=>{
       const c = (tr.cells[catIdx] ? tr.cells[catIdx].textContent.trim() : '') || 'Uncategorized';
-      if(!map.has(c)){ map.set(c, {cat:c, rows:[]}); groups.push(map.get(c)); }
-      map.get(c).rows.push(tr);
+      if(c !== prev){ cur = {cat:c, rows:[]}; groups.push(cur); prev=c; }
+      cur.rows.push(tr);
     });
     groups.forEach((g,gi)=>{
       const dr = document.createElement('tr'); dr.className='cl-cat'; dr.id='clsec-'+gi;
       const td = document.createElement('td'); td.colSpan=ncol; td.textContent=g.cat; dr.appendChild(td);
       g.divider = dr;
-      body.appendChild(dr);
-      g.rows.forEach(tr=>body.appendChild(tr));
+      body.insertBefore(dr, g.rows[0]);   // divider before the run's first row — rows stay in place
     });
   }
 
