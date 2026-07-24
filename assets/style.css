@@ -134,6 +134,11 @@ a:hover{color:var(--link-hover);text-decoration:underline}
 .md th,.md td{border:1px solid var(--border);padding:8px 12px;text-align:left}
 .md th{background:#1a1a1a;color:var(--head);font-weight:700}
 .md tr:nth-child(even){background:#161618}
+/* Excel-style checklist grids: cap column width so long cells wrap instead of stretching the row */
+.md.checklist-page table{font-size:12.5px;table-layout:auto}
+.md.checklist-page th,.md.checklist-page td{vertical-align:top;max-width:360px;min-width:90px;white-space:normal;word-break:break-word}
+.md.checklist-page th{position:sticky;top:0;z-index:1}
+.md.checklist-page code{white-space:pre-wrap;word-break:break-word;font-size:12px}
 .md hr{border:0;border-top:1px solid var(--border);margin:1.8em 0}
 .md a{color:var(--link)}
 .md strong{color:var(--head)}

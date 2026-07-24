@@ -917,7 +917,7 @@ async function route(){
     const md = await res.text();
     content.innerHTML =
       (meta.chips&&meta.chips.length?`<div class="doc-meta">${chipHtml(meta.chips)}</div>`:'') +
-      `<div class="md">${renderMarkdown(md)}</div>` +
+      `<div class="md${r.startsWith('checklist/')?' checklist-page':''}">${renderMarkdown(md)}</div>` +
       `<div class="site-foot">x8bitranjit · security knowledge base · authorized testing only.</div>`;
     const mdRoot = content.querySelector('.md');
     assignHeadingIds(mdRoot);
