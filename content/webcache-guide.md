@@ -365,7 +365,7 @@ The origin serves a **dynamic, authenticated** page (`/account`, `/settings`, `/
 3) CACHE sees ".css" → "static, cacheable" → stores the victim's private response under /account/nonexistent.css.
 4) ATTACKER requests https://target/account/nonexistent.css (no session) → gets the VICTIM's cached account page. ⭐
 ```
-The lure can be any low-interaction vector (a link, an <img>/<iframe> to the URL, an email). What leaks: names, emails, addresses, **CSRF tokens**, **API keys in the page**, **session surrogates**, **password-reset links** — often enough for **ATO**.
+The lure can be any low-interaction vector (a link, an `<img>`/`<iframe>` to the URL, an email). What leaks: names, emails, addresses, **CSRF tokens**, **API keys in the page**, **session surrogates**, **password-reset links** — often enough for **ATO**.
 > **If this → then that:** requesting `/private-page/x.css` **with your session** returns your private data AND it comes back on a **second request without the session** → **Web Cache Deception confirmed** → rate by what's in the body (CSRF token/PII = High; session/reset token/API key = **Critical/ATO**).
 
 ## 12.1 Real-world deception — the cases that defined it
