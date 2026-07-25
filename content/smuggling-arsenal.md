@@ -1,9 +1,32 @@
 # Request-Smuggling Arsenal — Desync Probes, Obfuscations & Exploit Gadgets (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `REQUEST_SMUGGLING_TESTING_GUIDE.md`. Authorized testing only — **DO NO HARM**: timing first, own
 > connections, benign markers, no sustained smuggles against live traffic (Guide §18).
 > Use Burp Repeater (HTTP/1 raw, disable auto Content-Length) or Turbo Intruder for byte-exact requests.
 > `\r\n` below = a literal CRLF; lengths must be exact.
+
+---
+
+## 0. The whole attack in one sequence (the shape of every exploit — see Guide §8.1)
+*What & when:* the fastest way to hold the method in your head before you dive into individual probes. Every real smuggling exploit is these four steps; only the *framing* (CL.TE/H2/CL.0) and the *sink* (`/feedback`, `/admin`, the cache) change.
+```
+1) SAFE TIMING (fresh connection, nothing left in the pipe):
+     POST / …  Transfer-Encoding: chunked + Content-Length: 4 + incomplete chunk
+     → baseline ~40ms, probe HANGS ~10s repeatably = CL.TE signal (back-end waited for a chunk that never came)
+
+2) DETERMINISTIC CONFIRM (your OWN follow-up on the same connection):
+     smuggle a prefix →  GET /smuggle-7f3a9 HTTP/1.1   (a unique path)
+     then your own      GET /  →  comes back 404 for /smuggle-7f3a9  = prefix attached, proven, controllable
+
+3) EXPLOIT — aim the prefix at the highest-impact sink the target offers:
+     store/reflect endpoint → REQUEST CAPTURE (declare CL bigger than you send → back-end swallows the
+                              victim's next request as your body → read their Cookie)   ← crown jewel, §7
+     WAF-blocked / /admin   → CONTROL BYPASS      cache in chain → CACHE POISONING (unique key)
+
+4) PROVE with your OWN second session, ONE benign capture, then STOP (do-no-harm, Guide §18).
+```
 
 ---
 

