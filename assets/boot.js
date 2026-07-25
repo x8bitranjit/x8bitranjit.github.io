@@ -1,28 +1,40 @@
-/* Pre-render init — runs before first paint. */
+/* Pre-render loader. Verifies the access code and initializes the application. */
 (function () {
   'use strict';
 
-  var K = 'x8_v2';
-  var H = '7b6bda4bd020350b0cfbc0cebddaf255e4e39a4c9a219dc0a4ad6576513cacea';
+  var CACHE = 'x8_app_v2';          // per-tab cache of the decrypted app (clears on tab close)
+  var ENC   = 'assets/app.enc';
 
-  try { if (sessionStorage.getItem(K) === '1') return; } catch (e) {}
+  var enc = new TextEncoder();
+  function b64ToBytes(s){ var bin = atob(s); var u = new Uint8Array(bin.length); for (var i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; }
 
-  document.documentElement.classList.add('nb-lock');
-
-  function d(s) {
-    var data = new TextEncoder().encode(s);
-    return crypto.subtle.digest('SHA-256', data).then(function (buf) {
-      return Array.prototype.map.call(new Uint8Array(buf), function (b) {
-        return ('0' + b.toString(16)).slice(-2);
-      }).join('');
-    });
+  /* Run the decrypted SPA. Indirect eval executes in global scope — exactly like the original external
+     <script src=app.js> did — so its top-level functions/listeners bind the same way (CSP: 'unsafe-eval'). */
+  function injectApp(src) {
+    if (!document.body) {                       // boot.js runs in <head>; wait for <body> on the cached fast-path
+      document.addEventListener('DOMContentLoaded', function () { injectApp(src); });
+      return;
+    }
+    document.documentElement.classList.remove('nb-lock');
+    (0, eval)(src);
   }
 
-  function pass() {
-    try { sessionStorage.setItem(K, '1'); } catch (e) {}
-    document.documentElement.classList.remove('nb-lock');
-    var g = document.getElementById('nbOv');
-    if (g) { g.classList.add('nb-off'); setTimeout(function () { g.remove(); }, 600); }
+  /* Derive the AES key from the code and try to decrypt app.enc. Resolves with the plaintext source or rejects. */
+  function decryptApp(code) {
+    return fetch(ENC, { cache: 'no-store' }).then(function (r) {
+      if (!r.ok) throw new Error('enc fetch ' + r.status);
+      return r.json();
+    }).then(function (p) {
+      var salt = b64ToBytes(p.salt), iv = b64ToBytes(p.iv), ct = b64ToBytes(p.ct);
+      return crypto.subtle.importKey('raw', enc.encode(code), { name: 'PBKDF2' }, false, ['deriveKey'])
+        .then(function (base) {
+          return crypto.subtle.deriveKey(
+            { name: 'PBKDF2', salt: salt, iterations: p.iter, hash: 'SHA-256' },
+            base, { name: 'AES-GCM', length: 256 }, false, ['decrypt']);
+        })
+        .then(function (key) { return crypto.subtle.decrypt({ name: 'AES-GCM', iv: iv }, key, ct); })
+        .then(function (buf) { return new TextDecoder().decode(buf); });  // wrong code -> GCM throws here
+    });
   }
 
   var AUTH_HTML =
@@ -77,22 +89,26 @@
     var btn   = document.getElementById('nbBtn');
     var msg   = document.getElementById('nbMsg');
 
-    function ok() {
-      msg.classList.add('ok', 'show');
-      msg.textContent = 'AUTHORIZATION ACCEPTED — ACCESS GRANTED';
-      setTimeout(pass, 650);
-    }
-
     var busy = false;
     function go() {
       if (busy) return;
       var v = (input.value || '').trim();
       if (!v) return;
-      busy = true;
-      d(v).then(function (x) {
-        busy = false;
-        if (x === H) ok(); else showDecoy(g);   // only the exact code unlocks; anything else -> decoy
-      }).catch(function () { busy = false; showDecoy(g); });
+      busy = true; btn.textContent = 'AUTHENTICATING…';
+      decryptApp(v).then(function (src) {
+        // success — cache for this tab, grant access
+        try { sessionStorage.setItem(CACHE, src); } catch (e) {}
+        msg.classList.add('ok', 'show');
+        msg.textContent = 'AUTHORIZATION ACCEPTED — ACCESS GRANTED';
+        setTimeout(function () {
+          var ov = document.getElementById('nbOv');
+          if (ov) { ov.classList.add('nb-off'); setTimeout(function () { ov.remove(); }, 600); }
+          injectApp(src);
+        }, 600);
+      }).catch(function () {
+        busy = false; btn.textContent = 'AUTHENTICATE';
+        showDecoy(g);                                   // wrong code (GCM tag failed) or fetch error
+      });
     }
 
     btn.addEventListener('click', go);
@@ -121,9 +137,15 @@
     showAuth(g);
   }
 
+  // Decide in <head> so we can hide the skeleton before first paint, but only touch <body> once it exists.
+  var cached = null;
+  try { cached = sessionStorage.getItem(CACHE); } catch (e) {}
+  if (!cached) { document.documentElement.classList.add('nb-lock'); }
+
+  function start() { if (cached) { injectApp(cached); } else { build(); } }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', build);
+    document.addEventListener('DOMContentLoaded', start);
   } else {
-    build();
+    start();
   }
 })();
