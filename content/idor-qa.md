@@ -1,5 +1,7 @@
 # Insecure Direct Object Reference (IDOR / BOLA) — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **broken object/function-level authorization**: from "what is an IDOR" to mass-PII enumeration, write-IDOR account takeover, BFLA → admin → RCE, GraphQL `node` BOLA, cross-tenant breaks, and the chains they unlock. Q&A format, progressive difficulty, written as **"IF this → THEN that"** decision logic. Covers ID formats & prediction, the bypass toolbox, tooling, methodology, real-world cases, **and** defense.
 >
 > ⚖️ **Authorized use only.** Bug bounty (in-scope), sanctioned pentests, CTFs, and learning. Prove every IDOR with **two accounts you own** (A reaches B). Never mass-exfiltrate real PII — prove the pattern small and cite the population from server metadata.
@@ -25,6 +27,9 @@
 - **Severity, validity & false positives** (Q102–Q107)
 - **Real-world case patterns & references** (Q108–Q112)
 - **Defense — how to stop IDOR properly** (Q113–Q117)
+- **Addendum (rev. 2) — obfuscated/time-ordered ids, nested/bulk, JSON-Patch, CORS** (Q118–Q124)
+- **Level 7 — Interview questions (articulate it out loud)** (Q125–Q136)
+- **Level 8 — Scenario-based (you're handed a situation)** (Q137–Q144)
 - **Appendix — 60-second field checklist**
 
 ---
@@ -474,6 +479,83 @@ Try **JSON-Patch** (`application/json-patch+json`, RFC 6902) or **merge-patch** 
 
 ### Q124. Does a CORS misconfig change an IDOR's severity?
 Yes — a **read IDOR + credentialed CORS misconfig** (ACAO reflects the origin + `Access-Control-Allow-Credentials: true`) is **remotely exploitable**: any site the victim visits can `fetch()` their object and exfiltrate it, no attacker auth needed. That pushes it toward `PR:N`/`UI:R` and raises severity. Document the CORS combo (cross-ref the CORS kit).
+
+---
+
+# LEVEL 7 — INTERVIEW QUESTIONS (articulate it out loud)
+
+> These test whether you can *explain* IDOR, not just exploit it. Practise each as a spoken 60–90-second answer.
+
+### Q125. "Explain IDOR to a junior engineer in under a minute."
+"Picture a coat-check that hands you whatever coat number you name without checking the ticket is yours. IDOR is that: the app takes a reference you control — an id in the URL, a `user_id` in the body, a filename — and uses it to fetch or change an object **without checking you're allowed that specific object**. You're correctly logged in; that part works. The missing piece is the per-object *authorization* — the code did `WHERE id = :id` instead of `WHERE id = :id AND owner_id = :me`. So I change `id=123` to `id=124` and get a stranger's record. It's the #1 API bug because every endpoint that exposes an id is a fresh chance to forget that check."
+
+### Q126. "IDOR vs BFLA vs mass assignment — explain the difference out loud."
+"Same root cause — a missing authorization check — at three different scopes. **IDOR/BOLA** is *wrong object*: I access coat #124 instead of my #123. **BFLA** is *wrong action*: I'm allowed to walk behind the counter and run an admin-only operation like `POST /admin/users`, regardless of object. **Mass assignment / BOPLA** is *wrong property*: I'm allowed the object, but I scribble an extra field on it the form never offered — `"role":"admin"` or `"owner_id":<victim>`. In interviews I say: object, function, property — three flavours of 'the server trusted input it should have authorized.'"
+
+### Q127. "A developer says 'we switched all our ids to random UUIDs, so IDOR is fixed.' Respond."
+"UUIDs make the id *hard to guess* — they don't make the server *check ownership*, and those two are completely different problems. IDOR is the missing check, not the guessable id. And 'unguessable' UUIDs leak constantly: in search results, autocomplete, `Referer` headers, error messages, webhooks, and especially other API responses — one over-permissive `{users{id}}` GraphQL query dumps them all. So if I can *obtain* a victim's UUID from anywhere and the endpoint still doesn't verify ownership, it's a full IDOR. The fix isn't the id format; it's `WHERE owner_id = current_user` on every object access."
+
+### Q128. "Why is the two-account proof the thing that makes an IDOR report valid?"
+"Because with one account you literally cannot tell 'I accessed someone else's data' from 'I accessed my own or public data' — and neither can the triager, so they'll assume the boring explanation and close it. Two accounts I own create an oracle: I capture **B's** object reference, replay it in **A's** session, and show A received **B's** data. That single artifact — A's credentials, B's object, B's data coming back — is un-false-positive-able. It's why I set up A and B before I touch anything, and why my report leads with 'as A I read B's private order,' not 'I changed an id and saw data.'"
+
+### Q129. "Walk me through how you'd test an unknown API for IDOR."
+"Register two same-role accounts, A and B, and proxy both. Drive every feature as each so my proxy captures every object reference — path ids, `?id=`, JSON bodies, `X-User-Id` headers, GraphQL `node(id:)`, file/export URLs. For each object I run the oracle: take A's authenticated request, substitute B's reference, and read the response — B's data is IDOR, my own data is safe session-scoping, a 403/404 sends me to the bypass toolbox (method swap, array-wrap, param pollution, `.json`/`/v1/`, header trust, nested child id). Then I escalate the confirmed ones: is the id enumerable for mass-PII, is there a write verb for ATO, is there a function-level admin version for BFLA, does it cross tenants. I prove everything with my own two accounts, keep enumeration small, and cite scale from `X-Total-Count`."
+
+### Q130. "Why is IDOR/BOLA the #1 API bug, and why won't a WAF fix it?"
+"It's #1 because it scales with endpoints and needs no exotic primitive — it's a forgotten line of authz code, and modern apps are thin clients over APIs that expose object ids everywhere, with every new feature a fresh chance to forget the check. A WAF won't fix it because there's **nothing malicious in the request** — `GET /api/orders/124` with a valid token is a perfectly well-formed, 'clean' request; it's only *wrong* because 124 isn't mine, and the WAF has no idea who owns order 124. Authorization is application state the WAF can't see. The only real fix is a server-side per-object ownership check."
+
+### Q131. "Curveball: is IDOR an authentication or an authorization bug, and why does the distinction matter?"
+"Authorization, purely. Authentication is 'who are you' — and it works fine; I'm a legitimately logged-in user with a valid session. Authorization is 'are you allowed *this specific object/action*' — and that's the check that's missing. The distinction matters because it points at the fix and the framing: you don't fix IDOR with stronger login, MFA, or better tokens — you fix it by binding every object to its owner on the server. In a report I'm explicit that auth is intact and the failure is object-level authorization (CWE-639), so the developer doesn't go harden the wrong layer."
+
+### Q132. "Explain to a non-technical stakeholder why a 'small' id change is a data breach."
+"Think of customer records as numbered filing-cabinet drawers. Normally the system only ever opens *your* drawer for you. This flaw means that once you're a customer, you can ask for drawer number 124 instead of your own 123 — and the system just opens it, no questions asked. Change the number again and you get 125, 126, and so on. So a single logged-in user can page through *every customer's* drawer — names, addresses, payment details — just by counting. That's how breaches like First American happened: 885 million documents, readable by changing a number in the address bar. One missing 'is this yours?' check, multiplied by every record."
+
+### Q133. "How do you turn a single read-IDOR into a Critical? Talk me through the escalation."
+"I never stop at the first read. Four questions: **Can I scale it?** — if the id is enumerable or leakable, one read becomes the whole user base (mass-PII, Critical). **Does the object contain auth material?** — a reset token, API key, or session in the body is instant ATO/RCE. **Is there a write verb?** — if I can `PUT` B's email, I point it at my inbox, trigger a reset, and take over the account. **Is there a function-level or cross-tenant version?** — user→admin (BFLA→RCE) or tenant-1→tenant-2 is the jackpot. So the articulation is: read → enumerate → auth-material → write → ATO → admin → cross-tenant, and I report the highest rung I can prove, not the first."
+
+### Q134. "Why can't you just rely on a scanner to find IDOR? What's the human part?"
+"Scanners like Autorize give great *coverage* — they replay every request as a second identity and flag look-alike responses — but they can't judge *meaning*. They don't know whether the identical response is B's private data (a bug) or a genuinely public resource (not a bug), whether the id is enumerable, whether there's a write path to ATO, or which victim would make it Critical. They also miss context-dependent bugs — nested child ids, mass-assignment fields, cross-tenant keys, blind second-order sinks. So the tool finds candidates; the human confirms the two-account semantics, discards the public-data false positives, and does the escalation that turns a Medium into a Critical. Tool for breadth, human for validity and impact."
+
+### Q135. "How do you keep IDOR testing ethical and legal — inside safe-harbor?"
+"The rule is: prove the *pattern*, not the *population*. I demonstrate the vulnerability with a handful of objects that belong to **my own** two test accounts, then *state* the scale from server metadata — `X-Total-Count`, a max id, a pagination total — rather than actually scraping thousands of real users' PII. Mass-exfiltrating real data can turn research into a CFAA/GDPR problem and blows safe-harbor. I also throttle enumeration, revert any writes, never create persistent admins on production, use my own second tenant for cross-tenant proofs, and stay strictly in scope. The report needs evidence of the missing check, which two of my own accounts provide completely — a data dump adds legal risk and zero additional proof."
+
+### Q136. "Give me three fixes that would prevent the whole class."
+"One: **enforce object-level authorization on every access** — bind the object to the caller server-side (`WHERE id=:id AND owner_id=:me`, or a policy/ABAC check), on *every* verb and *every* representation, not just the main GET. Two: **apply authz centrally and deny-by-default** — a middleware/policy layer or gateway rather than a hand-written check in each handler, so you can't forget one and old `/v1/` routes don't run unguarded logic; and allow-list bindable fields so `owner_id`/`role`/`isAdmin` can never be mass-assigned. Three: **don't rely on obscurity and test it** — treat UUIDs/Hashids as opaque references not access control, return consistent 404s so you don't leak existence, and add automated two-identity authz tests (Autorize-style) in CI so a regression is caught before ship."
+
+---
+
+# LEVEL 8 — SCENARIO-BASED (you're handed a situation)
+
+> Each is a situation → what you do next. They mirror how real hunting and interviews probe judgement.
+
+### Q137. Scenario: You swap the id and A's token returns B's data — but the object is a **public profile page**. Do you report it?
+Not as-is — a public-by-design object has no authorization expectation, so "A can read it" is not a boundary crossing (a classic false positive, Q102). But don't drop it blindly: check whether the *same* endpoint returns **private fields** alongside the public ones — many `/api/users/{id}` endpoints leak email, phone, address, or internal flags that the public *page* never shows. If A's request for B's profile returns private fields, **that** subset is a real IDOR; report those fields specifically. If it's genuinely only public data, move on. The test is "does it expose something B intended to be private," not "did I get a 200."
+
+### Q138. Scenario: `GET /api/users/8042` returns **403** with A's token. Walk your bypass sequence before concluding "safe."
+Work the toolbox in order (§8), re-verifying any success against the two-account oracle: (1) **method swap** — `PUT`/`PATCH`/`POST`/`DELETE`/`HEAD` on the same path; GET-guarded/write-open is common. (2) **array-wrap / param pollution** — `id[]=8042`, `?id=7001&id=8042`, dup JSON keys. (3) **type juggle** — `"8042"`, `[8042]`, `{"$ne":null}`. (4) **path/representation** — `.json`, trailing `/`, `%2e`/case, and especially **old versions** `/api/v1/users/8042`, `/internal/`. (5) **header trust** — `X-User-Id: 8042`, `X-Original-URL`. (6) **nested child** — keep my parent, swap the child: `/api/users/7001/cards/<B's card>`. (7) record the **403-vs-404 oracle** regardless. If a genuine ownership check survives *all* of these, then it's safe — but one row opens a large fraction of "but it 403'd" endpoints.
+
+### Q139. Scenario: You `PUT` B's email and get `200 OK`, but the password-reset link never arrives at your inbox. Debug it.
+A `200` is not proof the write landed (§4.2) — so first **re-read B's object as B**: `GET /api/users/8042` with **B's** token. (a) If it still shows B's original email, the write **didn't stick** — the endpoint accepted but ignored the field (allow-list), or wrote to a shadow field; try mass-assign variants (`{"user":{"email":...}}`, JSON-Patch `/email`) or a different update route. (b) If it *does* show your email, the write worked but the **reset flow** differs: maybe reset uses a *separate* verified-email or a phone, maybe it emails the *old* address on change (anti-takeover), or there's a confirmation step. Check whether changing email requires re-verification, and whether a **direct** password/MFA endpoint (`POST /users/8042/password`) skips email entirely. Confirm the actual side effect, don't assume from the status code.
+
+### Q140. Scenario: The ids are short strings like `gY6`, `J4Q`, `oE2`. Walk exactly how you'd attack them.
+That drift-in-order is the tell for **Hashids/Sqids** — a reversible encoding of a sequential integer, not access control (§6.6/Q118). Steps: (1) **Confirm the pattern** — create 3–4 of my own objects in a row and watch the ids change predictably. (2) **Recover the alphabet + salt** — grep the front-end JS bundle for `Hashids`/`Sqids`/`new Hashids(`/`salt` and the alphabet string; if none, the **library default salt** (empty) decodes with any decoder. (3) **Decode B's id → integer** (`Hashids(salt=...).decode('gY6')` → `123`). (4) **Increment/decrement → re-encode → replay** in A's session; if I get other users' objects, it's mass-enumerable IDOR — treat exactly like a sequential id. If it's **Optimus** instead (multiplicative), recover `PRIME`/`INVERSE`/`RANDOM` from JS or a few `(realId, encoded)` pairs — it's a bijection. "We obfuscate the id" is not an ownership check.
+
+### Q141. Scenario: The sink is a GraphQL `node(id:)` field. You can read one object — how do you prove **scale** convincingly (and politely)?
+Global ids are usually `base64("Type:pk")`, so I decode (`VXNlcjoxMjQ=` → `User:124`), confirm I can read a *different* user's fields by iterating the pk, then demonstrate scale in a **single request** using aliases rather than hammering the endpoint:
+```graphql
+{ a:node(id:"VXNlcjox"){...on User{email}} b:node(id:"VXNlcjoy"){...on User{email}}
+  c:node(id:"VXNlcjoz"){...on User{email}} }        # 3 users, one query
+```
+That one query returning three different users' emails proves mass-BOLA without a noisy loop. I keep the proof set to a handful (mine + my second account where possible) and **state** the population from a `totalCount`/pagination field, not a scrape. Aliases/batching also often bypass rate-limits (note that as an added finding). Then I test the matching **mutation** (`updateUser(id:<B>,…)`) for write/BFLA.
+
+### Q142. Scenario: You confirm cross-tenant **read** between two orgs you own. How do you make it Critical and not a dupe?
+Cross-tenant is almost always Critical (isolation is the core SaaS promise), but I strengthen and differentiate it: (1) **Show read AND write** across the boundary — org-1 reading org-2's record *and* changing a benign marker field, then re-reading as org-2 to confirm the change landed (a write across tenants is strictly worse than a read). (2) **Quantify** — is *every* org-2 object reachable, or just one? Demonstrate the tenant key is the only thing gating it (`X-Tenant-Id` swap, same object id). (3) **Chain to platform-admin** — if a tenant-admin can reach the *platform* admin or a third tenant (BFLA + tenant swap), that's the jackpot. (4) **De-dupe by distinctness** — if the program already lists "BOLA on the API," I frame mine as the *cross-tenant isolation failure with write*, a materially different and higher-impact bug, with the two-org proof front and center.
+
+### Q143. Scenario: A read-IDOR response contains a field `"reset_token": "a1b2c3..."`. What are your next moves, safely?
+This jumps straight to Critical — a read that returns **auth material** is ATO, not information disclosure (§11.3/Q84). Moves: (1) **Confirm it's live and usable** — using my **own** two accounts, read B's `reset_token` as A, then complete the reset flow for **my** B account with it (`/reset?token=a1b2c3...`) and show I can set B's password. That proves the token is valid and the chain is real, all on accounts I own. (2) **Don't harvest real tokens** — I demonstrate the capability against my B, then *describe* that the same read yields any user's reset token at scale (cite the enumeration). (3) **Report as Critical ATO** — CWE-639 chained to the takeover, leading with "read-IDOR returns a usable password-reset token → full account takeover of any user," and recommend the token never be serialized into any object response.
+
+### Q144. Scenario: Autorize flags `200 "Bypassed!"` on **40 endpoints**. How do you avoid drowning the triager (and yourself) in false positives?
+Autorize flags *look-alike responses*, many of which aren't bugs — so I verify before believing any of them (§19/§20). Triage the 40: (1) **Drop session-scoped ones** — where A-as-B actually returned *A's own* data (the id was decorative); the diff vs B's real view exposes these. (2) **Drop public/static** — shared assets, public profiles, anything with no private data. (3) **Keep the ones where A's response contains B's *specific private* data** — verify by the two-account diff (`A-with-B's-id` == `B's own view`, minus volatile fields). (4) **Rank the survivors by impact** — auth-material/admin/financial/cross-tenant first, then write verbs, then reads — and **report one strong, escalated chain** rather than 40 raw "id-swap returns data" dupes (Q107). Autorize gave me breadth; my job is to convert it into a handful of validated, high-impact findings.
 
 ---
 
