@@ -1,5 +1,7 @@
 # Race Conditions (TOCTOU & Limit-Overrun) — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **race conditions**: from "what is a race" to the HTTP/2 single-packet attack, limit-overrun double-spend, OTP/2FA/rate-limit bypass → ATO, uniqueness and state-machine races, multi-endpoint collisions, and the chains they unlock. Q&A format, progressive difficulty, written as **"IF this → THEN that"** decision logic. Covers techniques, tooling, methodology, real cases, **and** defense.
 >
 > ⚖️ **Authorized use only.** Bug bounty (in-scope), sanctioned pentests, CTFs, and learning. Race **your own** accounts/balances; bounded bursts; never cash out real funds or affect real users; prove a **repeatable broken invariant** and stop.
@@ -28,6 +30,8 @@
 - **Severity, validity & false positives** (Q96–Q102)
 - **Real-world cases & references** (Q103–Q107)
 - **Defense — how to stop races properly** (Q108–Q112)
+- **Level 7 — Interview questions (articulate it out loud)** (Q120–Q131)
+- **Level 8 — Scenario-based (you're handed a situation)** (Q132–Q139)
 - **Appendix — 60-second field checklist**
 
 ---
@@ -676,6 +680,93 @@ Not for shared state. Requests may hit **different backend nodes**, so a limit k
 It's bounded by the TCP **initial congestion window** (~10 packets) and the need to ship all withheld final frames together; it also assumes each request is **small** (only its last frame outstanding). Large bodies / many big headers, HTTP/1.1-only targets, or buffering intermediaries break it → **fall back to last-byte-sync** (§7) and raise N. (§5.4)
 
 *The physics behind the "~20–30" number, in plain terms:* the whole point of single-packet is that all the withheld final frames travel in **one network packet** so they arrive together. But TCP won't let a fresh connection dump unlimited data at once — the **initial congestion window** (roughly 10 packets' worth) limits how much can go in that first burst. Pack too much and it spills into multiple packets, re-introducing the jitter you were killing. This also assumes each request is **small** (only its last frame is outstanding), so **large bodies or many big headers** blow the budget, as do **HTTP/1.1-only** targets and **buffering intermediaries**. When any of those apply, you **fall back to last-byte-sync** (Q30) and compensate with a higher N. That's why ~20–30 small requests is the sweet spot, not a number you should try to push to thousands. (§5.4)
+
+---
+
+# LEVEL 7 — INTERVIEW QUESTIONS (articulate it out loud)
+
+> These test whether you can *explain* race conditions, not just fire a Burp group — exactly what a senior interviewer or a triage engineer wants to hear. Say each answer out loud; aim for a layered explanation (plain → mechanism → the number/PoC that proves it).
+
+### Q120. Explain a race condition to a junior in one minute — and what makes it *exploitable* over the web?
+*Plain:* "Imagine a bank teller who checks your balance, then hands over cash. If twenty of you rush the counter at the exact same instant, all twenty tellers see the *same* full balance before any withdrawal is recorded — so all twenty pay out. The account had money for one, but funded twenty."
+*Mechanism:* the code does **check-then-act** (`if balance >= amount { balance -= amount }`) without making those two steps **atomic**. Between the check and the write there's a **window**; if a second request's check runs inside that window, it reads stale state and also proceeds.
+*What makes it exploitable over the web:* you can deliver many requests so close together that they all land in that sub-millisecond window — the **HTTP/2 single-packet attack** puts ~20–30 requests in one TCP packet, so network jitter can't spread them out. "The bug is old (concurrency); the reason it's suddenly *reliable* over HTTP is the single-packet delivery, 2023."
+
+### Q121. What is TOCTOU, and why is "check-then-act" the phrase that matters?
+*Plain:* **Time-Of-Check to Time-Of-Use** — the gap between *verifying* a condition and *relying* on it. The verification was true when you looked; it stopped being true before you acted.
+*Why the phrase matters:* it tells you exactly where to aim. Every web race is a check ("is the coupon unused?", "attempts < 5?", "balance ≥ amount?", "is this file safe?") followed by an act (credit it, accept the guess, decrement, serve the file). "I hunt the endpoints where those two steps aren't welded together — and I prove it by making the *act* happen more times than the *check* should ever allow."
+
+### Q122. Why doesn't sending requests fast in a `for` loop work? Explain the single-packet attack out loud.
+*The problem:* a loop sends request 1, *then* 2, *then* 3 — and the internet delivers them a few milliseconds apart. A race window is sub-millisecond, so by the time request 2 arrives, request 1 has already committed and closed the window. **Network jitter is the enemy.**
+*The fix, in plain terms:* "make the network physically unable to spread them out." Over HTTP/2 you open one connection, start ~20–30 streams, send *almost* all of each request but **withhold the final frame** of each, then release **all the final frames in one TCP packet.** The server receives that single packet and all 20 requests become "complete" together, so it starts processing them in the same instant. "It's like walking 20 people to the cookie jar and having them all reach in on 'three,' instead of letting them wander in one at a time. And I don't implement it by hand — Burp's *Send group in parallel* does it; I understand it so I can diagnose *why* a race won't fire."
+
+### Q123. A developer says "we set `used=true` after the coupon is applied, so it can't be reused." Rebut it.
+*The flaw:* `used=true` is set *after* the credit, and the *check* reads `used` *before* the credit — so between "read `used=false`" and "write `used=true`" there's a window. Fire N applies into that window and all N read `used=false`, all N credit, and only *then* does the flag flip.
+*Worked rebuttal:* control = apply once → balance +$10, `used=true`. Parallel = 5 applies in one packet → **balance +$50**, and *yes* `used=true` afterward — the flag is honestly set, it just came too late for 4 of the requests. "The finding is the **state**: `used=true` but credited five times. `used=true` proves the flag works; the +$50 proves the flag is checked non-atomically. The fix isn't a flag — it's an atomic conditional write or a unique constraint."
+
+### Q124. How do you make a race report un-false-positive-able?
+The **control-vs-parallel baseline on the invariant**, repeated. Three parts: **(1)** state the *invariant* that should hold ("coupon credits once", "balance ≥ 0", "≤5 attempts"); **(2)** show the **control (1×)** result — the normal, locked behaviour; **(3)** show the **parallel (N×)** result breaking the invariant — *measured on the state*, with a second read-back request, not on the HTTP status. Then **reproduce it 2–3× with a state reset between.** "'I sent 40 requests' is noise. 'The balance went to −$400 on my own wallet, reproduced three times' is undeniable — a negative balance is impossible through legitimate use, so a triager needs no further explanation."
+
+### Q125. Compare a single-endpoint overrun vs a multi-endpoint race — when do you reach for each?
+*Single-endpoint (overrun):* the *same* action fired N× against itself — apply-coupon ×20, withdraw ×20. Easy to land (the single-packet group holds 20 identical requests) and it's your default. Impact: double-spend, over-claim, OTP brute.
+*Multi-endpoint:* **two different operations** that touch the *same* state — "apply credit to an order" colliding with "cash out credit", or "convert points" vs "redeem reward" (guide §13.3). Harder to land (two templates, narrower window, use Turbo Intruder's two-template gating) with a lower hit rate, but it reaches states a single endpoint can't — spending one balance *two different ways*. "I start single-endpoint because it's easy; I reach for multi-endpoint when the app has two spenders of one resource, or when an idempotent action has a non-idempotent sibling."
+
+### Q126. CVSS gives races `AC:H` (attack complexity high). Doesn't that tank the severity?
+*Yes, `AC:H` is honest* — you need timing/concurrency, so it's not trivially repeatable like a reflected XSS. *But it doesn't tank the score,* because severity is driven by **Impact** (C/I/A), not just complexity. A double-spend is `C:H/I:H` or worse; an OTP-race → ATO is `C:H/I:H`. "And I neutralise the `AC:H` objection by shipping a **reliable, reproducible single-packet PoC** — 'I reproduced the negative balance three times in a row' turns 'high complexity' into 'high complexity that I've demonstrably automated.' The impact keeps it High/Critical; the reliable PoC keeps a triager from discounting it."
+
+### Q127. Walk the numbers on how a race defeats a "5-attempt" OTP lock.
+The lock assumes: a 6-digit code = 1,000,000 possibilities, ≤5 guesses ⇒ attacker success ≈ 5/1,000,000 ≈ zero. That *is* the security of SMS 2FA. Under a race, you send **40 different guesses in one packet**; they all read `attempts < 5` before the counter catches up, so ~38 get **evaluated** instead of 5. Now: `1,000,000 / 38 ≈ 26,300 bursts` to cover the whole space — and codes often live 5–10 minutes with re-requests allowed. "The '5-attempt control' doesn't exist under concurrency; brute-forcing the second factor becomes a **throughput problem, not an impossibility** — that's the sentence I put in the report, not 'I got 38 errors.'"
+
+### Q128. Can a race ever reach RCE? Explain.
+*Yes — the file-upload TOCTOU (the highest-impact race).* Many upload pipelines **write the file to a web-reachable path first**, then *asynchronously* validate / AV-scan / strip / rename-to-random / move-out-of-webroot / delete-if-bad. That gap is a window where the malicious file is **live and executable before it's neutralised.**
+*The attack:* in one burst, **upload** a webshell *and simultaneously flood GETs* at its predicted URL; if one GET lands **before** the cleanup, the shell executes → RCE. "It beats even 'correct' filters because the app cleans up *after* writing to a reachable path — so the cleanup itself is a race I can win. If the final name is randomised, I race the read of the *temp/quarantine* path instead. It's CWE-367 → Critical."
+
+### Q129. The dev "fixed" it by moving the check `if (balance >= amount)` to right before the decrement. Fixed?
+*No.* Moving the check closer shrinks the window but doesn't close it — there's still a gap between the `if` (a read) and the `-=` (a write), and a race just needs *a* gap. You'll land it with a higher N or a wider-window variant.
+*What actually fixes it:* make check-and-act **atomic** — **(a)** a conditional write the database evaluates atomically: `UPDATE wallets SET balance = balance - 50 WHERE id=? AND balance >= 50` (0 rows updated ⇒ refuse); **(b)** a **unique constraint** / idempotency key so a duplicate simply can't be inserted; **(c)** a row-level lock (`SELECT … FOR UPDATE`) held across check+act; **(d)** a queue that serialises the operation. "Two application statements are never atomic together — the fix has to push atomicity down to the database or a lock, not just reorder the lines."
+
+### Q130. "We're behind a load balancer / it's all microservices, so races can't happen." Respond.
+*Partly true, mostly false.* A limit enforced in **per-node in-memory state** (a local counter/cache) often *won't* collide across nodes — but that's a *weaker* posture, not a safer one: that per-node limit is itself bypassable by **spreading requests across nodes** (a separate finding). And critically, **any invariant that lives in shared state — a database row, a Redis counter, the wallet, the coupon table, stock — still races**, no matter how many app nodes sit in front, because they all contend on the *same row*. "So I target invariants backed by **shared storage**, expect more variance, and **raise N + repeat** to land enough requests on the colliding path. Distribution changes the tactics, not the existence of the bug."
+
+### Q131. How do you keep a race test safe and legal?
+*The discipline that keeps you paid:* **(1)** race your **own** balances/accounts/test funds only — two accounts you own for ATO proofs. **(2)** Keep bursts **bounded** (20–30 is plenty; heavy concurrency can read as a DoS and some programs treat it as abuse). **(3)** **Prove the mechanism, then stop** — "the balance went negative", "the 6th OTP was accepted", "the shell returned output on my test path". **(4) Never let value actually leave** — don't cash out phantom funds, don't touch a real user, revert/cancel what you can, reset state. "'I made my own balance −$400, reproduced 3×' is a Critical finding; 'I extracted $40,000' is a crime. The restraint is not just ethics — an un-weaponised, reverted PoC is the one triagers can safely reproduce, which is what gets it paid."
+
+---
+
+# LEVEL 8 — SCENARIO-BASED (you're handed a situation → what do you do)
+
+> Each is a realistic snapshot. The skill tested is *reading the result correctly* — a race that "doesn't fire" almost always means one specific, fixable thing (guide §8.7), and knowing which turns a dead end into a finding.
+
+### Q132. You fire 20 parallel coupon-applies; all 20 return `200`, but the balance only dropped once. What happened, and what next?
+*Read it:* 20×200 with the invariant moving **once** = the action is **idempotent** — applying the coupon repeatedly genuinely does nothing extra (it sets a state rather than incrementing a value). That's *not* a race, and reporting "20 requests succeeded" would be a false positive.
+*What next:* re-target something **limited and cumulative**. Does applying the coupon **credit money** (a value that adds up) rather than just marking `applied=true`? Is there a *sibling* that spends the coupon's value — a "convert to wallet cash" endpoint (that's the multi-endpoint race, guide §13.3)? "Idempotent means I aimed at the wrong invariant — I move to money, attempts, stock, or once-only codes, where repetition actually accumulates."
+
+### Q133. Exactly one request succeeds and 19 are cleanly rejected — every single time. Is it safe? What next?
+*Don't conclude "safe" yet.* One success + clean rejections every time = this operation is **properly atomic** (row lock / `UPDATE … WHERE balance >= x` / unique constraint). This *endpoint* is fixed — but races are rarely fixed **app-wide**.
+*What next:* **(1)** try a **slower sibling** of the same operation — the variant that does heavy work between check and commit (calls a payment provider, sends email/SMS, builds a report); its window is orders of magnitude wider (§8.5). **(2)** Try a **multi-endpoint** collision with a different operation on the same row. **(3)** Widen the window: inflate the request, pick the slow path, warm the connection. "One locked endpoint tells me *that developer knew about this one* — I go find the one they forgot."
+
+### Q134. It worked once, then never again across 10 reruns. Diagnose.
+*Most likely:* you **landed the window by luck** and something is now different between runs. Work the checklist: **(1) reset state fully between runs** — leftover state (a used coupon, a drained balance, a locked account) silently changes the outcome. **(2)** Confirm **single-packet is actually in use** — you may have dropped to HTTP/1.1 or clicked *Send in sequence*; verify the protocol (`curl -sI --http2`) and choose *Send group in parallel*. **(3) Raise N to 20–30** and re-run several times. **(4)** A CDN/proxy may be **re-serialising** your streams intermittently — try the origin if in scope. "A one-off is coincidence; I make it **repeatable** before I believe it — and repeatable-after-reset is also exactly what makes the report valid (§15)."
+
+### Q135. HTTP/2 target, but Burp's parallel group still spreads the requests out. Why, and how do you land it?
+*Cause:* something between you and the origin is **re-serialising or buffering your H2 streams** — commonly a **CDN/proxy/load-balancer** (Cloudflare/Akamai in front), or your requests are **too large** to single-packet (only the final frame is supposed to be outstanding; a big body/many headers blows the ~10-packet initial-congestion-window budget, §5.4).
+*How to land it:* **(1)** hit the **origin directly** if it's in scope (bypass the coalescing intermediary). **(2) Shrink the request** — move data to headers/query, drop optional fields — so it single-packets cleanly. **(3)** Fall back to **last-byte-sync** (§7) and **raise N** to absorb the extra jitter. **(4) Widen the window** (§8.5) so you don't need perfect simultaneity. **(5)** Warm the connection first (§8.1) so the raced requests are uniformly fast. "The single-packet is a delivery optimisation; when an intermediary defeats it, I compensate with window width and volume."
+
+### Q136. You have a withdrawal endpoint and a $100 wallet; prove double-spend without stealing. Walk it.
+**Step 1 — Control:** `POST /wallet/withdraw {"amount":100}` once → `200 {"new_balance":0}`; independently `GET /wallet/balance → 0.00` (invariant held). Reset to $100. **Step 2 — Burst:** same request ×20, Burp *Add to group* → 20 tabs → *Send group in parallel*. **Step 3 — Responses:** a *mixture* — e.g. `5×200 {"new_balance":0}` + `15×400 {"insufficient funds"}` (the mixture is the tell: five requests each thought they were alone). **Step 4 — Invariant:** `GET /wallet/balance → -400.00` — **$500 left a $100 wallet, $400 created from nothing.** **Step 5 — Repeat 3×** (reset between), record win counts (5/3/6 — variance is normal). **Then STOP:** "the negative balance on my own test wallet, reproduced three times, is the complete Critical (CWE-362). I do **not** move the phantom funds — demonstrate and stop. Screenshot: balance $100 before, the parallel group, the multiple 200s, balance −$400 after, twice more."
+
+### Q137. A password-reset feature; tokens look short and time-based. Turn that into ATO with a race — safely, two own accounts.
+*Spot it first:* request several reset tokens and compare — a **shared prefix, an increment, or a value that tracks the clock** means the token is derived from a timestamp/low-entropy seed (`hash(time)`, `uniqid()`, time-seeded `mt_rand()`). That's CWE-330, and it enables a **collision race** (guide §10.5).
+*The attack (two accounts you own):* in **one single-packet burst**, trigger a reset for **account B (the "victim", yours)** *and* for **account A (yours)** at the same instant. Both tokens are generated in the same millisecond → **identical**. The token emailed to **A** is therefore also **B's valid reset token.** Read it from A's inbox, submit it against B's reset → set B's password → log in as B. *Safety:* both accounts are yours; screenshot "logged into B using the token issued to A"; **never** run this against a real user. "Two secrets minted in the same instant from a time seed are the same secret — the race just guarantees the same instant. CWE-362 + CWE-330 → High–Critical ATO."
+
+### Q138. The limited action is a *file upload* that "gets scanned and cleaned." Race it to RCE — and if the final filename is random?
+*The window:* the pipeline **writes to a web-reachable path first**, then asynchronously scans/renames/moves/deletes. The malicious file is **live before it's neutralised** (guide §12.4).
+*The attack:* **group A** = `POST /upload` (a webshell — `shell.php`/`.jsp`/`.aspx` or a polyglot that passes the type check, benign marker like `echo "RC-49"`); **group B** = `GET /uploads/shell.php` ×N — fire both in the **same single-packet window.** If a GET returns your marker **before** the scanner removes/renames it → **RCE** (CWE-367, Critical).
+*If the final name is random:* race the **read of the temp/quarantine path** instead (many pipelines stage to a predictable temp dir before the random rename); or exploit **predictable pre-rename names** (original name kept, sequential, timestamp). "Chain the File Upload kit for the shell-crafting/type-bypass; keep it on my own test path, prove one marker hit, then stop — no pivoting on production."
+
+### Q139. A gift-card redeem endpoint is idempotent (redeeming twice does nothing), but there's ALSO a "convert gift card to wallet cash" endpoint. Where's the race?
+*The insight:* the redeem endpoint being idempotent is a **dead end on its own** (Q132) — but idempotency of *one* action says nothing about a *different* action reading the same balance. The two endpoints are the classic **multi-endpoint pair** (guide §13.3): both read "is this card's value available?" then spend it.
+*The attack:* in one Turbo Intruder **two-template** burst, fire **redeem** (credit the card's value to your order/account) **and** **convert-to-cash** (move the card's value to your wallet) **together.** Both read the card as unspent → both proceed → the same gift-card value is spent **twice** (once as a redemption, once as wallet cash). **Invariant:** the card's value can fund exactly one destination; the ledger showing it funded *both* is sequentially impossible → **Critical double-spend.** "The single-endpoint idempotency is a decoy; the money bug is the *unlocked pair* — one resource, two spenders, no shared lock."
 
 ---
 

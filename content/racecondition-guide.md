@@ -636,6 +636,42 @@ group B: GET  /uploads/shell.php   ×N   (fire in the same single-packet window)
 
 **13.2 Confirm the inconsistent state.** Show the resulting state is impossible sequentially (credit used twice, posted after leaving, acted after deactivation).
 
+**13.3 Fully worked example — one balance spent two ways, start to finish.** §9.4 raced *one* endpoint against itself; this is the harder, higher-value cousin: **two different operations that both read-then-decrement the same value.** The single-packet group (§5) can't easily hold two different request templates, so this is the canonical **Turbo Intruder two-template** race (§8.2). Follow it once and every "use credit + checkout", "convert points + redeem reward", "transfer + withdraw" collision looks the same.
+
+**The target:** you hold **$50.00 of store credit**. Two *different* endpoints each spend it, and each does the unsafe `if (credit >= amount) { credit -= amount; do_the_thing() }`:
+```
+A)  POST /orders/O-777/apply-credit   {"amount": 50.00}   → knocks $50 off an order you're buying
+B)  POST /wallet/cashout              {"amount": 50.00}   → sends $50 to your linked bank
+```
+Invariant: **$50 of credit can fund exactly one $50 operation — never both.**
+
+**Step 1 — Control (run each once, sequentially, to prove the lock works normally).** Apply $50 to the order → `200`, credit now `$0.00`. Reset to $50, then cash out $50 → `200`, credit `$0.00`. Now with $50 on hand, run the *other* one → `400 {"error":"insufficient credit"}`. Sequentially the second operation is always refused — that refusal is the invariant you're about to break.
+
+**Step 2 — The parallel burst (two templates, one gate).** Reset credit to $50.00. Queue **both** requests onto the *same* gate and release together:
+```python
+def queueRequests(target, wordlists):
+    engine = RequestEngine(endpoint=target.endpoint, concurrentConnections=1, engine=Engine.BURP2)
+    engine.queue(REQ_A, gate='m')      # POST /orders/O-777/apply-credit  {"amount":50.00}
+    engine.queue(REQ_B, gate='m')      # POST /wallet/cashout             {"amount":50.00}
+    engine.openGate('m')               # both final frames released in one packet → both hit the check together
+```
+
+**Step 3 — Read the responses.** Both operations report success — the tell that both read `credit >= 50` *before* either decrement committed:
+```
+A) HTTP/2 200  {"status":"applied","order_total":"$0.00 due"}
+B) HTTP/2 200  {"status":"cashout_queued","amount":50.00}
+```
+
+**Step 4 — Read the invariant (the proof):**
+```http
+GET /wallet/credit  →  {"credit": 0.00}
+```
+The ledger shows **$0.00 of credit consumed once**, yet it funded **both** a $50 order discount **and** a $50 bank cash-out — **$100 of value drawn from $50.** (On some implementations the decrement runs twice and you instead see `{"credit": -50.00}` — an equally undeniable negative-balance proof, per §9.4.) Either way the result is **impossible through any sequential use of the app**, which is exactly what makes a triager act.
+
+**Step 5 — Repeat 3× (reset between).** Multi-endpoint windows are narrower than single-endpoint (two operations must align, not twenty copies), so expect a *lower* hit rate — maybe 1 in 3 bursts lands both. Record it; **repeatable-at-all** is the bar, and widening the window (§8.5 — pick the slower of the two operations, e.g. a cash-out that calls a payment provider) raises the rate.
+
+> **Stop at the proof.** "On my own account, $50 of credit funded both a $50 order and a $50 cash-out, reproduced twice" is a **Critical** double-spend (CWE-362). Cancel the queued cash-out, revert the order — never let the phantom value actually leave (§19). The *impossible ledger state* is the entire finding; you don't need the money to move.
+
 ---
 
 # PART IV — VALIDITY, SEVERITY & REPORTING

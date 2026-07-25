@@ -1,8 +1,48 @@
 # Race Condition Arsenal — Turbo Intruder Scripts, Single-Packet Recipes & Detection Patterns
 
+**Author:** x8bitranjit
+
 > Companion to `RACE_CONDITION_TESTING_GUIDE.md`. **Pick by the technique the target allows** (HTTP/2 → single-packet; HTTP/1.1 → last-byte-sync) and **always measure the invariant** (balance/count/flag), not the HTTP status. Replace `target.com`, tokens, ids. **Authorized targets only; race your OWN balances/accounts; bounded bursts; never cash out real funds** (guide §21).
 >
 > **Workflow:** find a limited action + its invariant (§3) → control 1× (§4) → fire N parallel into one window (§5–§7) → re-read invariant → repeat to confirm (§15).
+
+---
+
+## 0. The whole attack in one sequence (copy-paste — limit-overrun double-spend)
+
+*What & when:* the end-to-end flagship as one runnable narrative — the arsenal twin of guide **§9.4**. Everything below stays on **your own** funds/accounts; the moment the invariant breaks reproducibly, you **stop**. Sections A–P expand each step; this is the one-screen view.
+
+```bash
+# --- Step 0: is it raceable? + capture the LIMITED action (§A) ---
+curl -sI --http2 https://target.com/ | head -1          # "HTTP/2 200" -> single-packet viable (else last-byte-sync §F)
+#   In Burp: capture ONE clean request of the limited action, e.g.  POST /coupon/apply  {"code":"SAVE50"}
+#   Write down its INVARIANT up front:  "this coupon credits at most ONCE" / "balance must be >= 0".
+
+# --- Step 1: CONTROL (1x) — learn "normal" and read the invariant with a SECOND request (§4/§H) ---
+#   apply the coupon once -> note the response, THEN independently:
+curl -s https://target.com/wallet -H 'Authorization: Bearer <A>' | jq .balance   # e.g. 90.00 after one -$10 apply
+#   reset state to baseline before the burst.
+
+# --- Step 2: PARALLEL BURST (20-30 in one window) — the easy button is Burp (§B); scripted is Turbo (§C) ---
+#   Burp: Repeater -> Add to group -> duplicate to 20-30 tabs (identical for a pure overrun) -> "Send group in parallel".
+#   Turbo: race_overrun.py (§C) -> queue 30 on gate 'race1' -> openGate('race1').
+
+# --- Step 3: READ THE INVARIANT again (NOT the 200s) — this is the actual proof (§4/§H/§I) ---
+curl -s https://target.com/wallet -H 'Authorization: Bearer <A>' | jq .balance   # coupon credited 5x? balance NEGATIVE?
+#   broke  -> RACE (record the delta: "coupon credited x5" / "balance -400 from a 100 wallet")
+#   1 ok   -> LOCKED (atomic) -> widen the window (§O/§8.5): pick the slower sibling op, or try multi-endpoint (§E)
+#   N x 200 but invariant UNCHANGED -> idempotent, not a race -> re-target money/attempts/stock/once-codes
+
+# --- Step 4: REPEAT 3x (reset between) -> reproducible; note the win rate (5,3,6/20 is fine) (§15/§I) ---
+
+# --- Step 5: CASH-OUT PATH by impact, then STOP (own account only) ---
+#   money invariant       -> §C overrun -> double-spend / negative balance          -> Critical  (CWE-362)
+#   OTP/2FA/rate-limit     -> §D brute-RACE (vary the code) -> >cap guesses -> ATO    -> High-Crit (CWE-362+307)
+#   predictable reset token-> §M same-packet issue for victim+self -> collision -> ATO -> High-Crit (CWE-362+330)
+#   OAuth authz code       -> §N replay code Nx -> multiple tokens                    -> High     (CWE-362)
+#   file upload TOCTOU     -> §L upload webshell + GET-flood the path -> RCE          -> Critical (CWE-367)
+#   two endpoints, one row -> §E multi-endpoint -> spend one balance twice            -> Critical (guide §13.3)
+```
 
 ---
 
