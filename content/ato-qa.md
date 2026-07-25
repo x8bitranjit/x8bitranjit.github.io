@@ -1,4 +1,4 @@
-# Account Takeover (ATO) — Zero to Expert (100 Q&A)
+# Account Takeover (ATO) — Zero to Expert (120 Q&A)
 
 **Author:** x8bitranjit
 Study guide + field reference. Impact-first: the finding is always **"as attacker A (or unauthenticated), I'm inside victim
@@ -442,6 +442,93 @@ Exploit session non-invalidation so one phished/XSS'd session becomes permanent 
 **100. Final checklist before submitting?**
 Ended inside B? Two own accounts + benign marker? Bounded/own-token tests? B restored? Vector-matched CWE/CVSS? Remediation given? All yes → it's the Critical it's worth.
 *Run it like a pre-flight:* each item is a yes/no. Any "no" means the report is either unsafe or unfinished — fix it before you hit submit. All "yes" means you've got a clean, complete, correctly-rated finding.
+
+---
+
+## J. Interview questions — articulate it out loud (101–112)
+
+> These test whether you can *explain* ATO, not just run the payloads — what a senior interviewer or a triage engineer listens for. Say each out loud; aim for plain → mechanism → the proof that ends the argument.
+
+**101. Explain account takeover to a non-security stakeholder in thirty seconds.**
+"An online account has three ways in: the front door (password + 2FA), the emergency spare key (the 'forgot password' flow), and the wristband that proves you're already inside (your session cookie). Account takeover is when one of those is built sloppily on *someone else's* account, and I can walk in without their password — read their messages, spend their money, change their settings."
+*Why this framing wins:* it drops the jargon and lands the *impact* (their money, their identity) in a sentence a product manager or lawyer immediately understands — which is the same instinct you use to write a report title.
+
+**102. Why is ATO usually Critical when the "underlying bug" might be a Medium?**
+Because severity tracks **impact**, and ATO is the impact — "I can log into any user's or admin's account" tops almost every payout table.
+*Mechanism:* a reflected XSS or a host-header reflection is, on its own, a mid-tier hardening issue. Chained to a takeover it becomes "full compromise of an arbitrary account," which is `C:H/I:H/A:H`. The bug is the *ingredient*; the takeover is the *dish*, and you're paid for the dish. "Report the takeover, name the bug as the mechanism."
+
+**103. A dev says "our reset tokens are 128-bit random, so password reset is secure." Rebut it.**
+Token *strength* defends one specific failure (guessing) and nothing else. The reset flow has at least four other doors: **where the link points** (host poisoning — the token can be perfect and still be *mailed to me*), **who the mail goes to** (email HPP/CRLF), **whether it's bound to the user** (my valid token + your email), and **whether it's single-use / invalidated on change**.
+*Worked rebuttal:* "With `X-Forwarded-Host: attacker.com`, your 128-bit token is generated correctly, stored against the victim, and emailed to *my* domain (§2.1). Entropy never enters the picture — the failure is the link host, sourced from my header instead of your config."
+
+**104. Explain the three surfaces, and why "weakest of three" is the attacker's structural advantage.**
+The surfaces: **who you prove you are** (login/2FA), **how you recover** (reset/email-change), **how the session persists** (tokens). ATO breaks *any one* — for another user.
+*Why it's asymmetric:* the defender has to get **all three** right on every flow; the attacker only has to find **one** hand-built or under-checked. "A bank can have flawless login and unbreakable 2FA, but if 'forgot password' emails the link to an address I control, none of that helps — I walked in through the spare-key box. That asymmetry is why ATO is so findable and so well paid."
+
+**105. Compare 0-click vs 1-click ATO and why it changes the CVSS.**
+0-click needs no victim action (reset poisoning that leaks to your server, pre-ATO, an IDOR on the email field); 1-click needs the victim to open a link (reset-link Referer leak, OAuth-linking CSRF).
+*The CVSS lever:* it's the `UI` metric — `UI:N` (no interaction) vs `UI:R` (required). An unauth 0-click ATO is `AV:N/AC:L/PR:N/UI:N/…C:H/I:H/A:H` ≈ **9.8**; make the victim click and it drops to `UI:R` (still High/Critical). "Always state which yours is — it's worth a severity band."
+
+**106. Walk me through password-reset poisoning out loud — where does the attacker's host come from?**
+"When you hit 'forgot password,' the server mints a secret token and builds a link like `https://<HOST>/reset?token=…`. Lazy code fills `<HOST>` from the **request's `Host` (or `X-Forwarded-Host`) header** — which I control. So I trigger a reset *for the victim* with `X-Forwarded-Host: attacker.com`; the server mails the *victim* a link pointing at *my* domain carrying *their* real token. They click, their browser hands my server their token, I set their password, I'm in. 0-click for me, unauthenticated, Critical."
+
+**107. Explain pre-account-takeover to someone who's never heard of it.**
+"Normally you hijack an account that exists. Pre-account-takeover flips the timeline: I sign up *using the victim's email* (many sites don't force verification), so a half-account in their name already exists and I know its password. Later the victim signs in with 'Sign in with Google' — the site sees the email already exists and **merges** their Google login into *my* account instead of making a fresh one. Now we share an account I hold a password to, and they never notice because SSO never shows them a password prompt."
+*Why it pays:* it's **0-click for the victim**, silent (no reset/hijack event to alert anyone), and most hunters never test it (USENIX 2022 found 35/75 services vulnerable).
+
+**108. A team enforces 2FA on the website. What do you immediately ask, and why?**
+"Is it enforced on **every** entry point — the mobile API, a v2/legacy login endpoint, SSO, magic-link?" Teams bolt 2FA onto the web UI and forget the others.
+*Also ask:* does the password step return a **usable session *before* the code is checked** (force-browse past the OTP page)? Is the verify decision a **client-trusted boolean** (`{"verified":false}` → flip it)? "2FA only counts if the *server* refuses to issue a real session until the code verifies — I hunt the path where it doesn't."
+
+**109. Why is "the reset token appears in the response" often NOT a valid report?**
+Because on *your own* reset you're supposed to see your own token — that's not a leak, it's the feature.
+*What makes it valid:* the token is exposed **for a victim** (via Referer to a third party, or host-poisoned to your server), or you use it to actually reset **B**'s account. "The rule: if my proof doesn't end with me *inside a different account*, it's a lead, not a finding. I finish the takeover of my second account before I file."
+
+**110. How does an XSS become an ATO — and why bother escalating instead of just reporting the XSS?**
+*How:* XSS runs JS in the victim's authenticated origin → read their session cookie (or CSRF token, or call the change-email endpoint as them) → log in as them.
+*Why escalate:* the same bug pays several times more as "I took over an arbitrary account" than as "reflected XSS." "A triager rates impact; 'I can run script' is a Medium/High, 'I logged in as another user' is a Critical. The escalation is the difference in the bounty, for the same root cause."
+
+**111. Curveballs — one sentence each.**
+- **"Does HTTPS fix reset poisoning?"** No — the token still travels to the attacker's host over perfectly valid TLS; encryption doesn't decide *who* the link points at.
+- **"Does a WAF fix it?"** No — a legitimate-looking `X-Forwarded-Host` or a duplicated `email` param isn't an attack signature; the flow is the bug.
+- **"Does rotating the token more often fix it?"** No — poisoning captures the *current* valid token the instant the victim clicks; TTL doesn't matter.
+- **"Does logging out fix a stolen session?"** Only if the **server** invalidates it — if sessions survive logout/password-change (CWE-613), the theft is permanent and logout is cosmetic.
+- **"Is a 6-digit OTP safe because it's short-lived?"** Only if the attempt limit actually holds under concurrency — no/resettable/per-IP rate-limit makes a million-space code a throughput problem (§7).
+
+**112. How do you keep an ATO test safe, legal, and still worth a Critical?**
+Two accounts **you own** (`A` + `B`); every proof ends "as `A`/unauth, I'm inside `B`"; take over `B` **once** with a benign marker (read `B`'s own email back), **restore `B`'s state**, and stop.
+*Why it's enough:* bounty pays for *demonstrating* the unlocked door, not robbing the house. "I never touch a real user. Bounded OTP/token tests on my own account prove the missing lock without cracking anyone. An un-weaponised, reverted PoC is also the one a triager can safely reproduce — which is what gets it paid."
+
+---
+
+## K. Scenario-based — you're handed a situation (113–120)
+
+> Each is a realistic snapshot. The skill tested is *finishing the takeover* — turning a lead (a reflected header, a generic response, a working self-change) into "I'm inside B," or correctly recognising when you're not there yet.
+
+**113. The "forgot password" response is generic ("if the account exists…") and reveals nothing. How do you still prove reset poisoning?**
+The generic body is anti-enumeration and is *irrelevant* — you never prove reset poisoning from the response; you prove it from **the token arriving at your host**. Trigger the reset for `B` with `X-Forwarded-Host: attacker.com`, then watch your **listener** for `GET /reset?token=…` when `B`'s link is followed (or when the reset page/mail pre-fetches your resource). "The 200 is a decoy; the proof is a hit in my access log carrying `B`'s token, followed by me logging in as `B` (§2.1)."
+
+**114. You inject `X-Forwarded-Host: attacker.com` but the email link still points at target.com. What next?**
+The app isn't sourcing the link from *that* header — work the variants before giving up: try **plain `Host`**, `X-Forwarded-Host` with a port or `&`/`,` appended, **`X-Host` / `X-Forwarded-Server` / `X-Original-Host`**, a **dual `Host`** or **CRLF** injection, and the **`user@host` userinfo** trick (`Host: target.com@attacker.com`). Then check the **body/JSON** for a trusted `reset_url`/`callbackUrl`/`domain` field. If none of those move the link, pivot off host-poisoning entirely to **email HPP** (`email=[victim,attacker]`, §5) or **token weakness** (§4). "Reflection of the header in *some* response ≠ the *email link* using it — I confirm against the actual mailed link, and rotate through the header menu (cross-ref HostHeader kit)."
+
+**115. You send 60 wrong OTPs to your own account and never get blocked — but you don't want to crack a real user. What's the report?**
+The finding is the **missing rate-limit**, proven safely: "On my own account I submitted 60 incorrect codes with no lockout, throttle, or CAPTCHA — the documented attempt limit does not exist, so a 6-digit code (1,000,000 values) is brute-forceable → 2FA/OTP bypass → ATO (CWE-307)." You **do not** crack anyone; the bounded batch on your own account *is* the proof.
+*Strengthen it:* note whether re-requesting a code resets the counter, and do the math ("N usable guesses/burst → the million-space falls to a throughput problem"). "That's a High/Critical without ever touching a real user (§7, §18)."
+
+**116. Change-email works on your own account with no re-auth. Is that a finding? How do you turn it into ATO?**
+On its own it's a **broken-flow / missing-reauth** finding (Medium-ish) — changing *your own* email isn't takeover. It becomes ATO when you can perform it **against `B`**: **(1)** find an **IDOR/mass-assignment** so account `A` sets `B`'s email (`PUT /api/users/{B}/email`, §12), **or (2)** a **CSRF** on the change-email form so `B`'s own browser changes their email to yours, **or (3)** chain any read of `B`'s session (XSS/CORS/cache). Then **reset the password to the new (your) address** — the canonical "change email → reset" chain. "Self-change is the lead; the ATO is doing it to `B` and landing inside their account."
+
+**117. You can register `victim@company.com` (unverified). How do you confirm pre-ATO safely with two own accounts?**
+Use your **own second email** as the "victim." **(1)** Register it with a password you choose; confirm a half-account exists (`email_verified:false`). **(2)** From a clean browser, do the victim's normal onboarding — ideally **SSO ("Sign in with Google")** for that same email. **(3)** Check whose account you land in: if the SSO login **merges into your pre-registered record** (you can still log in with your Step-1 password and see the SSO-linked session's data), that's **pre-account-takeover confirmed** (§10.1). Then **delete your pre-registered account** so nothing is left shared. "The whole test is 'register the email, SSO as the victim, see if I'm in the account I made' — on two addresses I own."
+
+**118. You stole a session cookie via XSS; the victim then logs out. You're still logged in. What's the (bigger) finding?**
+Two findings, and the second is the bigger one: **(1)** the XSS → session theft (the entry), and **(2) session non-invalidation (CWE-613)** — the server didn't kill the session on logout, so a stolen session is **permanent** and the victim *cannot evict you* by the one action they'd try. Prove it: capture a session (your own account), "log out" (and ideally change the password), then show the old session **still authenticates**. "Non-invalidation upgrades *every* session-theft bug from a fragile, self-healing issue into durable ATO — I report it as its own High, because it multiplies the impact of the XSS."
+
+**119. `POST /api/user/1337/email` — you're user 4020. Walk the ATO and the safe proof.**
+This is an **IDOR on a state-changing account field** (§12) — the id `1337` in the path selects the target, and if the server doesn't verify *you own it*, you edit `B`'s account. **Safe proof (two own accounts):** as `A` (user 4020), send `POST /api/user/<B_ID>/email {"email":"attacker@evil.com"}`; if it returns `200` and `B`'s email is now yours, **reset the password to that address** → log in as `B` → read `B`'s own email back from `/api/me`. Then **restore `B`'s email**. "One unguarded `userId` = direct Critical ATO. I test it by swapping to my *own* second account's id, never a real user's, and I check every 'update account' endpoint the same way (object-level authz)."
+
+**120. Login enforces 2FA, but there's a mobile API `/api/v2/login`. What do you test, and what does success look like?**
+Test whether **2FA is enforced on that path at all** — teams routinely protect the web UI and forget the API/mobile/legacy endpoints. **(1)** Log in via `/api/v2/login` with valid credentials and watch the response: does it return a **fully authenticated session/token without ever prompting for the code**? **(2)** If it returns a "2FA required" step, does **force-browsing** to an authenticated endpoint with that token work, or is the verify a **client-trusted boolean** you can flip? *Success looks like:* a session from `/api/v2/login` that reads `/api/me` (or performs a sensitive action) **with no OTP** — i.e., "the second factor is enforced on the website but not on the mobile API, so I authenticated fully without it" = 2FA bypass → ATO (§6). "The web path is the reinforced door; I go straight for the one they forgot to lock."
 
 ---
 
