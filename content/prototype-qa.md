@@ -1,4 +1,4 @@
-# Prototype Pollution — Zero to Expert (100 Q&A)
+# Prototype Pollution — Zero to Expert (112 Q&A)
 
 **Author:** x8bitranjit
 Study companion + field reference. Advanced guide — pair with PortSwigger Academy (client + server PP), Gareth Heyes' research, Olivier Arteau's paper, HackTricks, and PayloadsAllTheThings. Impact ceiling = RCE (server) · DOM-XSS (client) · auth bypass.
@@ -9,6 +9,8 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 
 **Q1. What is prototype pollution?** A vulnerability where an attacker adds/modifies properties on `Object.prototype` (or another built-in prototype) via crafted keys like `__proto__`. Because nearly every object inherits from `Object.prototype`, the injected property appears on **all** objects process-wide, changing application behavior.
 
+> *Plain version:* every JS object is like an **employee who checks the company handbook (`Object.prototype`) whenever asked something not written on their own badge.** Prototype pollution = you sneak a new line into that shared handbook, and now every employee who consults it reads *your* line. Scribble "isAdmin: true" once and the whole workforce starts answering "yes."
+
 **Q2. Why does it exist — what JS feature?** Prototypal inheritance: `obj.x` that isn't an own property is looked up on `obj.__proto__` (→ `Object.prototype`). If code lets attacker input reach the special key `__proto__`/`constructor.prototype` during a merge/set, it writes to the shared prototype.
 
 **Q3. What's the impact ceiling?** Server-side (Node): **RCE** via gadgets, plus auth bypass and DoS. Client-side (browser): **DOM-XSS** via library gadgets. So Critical/High.
@@ -17,11 +19,15 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 
 **Q5. Define "source" and "gadget".** *Source* = the pollution primitive (a vulnerable merge/set/clone/parse that writes attacker keys to a prototype). *Gadget* = code elsewhere that reads an undeclared property (now attacker-controlled via the prototype) into a dangerous sink. **Impact = Source + Gadget.**
 
+> *Plain version:* **Source** is the pen — the careless operation that lets you write into the shared handbook. **Gadget** is some later bit of code that asks the handbook a *dangerous* question ("what command do I run?", "what HTML goes here?", "is this user admin?") and acts on the answer. You need both: scribbling a line nobody ever reads does nothing (that's just the "primitive"); the payday is when a gadget reads your line and does something with it.
+
 **Q6. Is a source alone a vulnerability?** It's a *primitive*. To claim RCE/XSS you need a gadget. (Server-side, a source can still be Medium via property-injection into responses, but you should hunt the gadget.)
 
 **Q7. What are the polluting key paths?** `__proto__`, or `constructor` then `prototype` (`constructor.prototype`), occasionally `__proto__.__proto__`. All resolve to `Object.prototype`.
 
 **Q8. Why does `constructor.prototype` matter?** It's the bypass when a filter blocks the literal string `__proto__` — `constructor.prototype` reaches the same prototype without using `__proto__`.
+
+> *Plain version:* `__proto__` and `constructor.prototype` are two doors into the **same** handbook room. Most apps that try to defend just lock the front door (blocklist the word `__proto__`) and forget the side door — so when `__proto__` is blocked, you walk in through `constructor.prototype` and reach the identical shared handbook.
 
 **Q9. Does polluting affect existing objects too?** Yes — inherited property lookups are dynamic, so already-created objects also see the new prototype property (unless they have their own same-named property).
 
@@ -35,11 +41,15 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 
 **Q12. Why is recursive merge the #1 source?** It walks the source object's keys — including `__proto__` — and copies them into the target's corresponding (prototype) path, writing to `Object.prototype`.
 
+> *Plain version:* a "deep merge" is an eager clerk who copies your settings into theirs, key by key, and *follows every nested key you name.* You hand it `{"__proto__":{"isAdmin":true}}`; it sees a key called `__proto__`, steps *into* it like any other folder, and writes `isAdmin:true`… into the handbook itself. It never stops to think "wait, `__proto__` isn't a normal folder." That blind recursion into a key you chose is exactly why merges are the #1 way in.
+
 **Q13. How does `_.set` pollute?** `_.set(obj, '__proto__.polluted', 'x')` interprets the path and writes `polluted` onto `obj.__proto__` = `Object.prototype`. Same for `_.setWith`, `dot-prop`, `object-path`.
 
 **Q14. How does query-string parsing pollute?** Parsers like `qs` build nested objects from bracket syntax: `?__proto__[x]=y` → `{__proto__:{x:'y'}}`, which a later merge/assign pushes onto the prototype.
 
 **Q15. Does `JSON.parse` itself pollute?** No — `JSON.parse('{"__proto__":{"x":1}}')` creates an **own** `__proto__` property, not prototype write. Pollution happens when that parsed object is then **merged/assigned recursively** into another object.
+
+> *Plain version:* just *receiving* a letter that mentions `__proto__` doesn't scribble in the handbook — `JSON.parse` files your `__proto__` away as an ordinary labelled note attached to that one object. The damage only happens when some *later* clerk (a deep merge) picks up that note and copies it into the shared handbook. So the parse is harmless; the merge that follows is the source. This is why you hunt for the merge, not the parse.
 
 **Q16. Does `Object.assign` pollute?** Shallow `Object.assign` does not (it sets own props). Nested/deep merge built on top of it can. The danger is recursion into `__proto__`.
 
@@ -83,6 +93,8 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 
 **Q32. What's the `json spaces` oracle?** Express reads `app.set('json spaces')` / an options object for `res.json` indentation. Polluting `{"__proto__":{"json spaces":10}}` makes all later JSON responses indent by 10 spaces — a clean, benign, visible confirmation.
 
+> *Plain version:* on a server there's no console to peek into the handbook, so you prove your scribble took by its *side effect.* `json spaces` is the handbook entry Express reads to decide how much to indent JSON. Normally responses are compact; you scribble `json spaces: 10`, then reload any JSON endpoint — if it comes back suddenly indented, your line is in the shared handbook. It's the favorite oracle because it's harmless and impossible to miss.
+
 **Q33. Name other SSPP oracles.** `status` (override response code), `exposedHeaders` (CORS `Access-Control-Expose-Headers`), `content-type`/charset, `parameterLimit`/`parameters limit` (query parsing errors), `allowDots`, and various middleware option reflections.
 
 **Q34. How do you run an SSPP test cleanly?** Baseline the target JSON response, POST the pollution to a suspected source, re-request the baseline endpoint, and diff. A repeatable change = confirmed. Automate with `pp_probe.py`.
@@ -109,6 +121,8 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 
 **Q43. What's the `NODE_OPTIONS` + `--require` chain?** Pollute `env.NODE_OPTIONS` to `--require=/path/to/attacker.js`; when the app spawns a child Node process, it requires your file → RCE. Pair with a file you can write ([File Upload](#/fileupload/guide)) or a `/proc` trick.
 
+> *Plain version:* when Node starts a helper program, it reads an environment setting called `NODE_OPTIONS` — and `--require=somefile` means "load and run this file first." Scribble that into the handbook, and the *next* helper Node launches obediently runs your file → commands on the server. You just need a file to point at (something you uploaded, or a `/proc` trick). This is the reliable, well-researched server-RCE route ("Silent Spring", USENIX 2023).
+
 **Q44. Give the EJS RCE gadget.** Pollute `{"__proto__":{"outputFunctionName":"x;process.mainModule.require('child_process').execSync('id');//"}}`. EJS concatenates `outputFunctionName` into the compiled function source → your code runs on the next render.
 
 **Q45. Give the Pug/Jade gadget.** Pollute `compileDebug:true` + `self:true` + a `line`/`block` carrying `process.mainModule.require('child_process').execSync('id')`, which Pug compiles into the template function.
@@ -128,6 +142,8 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 ## Level 5 — Auth bypass, DoS, property injection
 
 **Q51. How does PP cause auth bypass?** Pollute a security property the app reads off a non-owning object: `{"__proto__":{"isAdmin":true}}`. A later `if (user.isAdmin)` where `user` lacks its own `isAdmin` inherits `true` → privilege escalation.
+
+> *Plain version:* the simplest, sharpest win — go straight for the permission line in the handbook. If the app asks a user object "are you an admin?" and that object has no such field of its own, it flips to the handbook. Scribble `isAdmin: true` there and everyone reads back "admin." No gadget hunt, one-line payload, often unauthenticated → Critical. Try it early (`isAdmin`, `role`, `isAuthenticated`), but respect that the handbook is *shared* — you may briefly promote other users too, so follow the SAFE-PoC rules.
 
 **Q52. Why is auth-bypass PP attractive?** No gadget hunting — it's a direct logic subversion, often unauthenticated, and Critical. Test it early.
 
@@ -215,6 +231,8 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 
 **Q88. What makes PP a "process-wide" primitive vs a per-request bug?** Server-side, the prototype is shared across the whole Node process, so one pollution affects every subsequent request/user until restart — a broad, high-severity blast radius.
 
+> *Plain version:* there's exactly **one** handbook for the whole office, not one per visitor. So your scribble isn't scoped to your request — it's read by *every* employee serving *every* other user, and it stays there until the office closes and reopens (the process restarts). That's what makes the bug both high-severity (huge blast radius) and dangerous to test (you're editing everyone's shared reference on a live system).
+
 **Q89. How do you demonstrate reach for severity?** Show an unrelated request/user is affected (the oracle changed for a different endpoint/session), proving process-global impact, not a single-request quirk.
 
 **Q90. When is PP only Medium/Low?** A confirmed source with a benign global effect but no reachable gadget and no security-relevant property injection — real but limited; report the primitive honestly with the demonstrated effect.
@@ -242,6 +260,34 @@ Study companion + field reference. Advanced guide — pair with PortSwigger Acad
 **Q99. What must a SAFE-PoC for PP always respect?** Benign markers only; no app-breaking property on shared prod; RCE = one command then stop; note that server pollution persists until restart; deliver client PoCs to your own victim; redact secrets.
 
 **Q100. One thing to remember about prototype pollution?** *An attacker who controls an object key can control a variable the developer never declared.* Find the **source** (a merge/set that accepts `__proto__`), confirm it pollutes **globally**, then land the **gadget** that turns a shared-prototype property into RCE, XSS, or admin. **Report the impact — Source + Gadget — not the set property.**
+
+---
+
+## Level 10 — Advanced / edge (field depth)
+
+**Q101. How do you get RCE with NO file-write primitive?** Use `--require /proc/self/environ`: smuggle your JS into an environment variable (`env.EVIL=console.log(require('child_process').execSync('id').toString())//`), then pollute `NODE_OPTIONS` to `--require /proc/self/environ`. `/proc/self/environ` is a readable pseudo-file whose contents are the process's env vars; Node executes it as JS, running your payload before the non-JS bytes throw. No upload needed.
+
+**Q102. What exactly did "Silent Spring" (USENIX 2023) establish?** That pollution of `child_process` option properties (`env`, `shell`, `argv0`, `NODE_OPTIONS`) turns *any* subsequent spawn into RCE systematically — it mapped the sources→gadgets across real Node apps and made server-side PP→RCE a reliable, repeatable technique rather than a one-off.
+
+**Q103. Why is a vulnerable version in the lockfile a lead before you send anything?** `package-lock.json`/`yarn.lock` reveals exact dependency versions. lodash `<4.17.12`, jQuery `<3.4.0`, minimist `<1.2.3`, yargs-parser `<13.1.2` have known PP sources — if one sits on an attacker-reachable merge/set/argv path, you have a strong report (and a known gadget map) before firing a single payload. Check the lockfile *first*.
+
+**Q104. How do CLI tools / desktop apps get polluted?** `minimist`/`yargs-parser` parse `argv` into objects, so `--__proto__.x=y` on the command line pollutes. Electron apps reach Node APIs directly (no browser sandbox), so a polluted config-merge or IPC message → RCE. Test CLIs and desktop apps with argv/config `__proto__` keys, not just web JSON.
+
+**Q105. Beat a sanitiser that "strips `__proto__`" once.** A single-pass replace of `__proto__` → `""` on `__pro__proto__to__` removes the inner `__proto__` and the outer characters reassemble into `__proto__`. Also try nesting the key deeper than the guard inspects, and the `constructor.prototype` side door (usually not covered by a `__proto__`-only strip).
+
+**Q106. Oracles beyond Express — Fastify/Koa/hapi?** Express `json spaces` is the cleanest, but other stacks expose their own reflected options (serializer/pretty-print settings, header/CORS option objects, error-serialisation). When `json spaces` doesn't fire, hunt any endpoint that serialises a *fresh* object back and use a nonce-property canary (`{"__proto__":{"zzcanary":"x8bit-2f1a"}}`) — watch for the canary in a later object echo.
+
+**Q107. `--require` vs `--import` in NODE_OPTIONS?** `--require` loads a CommonJS module (classic, works with `/proc/self/environ`); `--import` loads an ES module (newer Node). Both execute attacker-pointed code at child-process start; pick whichever the target's Node version honours.
+
+**Q108. Why does client-side PP so often defeat input filters?** The XSS value arrives as a *config property read off the prototype*, a path the app never treats as user input — so field-level sanitisers/WAFs on the "normal" inputs never see it. That's why PP DOM-XSS lands where reflected/stored XSS is blocked.
+
+**Q109. What's the cleanest way to prove server pollution is truly global (for the report)?** Trigger the oracle change on a *different session/connection* and an *unrelated endpoint* than the one you polluted — that demonstrates process-global blast radius (every user, every request until restart), which is what drives the Critical/High rating.
+
+**Q110. When can `Object.freeze(Object.prototype)` still be bypassed?** If it's applied *after* the vulnerable merge already ran at boot; if the source targets `Array.prototype`/a class prototype instead of `Object.prototype`; or via `constructor.prototype` chains on non-frozen intrinsics. Freezing at boot before any merge is strong, but late/partial freezing is not.
+
+**Q111. Second-order PP — why is it a WAF-beater?** The `__proto__` payload is *stored* (profile/settings/webhook) and only pollutes later when the stored blob is deep-merged — so a request-time WAF never sees the payload in an obvious pollution shape. Store benign, then trigger the merge path.
+
+**Q112. Kibana/Blitz.js — what's the transferable lesson?** Any layer that **deserialises untrusted input and `merge`s it into an options-bearing object** (Timelion expressions, RPC/GraphQL variables) is a source, and a downstream `child_process`/template gadget makes it RCE. When you see "user JSON → deep-merge → later spawn/render", you're looking at a PP→RCE chain.
 
 ---
 
