@@ -139,7 +139,7 @@ Set-Cookie: session=...; Path=/; HttpOnly             ← host-only → your sub
 https://idp/authorize?...&redirect_uri=https://sub.target.com/cb    (if sub is allow-listed → code/token to your host → ATO)
 ```
 
-**CSP script-src / <script src> (§13) — hand to the XSS kit:**
+**CSP script-src / `<script src>` (§13) — hand to the XSS kit:**
 ```
 # if the main app's CSP allows scripts from sub.target.com, or loads <script src="https://sub.target.com/app.js">:
 # host a BENIGN proof at https://sub.target.com/app.js:
