@@ -1,5 +1,7 @@
 # Web Reconnaissance for Bug Bounty — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **recon** — from "what is recon and why it pays" to the full
 > pipeline (org/ASN expansion → passive+active subdomains → resolve/probe → content/JS/API → high-value: takeover,
 > secrets, cloud, mobile, dorking, monitoring) and, crucially, **routing every finding to a bug class with impact**.
@@ -655,6 +657,81 @@ with known impact (login→ATO, /api→IDOR, url=→SSRF, .git→secrets→RCE, 
 edge isn't a secret tool; it's discipline: configure API keys, keep resolvers/wordlists fresh, hunt the forgotten dev/
 staging/admin surface and the leaked secrets where dupes are rare, validate before believing, monitor for new assets to
 be first, and spend 80% of your effort on the 20% of surface with a backend, auth, or money behind it."*
+
+---
+
+# LEVEL 6 — INTERVIEW (explain it out loud)
+
+> Short, sharp answers a strong candidate gives for a recon/AppSec role or a bounty-team screen. If you can say these cleanly, you understand recon — not just the tools.
+
+### Q106. In one sentence, what is the *goal* of recon, and what is it NOT?
+The goal is to **find unduplicated attack surface and route it to an exploitable bug with impact, fast** — surface *other hunters missed*. It is **not** to collect data: a list of 40,000 subdomains is worthless; one forgotten staging admin panel is a payout. Every recon action must answer "does this expose a place I can find a bug nobody else did?" — if not, skip it (that's §25, "what NOT to waste time on").
+
+### Q107. Passive vs active subdomain enumeration — the difference and why order matters.
+**Passive** = build the list by querying *third-party datasets* (Certificate Transparency logs / crt.sh, Chaos, subfinder's sources, GitHub) — **zero packets to the target**, so it's silent and can't get you rate-limited or blocked. **Active** = you query the target's DNS yourself: **resolve** (keep names that answer), **brute** (try thousands of prefixes), and **permutations** (mutate known names: `api`→`api-dev`/`api2`/`api-staging`). Passive first because it's free and silent and seeds the permutation list; active second because it's louder and finds the names *no public dataset has* — which is exactly where the low-competition dev/staging hosts are.
+
+### Q108. Why do permutations and acquisition/ASN expansion find the best bugs?
+Because they reach the surface **nobody else enumerated**. Passive sources are shared — every hunter's subfinder returns the same list, so those hosts are picked clean (dupes). Permutations generate names that *exist but were never published anywhere* (a `-dev`/`-uat` variant), and acquisition/ASN expansion reaches whole root domains the main site never links to. Least-shared surface = least-duped bugs. Dupes are the #1 frustration in bounty; recon *depth* is the cure.
+
+### Q109. Explain the favicon-hash trick for finding an origin behind Cloudflare.
+The WAF/CDN hides the origin's IP, but the origin still serves the **same favicon** as the public site. Hash `target.com/favicon.ico` with **MurmurHash3 (mmh3, over the base64 of the icon)** and search Shodan `http.favicon.hash:<value>` (or Censys) for every IP serving that exact icon. If the origin accepts direct connections you've walked around the WAF — connect straight to the IP with the right `Host:` header and every WAF-blocked payload now lands. Shodan chose MMH3 because it's fast and the hash is small (no crypto needed). *Defense: firewall the origin to CDN IP ranges.*
+
+### Q110. Why is an exposed `.git/` a Critical, not "low-severity info disclosure"?
+Because it's not *info* — it's the **whole application**, including deleted secrets. `git-dumper`/GitTools reconstruct the repository from the browsable `.git/` objects; then `git log -p` shows the full history, so a password a dev "removed" in a later commit is still sitting in the object store. Roughly 6% of exposed `.git/` folders even have deploy credentials in the committed `.git/config`. One request (`curl -s target/.git/HEAD`) → source review → hardcoded key → auth bypass / RCE.
+
+### Q111. What's a source map, and why is it a top-yield recon step most people skip?
+A source map (`main.<hash>.js.map`, pointed to by a `//# sourceMappingURL=` comment at the end of a bundle) reverses minification — it **reconstructs the original, commented, un-minified front-end source tree** (component names, internal API routes, feature flags, sometimes a hardcoded key). Build tools (Webpack/Vite/Rollup/esbuild) emit them and teams forget to disable them in prod. Pull the `.map`, un-webpack it (`sourcemapper`), and you're reading their source like a developer — which usually hands you the exact vulnerable endpoint on a plate.
+
+### Q112. "Breadth then depth" — but you said depth pays. Reconcile that.
+Go **wide first** (find *every* asset — you can't test what you never found), then go **deep only on the few assets that smell exploitable** (auth/SSO, APIs, admin/internal, dev/staging, file upload, payment). You never deep-dive the marketing site. Breadth guarantees coverage; depth on the *right* hosts is what converts to a bug. Spend ~80% of effort on the ~20% of surface that has a real backend, auth, or money behind it.
+
+### Q113. How do you decide a recon finding is worth testing vs. just "coverage"?
+It maps to the **§23 surface→bug matrix** with a plausible impact. A live host that's a static brochure is coverage — note it, let automation (takeover/exposure) and monitoring cover it, don't manually deep-dive. A host with `api`/`admin`/`dashboard`/`dev` in the name, a login, a `/graphql`, an `{id}` in a URL, a `url=` parameter, or an upload — that *routes to a class* (IDOR/SSRF/XSS/RCE) and goes on the ranked testing queue. Recon is done when you have a **ranked, routed testing queue**, not a pile of hosts.
+
+### Q114. How do you keep recon legal and in-scope when it touches thousands of hosts?
+Read the policy first and write `in_scope.txt`/`out_scope.txt`. Recon *surfaces* out-of-scope assets (acquisitions may or may not be in scope) — **find but don't touch** them. Respect automation/rate rules (throttle httpx/naabu/ffuf), never DoS or brute fragile endpoints, use an attributable VPS for heavy enum (don't burn your home IP but keep it traceable to you for safe-harbor), and for any "exploit" proof (bucket write, takeover claim, secret validation) use a **benign** marker on **your own** resources / read-only checks. Log timestamps and actions — for the report and your protection.
+
+### Q115. What's the single most valuable recon habit, and why?
+**Continuous monitoring** — diffing CT logs / subdomains / JS for *new* assets and firing Tier-1 checks (takeover/exposure) within the hour. Fresh beats thorough: a subdomain that appeared today, an endpoint added in last week's JS, a just-acquired company's hosts — these have the least competition, so first-mover = unduplicated bug. One-shot scanning finds what everyone already found; monitoring finds what *just* appeared.
+
+### Q116. How is vhost discovery different from subdomain enumeration?
+Subdomain enum finds names in **DNS**. Vhost discovery finds sites served by a host that have **no public DNS record** — you fuzz the `Host:` header against a known IP and watch for responses that differ from the default (different length/title/status). These are internal or not-yet-published apps bound on the same server (`Host: admin-internal` on the prod IP) — invisible to DNS-only recon, and often the juiciest because they were never meant to be reachable.
+
+### Q117. A program has a single in-scope host, no wildcard. Does recon still matter?
+Yes, it just shifts from *horizontal* to *vertical*. You skip org/subdomain expansion and pour everything into **depth on that one host**: history mining (wayback/gau), content/param discovery, JS + source maps, API/GraphQL enumeration, `/.git`/`/.env`/`/actuator` probes, and 403/verb bypasses. Narrow scope means everyone's testing the same host, so your edge is finding the *endpoint/param/old-API-version* the others didn't — depth, not breadth.
+
+### Q118. What do you deliberately NOT do in recon (time-wasters)?
+Port-scanning giant CDN ranges, screenshotting 40,000 hosts and staring at them, brute-forcing directories on a static marketing site, chasing every subdomain to "100% coverage," re-running the same shared passive sources everyone runs, and "collecting" data with no route to a bug. Recon time is finite; anything that doesn't move a host toward the §23 matrix or set up first-mover monitoring is a leak of your budget.
+
+---
+
+# LEVEL 7 — SCENARIO (walk me through it)
+
+> "Here's what you're looking at — what do you do?" End-to-end reasoning across recon phases, ending in a routed, impactful test. (Full worked run: guide **Appendix D**.)
+
+### Q119. Wildcard `*.target.com`, acquisitions in scope. First 30 minutes — what's your order?
+(1) Scope files + note the acquisitions clause. (2) **Org-expand**: `asnmap`/`amass intel -whois` → other roots + the acquired brand (that acquired root is where dupes are lowest). (3) **Passive subs** across *all* roots (`subfinder -dL roots.txt`). (4) **Permutations** on the interesting roots (`gotator`→`dnsx`) — this surfaces the `-dev`/`-staging` hosts passive missed. (5) **httpx** with `-sc -title -td -cdn -favicon`, then grep the output for `admin|dev|staging|internal|api|dashboard`. In 30 minutes I want a *ranked, routed* live-host list, not a giant undifferentiated dump. Then deep-dive the top 3–5.
+
+### Q120. `httpx` shows `staging.target.com [200] [Internal Dashboard] [React] [cloudflare]`. Next moves?
+Two leads. (a) **React SPA → go for the source map**: `katana` the host, grep the bundle for `sourceMappingURL`, pull the `.map`, `sourcemapper` it, then grep the recovered source for `API_BASE`/`/v[0-9]`/`token`/internal hostnames — that usually hands over the internal API + its routes. (b) **Behind Cloudflare → note the favicon hash** and pivot on Shodan for the origin IP in case the WAF blocks payloads later. It's a *staging* dashboard at 200 with no auth wall, so it's likely soft — prioritize it. Recovered API routes → route to IDOR/BOLA (`../IDOR/`).
+
+### Q121. You recover a source map that reveals `GET /v2/users/{id}/invoices  // id = sequential int`. What now, safely?
+Textbook **IDOR/BOLA**. Recon is done — hand off to the class kit with a **SAFE, two-account** proof: register test-user A, `GET /v2/users/<A_id>/invoices` → 200 (baseline, my data); then change **one digit** to a B I also control (or the next id) → if it returns another account's invoices, that's cross-tenant disclosure. Two accounts, one object step, stop — don't enumerate everyone's data. Report the *impact* (any authed user reads any tenant's financial data = Critical), with the recon chain as proof of how it was found.
+
+### Q122. `curl target.com/.git/HEAD` returns `ref: refs/heads/main`. Walk me through it.
+The `.git/` is browsable → **dump and mine**. `git-dumper http://target.com/.git/ out/` reconstructs the repo; `cd out && git log -p` reads the full history. Grep the working tree *and history* for secrets (`grep -riE 'password|secret|api[_-]?key|BEGIN.*PRIVATE KEY' .`) — the money is often a credential "removed" in a later commit but still in the object store. Then read the source for its own bugs (auth logic, hardcoded creds, internal hostnames → new SSRF/recon targets). Validate any live secret with a single benign read-only call. Report as source + credential disclosure (High/Critical), never dump real user data.
+
+### Q123. The main app is behind Cloudflare and the WAF blocks your payloads. Recon angle?
+**Origin-IP hunt.** (a) **Favicon**: mmh3 the favicon → `shodan http.favicon.hash:<h>` → candidate IPs (cross-check against the target's ASN CIDRs from org-expansion). (b) Historical DNS (SecurityTrails/`dnsx`), SPF/MX records, and cert SANs sometimes leak a pre-Cloudflare IP. (c) Subdomains that forgot to proxy through the CDN (`origin.`, `direct.`, mail hosts). Confirm with `curl --resolve host:443:<IP>` and a known page. If the origin accepts direct hits, the WAF is bypassed — re-send every blocked payload straight to the origin. *Report the origin exposure too; it's a real finding.*
+
+### Q124. Recon surfaces a subdomain that `CNAME`s to a service returning a 404 "no such app" page. Steps?
+Candidate **subdomain takeover**. (1) Identify the service from the CNAME + the 404 fingerprint; (2) confirm it's *claimable* against **`can-i-take-over-xyz`** (a fingerprint is not a takeover — some services can't be claimed). (3) If claimable, register the resource in **your** account and serve a **benign** marker page proving control. (4) Severity = the trust the hostname carries: if a `Domain=.target.com` cookie, an OAuth `redirect_uri`, or a CSP `script-src` trusts `*.target.com`, escalate the writeup to session theft / ATO / script-exec on the main app (`../SubdomainTakeover/` → `../AccountTakeover/`). Then tell them to remove the dangling DNS record.
+
+### Q125. Monitoring alerts that `new-payments-api.target.com` appeared an hour ago. Why do you drop everything?
+**First-mover advantage.** A brand-new host — especially `payments`/`api` — is the least-hardened and least-duped surface in existence right now: it may be mid-deploy, missing WAF rules, running debug mode, or shipping source maps. Nobody else's one-shot scan has seen it yet. Immediately run Tier-1 (takeover/exposure/`.git`/`.env`), probe it with httpx, pull its JS/source-maps, and enumerate its API — before the team finishes hardening it and before other hunters' next scan cycle. This is *why* monitoring beats one-shot scanning.
+
+### Q126. You've mapped 200 live hosts. How do you turn that into a testing plan (not analysis paralysis)?
+Rank by **impact × low-dupe**, not by count. Tier-1 (do first): anything with auth/SSO, `/api`+GraphQL, admin/internal/dashboard, dev/staging/UAT, file upload, or payment — and every host gets the cheap Tier-1 automated checks (takeover/exposure). Tier-2: recovered API routes and params routed via §23 to a class. Drop to coverage-only: static brochureware. Then set **monitoring** on the whole set so new assets auto-hit Tier-1. Output = a *ranked, routed queue* of "host → likely bug class → test," worked top-down by impact. Recon is finished the moment that queue exists.
 
 ---
 

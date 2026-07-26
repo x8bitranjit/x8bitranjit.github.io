@@ -72,16 +72,20 @@
 28. [Red-Team Recon Angles for Bug Bounty](#28-red-team-recon-angles)
 29. [OPSEC, Rate-Limiting & Staying In-Scope](#29-opsec-rate-limiting--staying-in-scope)
 
+**PART VIII — PROOF IT PAYS**
+30. [Real-World Recon Wins (Verified Case Studies)](#30-real-world-recon-wins-verified-case-studies)
+
 **Appendices**
 - [Appendix A — Recon Workflow Cheat Sheet](#appendix-a--recon-workflow-cheat-sheet)
 - [Appendix B — Recon Decision Tree](#appendix-b--recon-decision-tree)
 - [Appendix C — Important Links](#appendix-c--important-links)
+- [Appendix D — Worked End-to-End Recon Run (scope → first bug)](#appendix-d--worked-end-to-end-recon-run-scope--first-bug)
 
 ---
 
 # Master Recon Sequence — The Recon Order
 
-> **This is the spine.** Work it top-to-bottom. Each phase says *what to do*, *which § for detail*, and the *deliverable* that feeds the next phase. The numbered sections (1–29) are the reference detail; this sequence is the order you actually run. The whole pipeline is in `scripts/x8bit_recon.sh`.
+> **This is the spine.** Work it top-to-bottom. Each phase says *what to do*, *which § for detail*, and the *deliverable* that feeds the next phase. The numbered sections (1–30) are the reference detail; this sequence is the order you actually run. The whole pipeline is in `scripts/x8bit_recon.sh`. **Want to see the whole thing run once, end-to-end, from empty scope to a filed bug? Read [Appendix D](#appendix-d--worked-end-to-end-recon-run-scope--first-bug) first, then come back here.**
 
 ```
 PHASE 0  SCOPE & SELECT     → read policy · pick a target worth your time · note in/out of scope (§3)
@@ -921,6 +925,34 @@ Recon is loud. Don't get banned, blocked, or in legal trouble.
 
 ---
 
+# 30. Real-World Recon Wins (Verified Case Studies)
+
+> Recon is the one phase where the *technique* and the *payout* are the same thing: the bug already exists — recon is just whether **you** found it before anyone else. These are real, publicly-documented recon patterns (not hypotheticals). Each one maps to a phase above so you can see *which recon step* turned into the money.
+
+**① Exposed `.git/` at internet scale → source & deploy-credential disclosure (§20).**
+In 2018–2019 researcher **Vladimír Smitka** ran a global scan and found roughly **400,000 websites** serving a browsable `.git/` directory — and about **6% of them had deployment credentials sitting in the committed `.git/config`**. A live `.git/` is not "information disclosure, Low"; it is *the entire application*: run `git-dumper`/GitTools against it, reconstruct the repo, then `git log -p` the history for the credential the developer "removed" in a later commit (it's still in the object store). This is a §20 check that costs one HTTP request (`curl -s target/.git/HEAD`) and routinely returns High/Critical.
+→ *Recon phase:* PHASE 4 High-Value (§20). *Cash-out:* source review → hardcoded secrets → [Secrets Hunting](#18-secrets-hunting) / auth bypass.
+*Source:* [Smitka — Global scan: exposed .git repos](https://smitka.me/2019/05/29/global-scan-exposed-git-repos/) · [GitGuardian — Exposed .git folders](https://blog.gitguardian.com/exposed-git-folders-exposed/)
+
+**② JavaScript source maps → the whole minified front-end, de-minified (§15).**
+Modern SPAs ship one giant minified bundle — but if the build left `devtool: 'source-map'` on for production (Webpack/Vite/Rollup/esbuild all do this by default in some configs), the bundle ends with a `//# sourceMappingURL=main.<hash>.js.map` comment pointing at a `.map` file that **reconstructs the original, commented, un-minified source tree** — component names, internal API routes, feature flags, and not-uncommonly a hardcoded key. Pull the `.map`, un-webpack it (rarecoil's technique / `sourcemapper`), and you're reading their source like a developer. This is the single highest-yield step most hunters skip.
+→ *Recon phase:* PHASE 3 Go-Deep (§15). *Cash-out:* recovered API route list → [IDOR/BOLA](../IDOR/), authz, hidden admin endpoints.
+*Source:* [Sentry — Abusing exposed sourcemaps](https://blog.sentry.security/abusing-exposed-sourcemaps/) · [rarecoil — SPA source recovery by un-webpacking source maps](https://medium.com/@rarecoil/spa-source-code-recovery-by-un-webpacking-source-maps-ef830fc2351d) · [Acunetix — JavaScript source map detected](https://www.acunetix.com/vulnerabilities/web/javascript-source-map-detected/)
+
+**③ Favicon hash → origin IP behind Cloudflare/WAF (§9–§10).**
+The WAF hides the origin's IP — but the origin still serves the *same favicon* as the public site. Hash `target.com/favicon.ico` with **MurmurHash3 (mmh3, base64)** and pivot on Shodan's `http.favicon.hash:<value>` (or Censys) to enumerate every IP serving that exact icon. If the origin accepts direct connections, you've just walked around the WAF — hit it directly with the `Host:` header and every WAF-blocked payload now lands. Shodan built the `http.favicon` field specifically because MMH3 is fast and the hash is small; it wasn't meant as an attack primitive, but it's a superb one.
+→ *Recon phase:* PHASE 2 Resolve/Probe (§9–§10). *Cash-out:* WAF/rate-limit bypass → every downstream class gets easier.
+*Source:* [Shodan — Deep Dive: http.favicon](https://blog.shodan.io/deep-dive-http-favicon/)
+
+**④ Subdomain takeover → clean, high-severity, low-competition (§17).**
+Pioneered by **Frans Rosén** and popularized by **Detectify** (2014), the dangling-CNAME takeover has bitten **Sony, Slack, Snapchat, and Uber**, among many others: a subdomain still `CNAME`s to a third-party service (GitHub Pages, Heroku, S3, Fastly…) that was *deleted* — so you register that resource, serve your content, and now own `sub.target.com`. Severity is the **trust the hostname carries**: if a parent-domain-scoped cookie or an OAuth `redirect_uri`/CSP `script-src` trusts `*.target.com`, a "just a takeover" escalates to session theft / ATO / script-exec on the main app. Confirm claimability against **`can-i-take-over-xyz`** (EdOverflow, ~76 services) before you report — a fingerprint is not a takeover.
+→ *Recon phase:* PHASE 4 High-Value (§17). *Cash-out:* [Subdomain Takeover](../SubdomainTakeover/) → cookie/OAuth trust → [Account Takeover](../AccountTakeover/).
+*Source:* [EdOverflow — can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz) · [HackerOne — A Guide to Subdomain Takeovers 2.0](https://www.hackerone.com/blog/guide-subdomain-takeovers-20)
+
+**⑤ The recon-specific meta-lesson (why the above keep paying).** Every one of these is a *forgotten* thing — a `.git/` nobody removed, a source map nobody disabled, an origin nobody firewalled, a DNS record nobody cleaned up. They pay because **the fix is somebody remembering to delete something, and organizations don't**. Recon depth (acquisitions/ASN §4, permutations §6, monitoring §27) is just *systematically looking where people forgot to clean up* — which is exactly where the unduplicated bugs live.
+
+---
+
 # Appendix A — Recon Workflow Cheat Sheet
 
 ```
@@ -1032,6 +1064,111 @@ PentesterLab (hands-on recon modules)                              https://pente
 > These are the **references-block standard** for the Recon kit: the tool set you run, the recon-matched
 > methodology/research (TBHM · NahamSec · reconFTW · Assetnote · ProjectDiscovery · Orange Tsai), and the
 > always-on cross-class anchors. The `RECON_ARSENAL.md` and `Recon_Zero_to_Expert.md` carry the same set.
+
+---
+
+# Appendix D — Worked End-to-End Recon Run (scope → first bug)
+
+> **What this is.** One realistic run of the whole spine, top to bottom, on a fictional wildcard program `*.acme.example` (with acquisitions in scope) — from an empty folder to a filed bug. Every other section explains *a phase*; this shows them **chained**, so you can see how a boring org-expansion step becomes the reason you find a bug nobody else did. Hostnames/keys are benign placeholders; the flow, tools, and decision points are exactly what you run. The star of this transcript is **the routing** — recon's job is not to find data, it's to hand an *exploitable, unduplicated* surface to a class kit. The actual exploit is deliberately handed off (no duplication of the IDOR kit here).
+
+**PHASE 0 — Scope & select.** The policy says `*.acme.example` is in scope **and so are acquisitions**. That one word — *acquisitions* — is the whole game: it's surface almost no other hunter bothers to expand, so it's where the unduplicated bugs live.
+
+```
+$ mkdir acme && cd acme
+$ echo "acme.example" > roots.txt
+# Policy notes: wildcard *.acme.example IN. Acquisitions IN. No brute on *.pay.acme.example (fragile). Throttle.
+```
+
+**PHASE 1 — Go wide (§4 → §6 → §7).** First expand the *org*, not the domain. Reverse-whois / ASN turns "acme.example" into the company's other roots — including an acquired brand.
+
+```
+$ asnmap -d acme.example -silent | anew asn_cidrs.txt          # §4 — ASN ranges → naked assets
+AS200100  198.51.100.0/24
+$ # reverse-whois (whoxy/amass intel) surfaces an acquisition the main domain never links to:
+$ amass intel -org 'Acme' -whois 2>/dev/null | anew roots.txt
+acme-labs.example        <-- ACQUIRED. This root is where we'll win.
+
+# Passive subs across BOTH roots (§5):
+$ subfinder -dL roots.txt -all -silent | anew subs_passive.txt
+...
+acme-labs.example
+www.acme-labs.example
+api.acme-labs.example         # 187 hosts total
+
+# The step most hunters skip — PERMUTATIONS on the acquired root (§6/§7).
+# Passive found api/www; permutation asks "what about dev/staging/uat variants nobody linked?"
+$ gotator -sub subs_passive.txt -perm perms.txt -depth 1 -numbers 3 -silent \
+    | dnsx -silent -r resolvers.txt | anew subs_resolved.txt
+jira-dev.acme-labs.example    <-- NOT in passive sources. Permutation-only. This is the one.
+```
+
+> **Decision:** `jira-dev.acme-labs.example` resolved but appears in **zero** passive datasets (crt.sh, subfinder sources). Permutation-only + on an *acquired* root = maximally low-competition. This jumps to the top of the queue.
+
+**PHASE 2 — Resolve & probe (§8 → §10).** Probe it. What is it, and can I reach the origin?
+
+```
+$ echo jira-dev.acme-labs.example | httpx -sc -title -td -cdn -favicon -silent
+https://jira-dev.acme-labs.example [200] [Acme Labs — Staging Dashboard] [React] [cloudflare] [-1105943136]
+                                     └ 200, not a login wall   └ SPA          └ behind Cloudflare  └ favicon mmh3
+```
+
+It's a **staging dashboard**, HTTP 200 (no auth wall), a React SPA, behind Cloudflare. Two recon leads immediately:
+- **Favicon hash `-1105943136`** → pivot for the origin behind Cloudflare (§10). `shodan search http.favicon.hash:-1105943136` returns `198.51.100.42` — inside the ASN CIDR from Phase 1. The origin accepts direct hits, so `curl --resolve jira-dev.acme-labs.example:443:198.51.100.42 …` bypasses the WAF if we ever need to. *Noted, not needed yet.*
+- It's a React SPA → **go straight for the JS and its source maps** (§15). That's Phase 3.
+
+**PHASE 3 — Go deep: the source map (§15).** Collect the bundle, check for a source map, recover the source.
+
+```
+$ echo https://jira-dev.acme-labs.example | katana -jc -silent | grep '\.js$' | anew js.txt
+https://jira-dev.acme-labs.example/static/js/main.7bf2a1.js
+$ curl -s https://jira-dev.acme-labs.example/static/js/main.7bf2a1.js | tail -c 120
+//# sourceMappingURL=main.7bf2a1.js.map        <-- staging left source maps ON (Real-World Win ②, §30)
+$ curl -s -o main.7bf2a1.js.map https://jira-dev.acme-labs.example/static/js/main.7bf2a1.js.map
+$ npx sourcemapper -input main.7bf2a1.js.map -output src/ 2>/dev/null   # un-webpack → original tree
+$ ls src/                                          # their front-end source, un-minified, commented
+  api/client.js  routes/admin.js  config/staging.js  components/...
+```
+
+Now grep the recovered source like a developer reads their own repo:
+
+```
+$ grep -rniE "api|/v[0-9]|token|key|internal" src/api/client.js src/config/staging.js
+src/api/client.js:3:   const API_BASE = "https://api-internal.acme-labs.example/v2";   // internal API, not public
+src/api/client.js:9:   // GET /v2/users/{id}/profile   GET /v2/users/{id}/invoices   (id = sequential int)
+src/config/staging.js:5: export const STAGING_KEY = "sk_staging_9f3c...";              // low-value, but note it
+```
+
+> **What recon just produced (the deliverable):** an **internal API host** (`api-internal.acme-labs.example`, not otherwise linked), its **base path `/v2`**, a **route list with an `{id}` that the comment says is a sequential integer**, and a staging key. Recon's job is now *done* — it has handed a concrete, testable, high-value surface to a class kit.
+
+**PHASE 4/5 — Route → impact (§23 → §24).** The `{id}`-in-URL + "sequential int" comment is a textbook **IDOR/BOLA** lead. This is where recon stops and the class kit starts:
+
+```
+# Add the internal API to the asset list, then hand off:
+$ echo api-internal.acme-labs.example | dnsx -silent | httpx -silent -sc
+https://api-internal.acme-labs.example [401]     # exists, needs auth — register a test account, get a token
+
+# → SAFE-PoC handed to the IDOR/BOLA kit (../IDOR/):
+#   1) auth as test-user A (id=1041), GET /v2/users/1041/invoices  → 200, my data (baseline)
+#   2) change ONE digit:      GET /v2/users/1042/invoices          → 200, someone else's invoices = BOLA
+#   Two accounts, one object step, stop. Impact = cross-tenant financial-data disclosure.
+```
+
+> **The recon lesson in one line:** no exploit skill found this bug — *org-expansion* found the acquired root, *permutation* found the staging host passive missed, and the *source map* handed over the exact vulnerable route. The IDOR was easy once recon put it on a plate; the recon is why it was **yours** and not a dupe.
+
+**The report (impact-first, not "I found a subdomain").** File the *impact*, and stack the recon findings as the chain that proves it:
+
+```
+Title:  BOLA on internal API (api-internal.acme-labs.example) → cross-tenant invoice disclosure
+Chain:  acquired root (acme-labs.example, in scope via acquisitions clause)
+        → permutation-only staging host jira-dev.acme-labs.example (200, no auth wall)
+        → production source map exposed → recovered internal API base + route list
+        → GET /v2/users/{id}/invoices is IDOR (sequential id): as user A, read user B's invoices.
+Impact: any authenticated user reads any other tenant's financial data (Critical).
+Fixes:  (1) disable source maps in prod builds; (2) object-level authz on /v2/users/{id}/*;
+        (3) firewall the origin to Cloudflare ranges (favicon pivot exposed it).
+```
+
+That is a full recon run: **PHASE 0 scope → 1 go-wide (acquisition + permutation) → 2 probe (favicon/origin noted) → 3 deep (source map) → 4/5 route → hand off → report the impact.** Recon didn't "collect data" — it manufactured an unduplicated Critical and handed the exploit to the class kit. Now re-read the [Master Recon Sequence](#master-recon-sequence--the-recon-order) and it will read like a script you've already seen run.
 
 ---
 

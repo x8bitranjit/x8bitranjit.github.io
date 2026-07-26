@@ -1,5 +1,7 @@
 # Web Recon Arsenal — Copy-Paste One-Liners by Phase
 
+**Author:** x8bitranjit
+
 > Companion to `RECON_GUIDE.md`. Run on **Kali/WSL**. Set `D=target.com` once. Stay in scope (guide §3/§29). Each block maps to a guide section. The goal is **routed attack surface**, not data — every block ends pointing at the next step.
 
 ```bash
@@ -8,6 +10,47 @@ RES=/opt/resolvers.txt             # keep fresh!  (guide §1)
 WL=/opt/SecLists                   # wordlists
 mkdir -p $D && cd $D
 ```
+
+---
+
+## §0.0 — The whole recon in one sequence (copy-paste spine)
+
+*What & when:* **the entire run, start to finish, on one screen** — the same spine as the guide's Master Recon Sequence and `scripts/x8bit_recon.sh`, but as raw copy-paste so you can see how each phase's output *becomes the next phase's input*. Run it top-to-bottom on a fresh target; each block below (§4–§27) is the deep version of one line here. **The point is the pipe, not any single tool** — recon is a data-flow (`assets → live → deep → routed`), and this is that flow.
+
+```bash
+D=target.com; mkdir -p $D && cd $D                                        # PHASE 0 — scope (read policy first!)
+
+# ── PHASE 1: GO WIDE (assets) ─────────────────────────────────────────  §4–§7
+amass intel -org "Target Inc" -whois 2>/dev/null | anew roots.txt         # org → acquired roots (others skip)
+subfinder -dL roots.txt -all -silent | anew subs.txt                      # passive subs across ALL roots
+gotator -sub subs.txt -perm perms.txt -depth 1 -numbers 3 -silent \
+  | anew subs.txt                                                         # PERMUTATIONS = the dev/staging gold
+#   → deliverable: subs.txt (every asset)
+
+# ── PHASE 2: RESOLVE + PROBE ──────────────────────────────────────────  §8–§11
+dnsx -l subs.txt -silent -r $RES | anew resolved.txt                      # keep only names that answer
+httpx -l resolved.txt -sc -title -td -cdn -favicon -silent | tee live.txt # what is it + favicon (origin pivot §10)
+grep -iE 'admin|dev|staging|uat|internal|api|dashboard|portal|jenkins|jira|git' live.txt   # triage the juicy ones
+#   → deliverable: live.txt (status/title/tech, juicy hosts flagged)
+
+# ── PHASE 3: GO DEEP (interesting hosts only) ─────────────────────────  §12–§16
+cut -d' ' -f1 live.txt | katana -jc -silent | anew urls.txt               # crawl + collect JS
+grep '\.js$' urls.txt | while read j; do curl -s "$j" | grep -o 'sourceMappingURL=.*'; done   # SOURCE MAPS (§15)★
+cat urls.txt | gau 2>/dev/null | gf idor | anew idor_candidates.txt        # history → route to bug class (§12/§23)
+#   → deliverable: endpoints, JS secrets/source-maps, routed candidates
+
+# ── PHASE 4: HIGH-VALUE (fast criticals) ⭐ ────────────────────────────  §17–§21
+nuclei -l live.txt -t http/takeovers/ -silent                             # subdomain takeover
+nuclei -l live.txt -t http/exposures/ -silent                             # /.git /.env /actuator /backups
+while read u; do curl -s "$u/.git/HEAD" | grep -q refs && echo "GIT: $u"; done < <(cut -d' ' -f1 live.txt)  # §20
+#   → deliverable: confirmed exposures + takeover leads
+
+# ── PHASE 5: ROUTE → IMPACT ⭐  then  PHASE 6: MONITOR ─────────────────  §23–§27
+#   route every finding via the §23 matrix → queue by impact (§24) → hand to the class kit (../IDOR, ../SSRF, …)
+#   set CONTINUOUS monitoring so NEW assets hit these checks within the hour = unduplicated bugs (§27)
+```
+
+> **Read this as a pipeline, not a checklist:** `roots → subs → resolved → live → {urls, js, source-maps} → routed candidates → class kit`. If a block produces nothing interesting, that host is *coverage*, not a task — don't manually deep-dive it (§25). The moment a block routes to a bug class (§23), recon's job on that asset is done — hand it off. Full worked example of this exact flow end-to-end: **guide Appendix D**.
 
 ---
 
