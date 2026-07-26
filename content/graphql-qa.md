@@ -25,6 +25,9 @@
 - **Severity, validity & false positives** (Q96–Q102)
 - **Real-world cases & references** (Q103–Q107)
 - **Defense — how to secure GraphQL** (Q108–Q113)
+- **Addendum (rev.2) — subscriptions/WebSocket, @defer/@stream, persisted queries** (Q114–Q119)
+- **Interview level — explain it out loud** (Q120–Q131)
+- **Scenario level — "walk me through it" engagement drills** (Q132–Q141)
 - **Appendix — 60-second field checklist**
 
 ---
@@ -477,6 +480,82 @@ Vary the token (none/low-priv) and the `Origin`. Opening many subscriptions / ne
 
 ### Q119. Quick tool note for a beginner doing this?
 **graphw00f** (engine) → **InQL/Voyager** (see the schema) → **graphql-cop** (fast audit) → **clairvoyance** (schema when introspection's off) → **CrackQL** (alias-batch brute) → **Burp WebSockets/websocat** (subscriptions). Learn the basics at `graphql.org/learn`, practice on **DVGA** and PortSwigger labs.
+
+---
+
+# INTERVIEW LEVEL — explain it out loud (Q120–Q131)
+*(Crisp, correct answers for a bug-bounty/AppSec interview or a triage call. Say the mechanism, then the impact.)*
+
+### Q120. "GraphQL has one endpoint and no versioning — how do you even start testing it?"
+Get the **schema** — it *is* the attack surface. Confirm with `{__typename}`, fingerprint the engine (graphw00f), then dump introspection (`__schema`) if it's on; if off, recover it via **field suggestions** ("Did you mean …") and **clairvoyance**. From the schema I build a **sink list**: `node`/`*ById` (BOLA), mutations (BFLA), `input` objects (mass-assign), URL/filter args (SSRF/injection), `login`/`otp` (batching). Then I drive each sink to impact.
+
+### Q121. "Why is authorization the classic GraphQL weakness, not authentication?"
+Because access control in GraphQL is **per-resolver**. Teams authenticate once at the gateway but must re-check **object ownership (BOLA)** and **function/role (BFLA)** in *every* resolver — usually via an `@auth`/`@hasRole` directive that gets applied **inconsistently**. One field or mutation that forgot the directive is wide open, even though the endpoint "requires login." GitLab CVE-2021-4191 (unauth user enumeration) and the `read_api`-token-can-write CVE-2025-11340 are exactly this.
+
+### Q122. "Explain the GraphQL batching attack to me like I'm the eng lead who has to fix it."
+Your rate limiter counts **HTTP requests**. GraphQL lets one request carry **hundreds of operations** via **aliases** (`a:login… b:login…`) or a **JSON array** of queries. So one request = hundreds of `login`/`verifyOtp` attempts, and your "5 tries then lock" never fires — it saw one request. Fix: rate-limit **per operation**, cap alias/array count, add step-up on login/OTP. (Apollo Server v4 already disables array batching by default for this reason.)
+
+### Q123. "Is 'introspection is enabled' a vulnerability?"
+By itself, **Low/Info** — it's an *enabler*, not impact. I never headline it. I dump it, find the **unguarded `node`/mutation/injectable arg** it reveals, exploit *that*, and bundle "introspection on" as the enabler. The HackerOne AWC case is the model: introspection → discover `CreateAdminUser` → **create an admin with no auth** — the schema disclosure only mattered because of the mutation behind it.
+
+### Q124. "If introspection is disabled, is the schema safe?"
+No. **Field suggestions** leak real field names on a misspell; **clairvoyance** brute-forces the whole schema from those suggestions; error messages ("must have a selection of subfields") leak types; the app's JS/mobile traffic reveals the operations it uses; and **persisted-query/APQ** operation names can be enumerated (that's part of the X #885539 private-list disclosure). "Introspection off" raises the effort, not the ceiling.
+
+### Q125. "How do you prove a GraphQL BOLA so triage can't reject it?"
+**Two accounts I own.** A's session token + **B's** object id → B's data returned. That's the boundary crossing. One account returning its own data proves nothing. I then alias a small id range to show it's **enumerable** (scale) without scraping real PII, and cite the population from a list/`totalCount` field.
+
+### Q126. "What's mass assignment in GraphQL and how is it different from REST?"
+Same bug — a client binds a field it shouldn't (`role`, `isAdmin`, `owner_id`, `emailVerified`, `balance`) — but GraphQL hands you the **exact bindable field list** for free: `__type(name:"UpdateUserInput"){inputFields{name}}`. So I don't guess parameter names like on REST; I read the `input` type, add the dangerous field to the mutation, and **read the object back** to confirm it stuck → privilege escalation.
+
+### Q127. "Can a single GraphQL query be a DoS? How do you test it without taking prod down?"
+Yes — **deeply nested/circular** relations, **alias overloading**, **field duplication**, `@defer`/`@stream` amplification. One crafted query can force exponential resolver work. I **measure, don't flood**: I show a single query's latency/complexity delta vs a baseline, or that no depth/cost limit exists, with explicit permission — never a sustained outage. The reportable issue is the **missing depth/complexity/cost/timeout limit**.
+
+### Q128. "Where do classic injections show up in GraphQL?"
+In **resolver arguments**. `filter`/`where`/`orderBy`/`search`/`id` reaching SQL → SQLi; JSON args reaching Mongo (`{"$ne":null}`) → NoSQLi/auth-bypass; `export`/`convert`/`ping` args reaching a shell → cmdi; `url`/`webhook`/`avatarFromUrl` → SSRF → cloud metadata → creds. GraphQL validates **types**, not backend safety — I pass payloads cleanly via **variables** and treat every arg like a REST parameter.
+
+### Q129. "What's CSWSH and why does it matter for GraphQL subscriptions?"
+`subscription`s run over a **WebSocket**, which is **not protected by CORS**, and the browser **auto-sends cookies** on the handshake. If the subscription authenticates by **cookie** and doesn't validate **`Origin`**, an attacker page opens the socket in the victim's browser and receives their live data — **Cross-Site WebSocket Hijacking**, i.e. CSRF-on-WebSocket. I confirm by replaying the handshake with a foreign/absent `Origin`; if it still connects authenticated, it's CSWSH. Fix: check `Origin` + token auth, not ambient cookies.
+
+### Q130. "Two GraphQL findings — 'introspection enabled' and a `node(id:)` that returns another user's email. Which do you report and how?"
+The **BOLA** is the report (cross-user PII, Critical/High, two-account proof, enumerable). Introspection is folded in as the **enabler** that let me find the sink. I title by downstream impact — *"BOLA on GraphQL `node(id:)` → any user's PII (cross-user, enumerable)"* — never "GraphQL misconfiguration," and never introspection as the headline unless the program explicitly rewards it.
+
+### Q131. "How do you set severity on a GraphQL bug?"
+By the **downstream class**, not "it's GraphQL." Injection→RCE or SSRF→cloud creds = **Critical**; BOLA/BFLA→cross-user/admin/ATO = **Critical/High**; batching→OTP/credential brute→ATO = **High**; mass-assign→priv-esc = **High**; info-disclosure via errors = **Medium**; proven DoS = **Medium**; introspection/verbose-banner alone = **Low/Info**. I score the **highest proven** outcome with CVSS 3.1 and cite the matching CWE (639/862/915/89/943/918/770…).
+
+---
+
+# SCENARIO LEVEL — "walk me through it" engagement drills (Q132–Q141)
+*(Each is a realistic situation modeled on a verified real-world case. Answer = the exact moves, in order, with the proof.)*
+
+### Q132. Scenario — Apollo endpoint, introspection returns "not allowed." You have two test accounts. First hour?
+1) `{__typename}` confirms GraphQL; `graphw00f` → Apollo. 2) Misspell a field → capture the **"Did you mean …"** suggestion; run **clairvoyance** to rebuild the schema. 3) Build the sink list (`node`/`user`, mutations, `input` types, `login`/`verifyOtp`, url/filter args). 4) As B, read B's global id (`me{id}` → base64 `User:<pk>`); as **A**, request `node(id:<B>)` → if B's PII returns, **BOLA**. That's the guide's Appendix D path — schema recovery didn't need introspection.
+
+### Q133. Scenario — There's a `verifyOtp(userId, code)` mutation and the UI locks after 5 wrong codes. Prove the limiter is broken without brute-forcing a real user.
+Send **one** mutation with many aliases — `a:verifyOtp(userId:"<MY_OWN>",code:"000000") b:… c:…` — for **my own** test account's OTP, e.g. 1000 aliases. If all 1000 are processed (and one hits) in a **single request** while the documented limit is 5, the **measured count (1000-in-1)** is the proof of the rate-limit bypass → OTP brute → ATO. I never run this against a user I don't own. (This is the Wallarm batching class / HackerOne #418767 shape.)
+
+### Q134. Scenario — You're on GitLab-style software: an unauthenticated GraphQL query returns usernames and emails. Is it a bug, and how do you write it?
+Yes — **unauth info-disclosure/BOLA** (CWE-359), exactly CVE-2021-4191. Proof: hit the query **with no auth cookie/token** and show it returns other users' PII. Severity Medium–High depending on data (emails/private-instance names). Title: *"Unauthenticated GraphQL query `<field>` discloses all users' emails."* Recommend adding the auth check to that resolver and testing the whole schema logged-out.
+
+### Q135. Scenario — A read-only API token exists. What GraphQL test does that immediately suggest?
+**BFLA** — replay every **mutation** with the read-only token. If any write succeeds, the mutation is mis-scoped (read→write privilege escalation), which is exactly GitLab CVE-2025-11340 (`read_api` token invoking write ops on vulnerability records). I enumerate mutations from the schema and fire each with the low-priv token; any that persists a change is the finding.
+
+### Q136. Scenario — `updateUser(input: UpdateUserInput)` exists and you're a normal user. Walk the mass-assignment test.
+1) `__type(name:"UpdateUserInput"){inputFields{name}}` → read the bindable fields. 2) Spot `role`/`isAdmin`/`owner_id`/`emailVerified`. 3) Call `updateUser(input:{id:ME, role:"admin"})`. 4) **Read back** `me{role}` → if it's now `admin`, **privilege escalation** → push admin→RCE (admin upload/integration SSRF). 5) **Revert** to `customer` and delete artifacts. Evidence = the persisted read-back, not just a 200.
+
+### Q137. Scenario — The rate limiter is complexity/cost-based (like Shopify). How might it still be bypassable?
+Attack the **cost calculation itself**. Shopify #481518 used **negative pagination** (`first(-100)`) to produce a **negative cost** that defeated the limiter. I probe cost with edge/negative values, aliasing on cheap fields, and fields the coster under-weights. A complexity defense is code — test it like any input before trusting it.
+
+### Q138. Scenario — You find a `subscription messageAdded` that streams DMs. How do you test it and what's the worst case?
+Drive it over WebSocket (Burp WebSockets / `websocat`). Test (a) **no token / low-priv token** in `connection_init` → does a sensitive subscription still resolve? (auth bypass), and (b) replay the handshake with a **foreign/absent `Origin`** while relying on cookie auth → if it connects authenticated, **CSWSH** (an attacker page reads the victim's live DMs cross-site). Worst case: live cross-user data theft with no user interaction beyond visiting a page.
+
+### Q139. Scenario — A mutation `importFromUrl(url:)` exists. Chain it to maximum impact.
+SSRF playbook: 1) point `url` at **my interactsh** → OOB callback confirms server-side fetch (often blind, no body). 2) Point at **cloud metadata** `http://169.254.169.254/latest/meta-data/iam/security-credentials/` → if creds return (or are exfil'd via a follow-on), that's **cloud account compromise → RCE**. 3) Try internal services / `file://` / redirect bypass per the SSRF kit. Proof = the OOB callback I control or the metadata creds.
+
+### Q140. Scenario — `node(id:)` is guarded (returns "not authorized"), but `order(id:mine){ customer { email } }` works. What's the finding?
+**Nested BOLA** — the top-level lookup is checked but the **relation resolver** (`Order.customer`) isn't. I request one of my own orders and traverse to `customer{email phone}`; if it discloses another party's PII (or I can reference an order that links to a different user), that relation is unauthorized. This is the GitLab #633001 "private data one relation deep" shape — always test nested traversals, not just top-level lookups.
+
+### Q141. Scenario — Program says "GraphQL introspection on is known/won't-fix." You still want a payout. What do you do?
+Don't re-report introspection. **Use** it: dump the schema, and from it find a **distinct impactful bug** — a `node`/`*ById` **BOLA** (two-account), a `login`/`otp` **batching** bypass (measured count), an injectable/`url` arg (**SQLi/SSRF**), or a bindable `input` field (**mass-assign→admin**). Report *that*, with introspection cited only as the enabler. Existence of a known low-sev issue doesn't dedup a Critical you built on top of it.
 
 ---
 
