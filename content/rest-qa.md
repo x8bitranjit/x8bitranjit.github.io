@@ -30,6 +30,8 @@
 - **Level 8 — REST-specific & injection** (Q81–Q88)
 - **Level 9 — Chaining, tooling, methodology** (Q89–Q95)
 - **Level 10 — Severity, false positives, defense** (Q96–Q100)
+- **Interview level — explain it out loud** (Q101–Q112)
+- **Scenario level — "walk me through it" engagement drills** (Q113–Q122)
 
 ---
 
@@ -586,6 +588,82 @@ fields to kill excessive exposure. **Rate-limit and add anti-automation** to aut
 and scope** any URL the server fetches (SSRF) and any data it ingests from upstreams. **Inventory and retire** old
 versions/hosts. Do that and the entire OWASP API Top 10 — BOLA, BFLA, mass assignment, broken auth, flow abuse, SSRF,
 misconfig, inventory, unsafe consumption — collapses.
+
+---
+
+# INTERVIEW LEVEL — explain it out loud (Q101–Q112)
+*(Crisp, correct answers for a bug-bounty/AppSec interview or a triage call. Say the mechanism, then the impact.)*
+
+### Q101. "Why are APIs the highest-yield bug-bounty surface right now?"
+Because modern apps are **thin clients over fat APIs** — every object, permission, and business action is an API call, and the **authorization** decision often lives only in the UI or not at all. The classic web model inverts: the interesting logic is at the API, and it's frequently unguarded. That's why **BOLA/BFLA/mass-assignment** dominate disclosed API bugs (Optus, T-Mobile, the auto-industry research). The bug is usually "the server trusted a client-supplied id/role/field."
+
+### Q102. "Explain BOLA vs BFLA in one breath."
+**BOLA** (API1) = broken **object**-level authz: I change an object **id** (`/users/1023`→`1024`) and read/modify *another user's* object — the server authenticated me but never checked I **own** it. **BFLA** (API5) = broken **function**-level authz: I call a privileged **operation** I shouldn't (`POST /admin/users`, or `DELETE` where the UI only shows `GET`) — the server never checked my **role/method**. BOLA is about *whose data*; BFLA is about *what action*. Both need a **two-identity** proof.
+
+### Q103. "A UUID is unguessable — doesn't that kill BOLA?"
+No — it raises the bar to **finding the id**, not authorizing access. The resolver still doesn't check ownership. I get the victim's UUID from an **id-leak**: a list/search endpoint that over-returns others' ids, a share link, a `Location` header, a referral, an autocomplete, or a different object that embeds it. Then it's a normal BOLA. My Appendix-D chain does exactly this: the members list leaked invoice UUIDs → cross-tenant financial data.
+
+### Q104. "What's mass assignment and how do you prove it isn't just an echo?"
+The API **binds the JSON body straight onto the model**, so I can set fields the UI never sends — `role`, `isAdmin`, `emailVerified`, `owner_id`, `price`, `balance`. I add them to a normal `POST/PUT/PATCH`, then **re-GET the object**: only if the field **persisted** *and* gives a **real capability** (I can now hit an admin function / my price is 0) is it a finding. Echo in the response ≠ persistence. This is the GitHub-2012 Rails bug — adding a committer public key via an unchecked param.
+
+### Q105. "How do you prove a BOLA so triage can't reject it — and stay ethical?"
+**Two accounts I own.** A's token + **B's** object id → B's data returned (a value only B sees). One account proves nothing. I read **one or two** cross-account objects to prove the capability, **quantify** scope from a count/`total` ("ids are sequential, ≈N users"), and **stop** — I never walk the id space, because that's a real breach (Optus-scale) and can get me removed or prosecuted.
+
+### Q106. "The UI is read-only for this resource. Are you done?"
+No — the UI's method isn't the only allowed method. I try **verb tampering**: `PUT`/`PATCH`/`DELETE`/`POST` on the same path as a normal user (**BFLA**). If the edge blocks `DELETE`, I try **method-override** (`X-HTTP-Method-Override: DELETE`, `_method=DELETE`). Read-only in the client is routinely write-enabled in the API — the USPS Informed Delivery bug allowed *modifying* 60M users' details, not just reading.
+
+### Q107. "What does 'broken authentication' actually cover on an API?"
+Anything that lets me **become** or **impersonate** a user: forgeable/weak tokens (`alg:none`, weak HS secret, RS→HS, no signature check — see the JWT kit), **no rate-limit** on login/OTP/reset (brute), OTP in the response body or reusable, reset tokens that are guessable/host-poisoned/not single-use, reset that trusts a body `email`/`userId` (BOLA-in-reset), API keys leaked in JS/mobile/Git. Endpoint: `POST /login`, `/token`, `/auth/*`. Impact = **ATO**. I prove the primitive on **my own** account.
+
+### Q108. "What's excessive data exposure and where do you look?"
+The API returns **more properties than the UI renders**, trusting the client to filter — so the raw JSON leaks `passwordHash`, `mfaSecret`, `isAdmin`, `ssn`, or **other users' fields** in a list. I read the **raw response**, not the page, and diff it against what the UI shows. **List/search** endpoints are the worst offenders (they over-return per item). The Experian API returned credit scores + risk factors this way.
+
+### Q109. "Why test old API versions and non-prod hosts?"
+**Improper inventory (API9)** — a bug patched in `/api/v3/` is often **wide open in `/api/v1/`** because the fix wasn't backported, and `dev.`/`staging.`/`sandbox.` hosts run **weaker auth on real data with debug on**. Shadow APIs inherit the severity of whatever they still expose. My first move after finding a BOLA in v2 is to replay it against v1.
+
+### Q110. "How do you test API4/API6 (resource consumption / business-flow abuse) without causing harm?"
+I demonstrate the **primitive and the cost math**, never the actual damage. For consumption: one request with `?limit=1000000` returning 500 MB, or one endpoint that fires an SMS/email/paid-upstream call with **no cap** — I show it's unthrottled, I don't run the DoS or rack a real bill. For business-flow abuse (coupon/referral/scalping): a **few** automated iterations to show no anti-automation, plus the fraud math — I don't actually defraud. Races belong here → the Race-Condition kit.
+
+### Q111. "What's the single most important discipline when testing APIs?"
+**Restraint tied to two-account proof.** APIs move real data and money; a careless BOLA sweep pulls thousands of real users' PII, which is a breach, not a PoC. So: two accounts I own, benign markers, **bounded** reads (one or two records), writes only to my **own** objects, no real DoS/fraud/SMS-bomb, and clean up. I prove the **capability** and stop — the report quantifies scope without me exfiltrating it.
+
+### Q112. "How do you set severity and title an API finding?"
+By the **demonstrated** downstream impact, not the theoretical ceiling. BFLA→admin/tenant-takeover or BOLA-**write** = **Critical**; broken-auth→ATO = **Critical/High**; mass-assign→privesc or financial = **High/Critical**; BOLA-**read** of PII/financial = **High**; excessive exposure of secrets = **High/Critical**; SSRF→cloud metadata = **Critical**; flow/consumption = **Med–High**; misconfig/info = **Med–Low**. Title with the impact — *"Cross-tenant BOLA on `/api/v2/invoices/{id}` → any tenant's financial data"* — never "missing authorization check." CVSS 3.1 + the matching CWE (639/862/915/287/213/918).
+
+---
+
+# SCENARIO LEVEL — "walk me through it" engagement drills (Q113–Q122)
+*(Each is a realistic situation modeled on a verified real-world case. Answer = the exact moves, in order, with the proof.)*
+
+### Q113. Scenario — You get a multi-tenant SaaS with a Swagger doc and two orgs you registered. First two hours?
+1) Import `/v3/api-docs` into Burp/Postman → the whole surface, including `/admin/*` and any old `/v1/`. 2) Understand auth (token type, `orgId` in path/token, roles). 3) As Org-B note an object id (`users/me`→`7042`); as **Org-A's** token `GET /users/7042` → if B's cross-tenant data returns, **BOLA** (Optus/T-Mobile shape). 4) Sweep every `{id}` A↔B with Autorize. That's the Appendix-D opening — cross-tenant BOLA is the highest-yield first pass.
+
+### Q114. Scenario — Invoices use UUIDs you can't guess, but the `/orgs/{id}/members` endpoint lists other users' invoice UUIDs. What's the finding and how big?
+Two chained bugs: **excessive data exposure** (the members list over-returns other users' UUIDs/emails, API3) **enabling** a **UUID BOLA** (API1) on `/invoices/{uuid}` → cross-tenant financial data. Severity is **Critical** because the "unguessable id" defense is defeated by your own API. I prove one cross-tenant invoice read, quantify from the member count, and report the chain — the id-leak is what makes it weaponizable (killer-chain #1, guide §16).
+
+### Q115. Scenario — A profile `PATCH` succeeds and the response shows `"role":"admin"`. Is that the bug?
+Not yet — that could be an **echo**. I **re-GET** the object: if `role` is still `admin`, it **persisted** (mass assignment, API3). Then I prove **effect**: call an **admin-only function** (BFLA) that now works, or show a capability I didn't have. Persistence + effect = the finding; I then **revert** to `member` and clean up. Echo-only gets closed as a non-issue (Q104).
+
+### Q116. Scenario — The mobile app hides the "delete" button, but you suspect the API allows it. Test?
+**Verb/method tampering (BFLA + API5).** The UI does `GET /api/orders/{id}`; I try `DELETE`/`PUT`/`PATCH` on it as a normal user against **my own** test order. If the edge blocks `DELETE`, I try `POST` + `X-HTTP-Method-Override: DELETE` / `_method=DELETE`. If it deletes/edits, "the UI hides it" was the only control — that's the USPS/"hidden delete button" class. Destructive proof only on objects I created.
+
+### Q117. Scenario — `POST /login` has no lockout and there's an OTP step. Where's the ATO and how do you prove it safely?
+**Broken auth (API2).** Two primitives: (a) **credential stuffing/brute** on `/login` — I confirm the N-th wrong password is still evaluated (no rate-limit); (b) **OTP brute** on `/auth/otp/verify` — 000000–999999 with no throttle. I demonstrate the **measured primitive on my own account** (e.g., 500 attempts all processed), never brute a stranger. If reset also trusts a body `email` or uses a guessable token, that's an even cleaner ATO. Impact = account takeover, High/Critical.
+
+### Q118. Scenario — You find `GET /api/v2/users/{id}` is properly 403 on other users. Are you out of options?
+No. 1) Try the **old version** `/api/v1/users/{id}` — the authz fix may not be backported (API9; my Appendix-D found v1 still open). 2) Try **id in a different place** — body `userId`, `X-Account-Id` header, JWT-claim-vs-path mismatch. 3) Try **nested/indirect** paths (`/users/me/orders/{orderId}` where `orderId` isn't scoped). 4) Try **verb tamper** (PUT/PATCH may skip the check GET has). The check is often on **one** path/method/version only.
+
+### Q119. Scenario — An endpoint takes `?webhook=` / `image_url=` and fetches it server-side. Chain it.
+**SSRF (API7).** 1) Point it at **my OOB host** (interactsh) → callback confirms server-side fetch (often blind). 2) Point at **cloud metadata** `http://169.254.169.254/latest/meta-data/iam/security-credentials/` → temp creds → **cloud/infra takeover**, Critical. 3) Bypass filters with IP encodings / DNS rebinding / redirect-to-internal (SSRF kit). Webhooks and "import from URL" are the classic API SSRF sinks; proof = the OOB callback or the metadata creds.
+
+### Q120. Scenario — A partner/third-party integration ("connect your X account", or a lender calling a credit API) is in scope. What API bug does that suggest?
+**Unsafe consumption (API10)** and **broken auth on the partner call**. The target may **trust upstream data** without validating it (inject into queries, trust an IdP `email`/`sub` for authz) — or the **partner endpoint itself** may need no auth and accept default/empty values. That's exactly the **Experian** case: a lender's site called the credit API with **no auth** and an **all-zeros DOB** returned real credit scores. I probe empty/zero/wildcard values and whether ingested upstream data is trusted for authz.
+
+### Q121. Scenario — You've read one other tenant's record and confirmed the pattern. The temptation is to dump everything. What do you actually do?
+**Stop at proof.** I have the capability (two-account BOLA) and one cross-tenant record as evidence. I **quantify** scope from a `total`/count field or the sequential id range ("≈N tenants affected") **without pulling them**. Mass-exfiltration is a real breach (Optus/T-Mobile scale), risks the program relationship and legal exposure, and adds nothing the capability proof didn't. The report leads with impact + the bounded evidence + the scope estimate.
+
+### Q122. Scenario — Program scope says "API1–API10 in scope, no automated scanning that impacts availability." How do you run a thorough test within that?
+Manual/low-rate, two-account, coverage-driven. Map from the **spec/JS/mobile** (no noisy brute), import to Burp, and run the **OWASP-API order**: BOLA sweep (Autorize replays A's traffic with B's token — targeted, not a flood), mass-assign on each write, BFLA/verb-tamper on each function, broken-auth on the auth flows (bounded, own account), then SSRF/misconfig/inventory. For API4/API6 I show the **primitive + cost math**, not an actual DoS. Pace requests, prove capabilities on my own data, quantify scope, clean up — thorough **and** within the availability constraint.
 
 ---
 

