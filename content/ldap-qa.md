@@ -1,5 +1,7 @@
 # LDAP Injection — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **LDAP injection** — from "what is it" to authentication bypass,
 > directory disclosure, blind char-by-char extraction, DN injection, Active Directory chains, and defense. Q&A format,
 > progressive difficulty. Covers filter syntax (RFC 4515/4514/4526), AND-vs-OR breakout, observability classes
@@ -35,6 +37,8 @@
 - **Cheat sheets** (Q87–Q90)
 - **Real-world patterns & references** (Q91–Q93)
 - **Defense — preventing LDAP injection** (Q94–Q100)
+- **Level 7 — Interview questions** (Q101–Q112)
+- **Level 8 — Scenario-based questions** (Q113–Q120)
 
 ---
 
@@ -540,6 +544,78 @@ Run the app's **directory service account least-privilege**: restrict which **at
 
 ### Q100. Give me the defender's one-paragraph summary.
 Treat every value that enters an LDAP filter or DN as hostile: **escape it for its exact context** (RFC 4515 for filters, RFC 4514 for DNs) using the platform's escaping API, **allowlist** expected input, and implement login as **search-then-bind** so the directory verifies passwords rather than the app trusting "an entry matched." Derive authorization identifiers from **trusted session state**, not request parameters. Then **minimise blast radius**: least-privilege service account with restricted attribute/OU read, account-lockout + rate-limiting on the bind path, no unnecessary anonymous bind, and error/anomaly logging. Do that and the entire attack tree in this document — auth bypass, disclosure, blind extraction, DN and second-order injection — collapses.
+
+---
+
+# LEVEL 7 — INTERVIEW QUESTIONS (Q101–Q112)
+
+> *The questions a senior interviewer or triage lead actually asks. Say the crisp version out loud; each layers plain → mechanism → practical.*
+
+### Q101. Explain LDAP injection to a non-technical person in three sentences.
+An app builds a directory question like "is there a user named X whose password is Y?" by literally pasting your typed username into the question. If you type punctuation instead of a plain name, you rewrite the question itself — for example turning "…password is Y" into "…password is anything" — so the directory answers "yes, that user matches" without your ever knowing the password. It's the SQL-injection idea, but against the company's user/identity directory instead of a database.
+
+### Q102. What's the single highest-value payload and why?
+`admin)(&)` in a username field (with any password). Mechanism: the login filter is almost always `(&(uid=$user)(userPassword=$pass))`; injecting `admin)(&)` makes it `(&(uid=admin)(&))(userPassword=…))`, where `(&)` is LDAP's **absolute-true** filter (RFC 4526) — so the `uid=admin` entry matches regardless of the password clause, and an app that equates "≥1 match" with "valid login" logs you in as admin. It's highest-value because it's a one-shot **authentication bypass to an administrative identity** with no cracking.
+
+### Q103. How do you tell an injectable LDAP sink from a safe one in one probe?
+Send a lone `)` (or `(`) as the input and watch for an **error/500**. A concatenated (vulnerable) filter becomes unbalanced and the LDAP parser throws; a properly escaped/parametrised app treats `)` as a literal character and returns a normal "not found / invalid credentials." So the `)`-corruption tell classifies the sink before you fire any real payload — it proves your input lands *inside* the filter unescaped.
+
+### Q104. Why is a reflected `*` NOT a finding, and what is?
+A `*` echoed back in the response proves nothing — it might be treated as literal data or filtered. The finding is **altered filter logic with impact**: `q=*)(objectClass=*)` returning the *entire* directory when `q=alice` returned one row, or `admin)(&)` flipping a failed login into a session. You must show the directory's **answer changed** (more rows / flipped auth / a stable true-false oracle), not that a character appeared on the page.
+
+### Q105. Compare LDAP injection to SQL injection — what's genuinely different?
+Three things. **No comment character** — LDAP has no `--`/`#`, so you can't truncate the trailing filter with a comment; you either balance the parentheses yourself or use `%00` NUL truncation on C-backed servers. **No UNION/stacked queries** — extraction is done by boolean/blind oracles (existence and char-by-char `attr=A*`), not by joining tables. And the **target is identity**, not arbitrary data — the ceiling is auth bypass / directory disclosure / authorization forgery, rarely RCE. Same "untrusted input into a query language" root cause, very different toolkit and ceiling.
+
+### Q106. Why does the same payload work on one server and fail on another?
+LDAP injection is **parser-dependent**. A tolerant, hand-rolled concatenation backend (older PHP/Java/.NET) accepts trailing junk after your injected filter, so `)(|(uid=*` breakouts and `%00` truncation work. A strict modern library (e.g. `ldap3`) requires exactly one well-formed filter and rejects leftovers — so there you keep it valid with a single `*` or `*)(objectClass=*`. Practically: try the whole set; what one backend tolerates, another rejects (Guide §6.3), and that's expected, not a sign it's safe.
+
+### Q107. When is the authorization check the bigger bug than the login?
+When the login is solid but the app runs a *second* directory question to decide privileges — `(&(uid=$you)(memberOf=CN=Admins,…))` — and `$you` is injectable there. You forge that answer to always-true (`)(memberOf=*` or `)(&)`) and the app believes you're in the admin group without your ever being a member. Hunters routinely test the login and miss this second sink, yet a forged group membership is often a cleaner privilege-escalation than the login bypass.
+
+### Q108. How does LDAP injection become an Active Directory / domain problem?
+On an AD-backed front-end (SSO, VPN, people-search), the injection is the **entry point** for enumeration: match `(userAccountControl:1.2.840.113556.1.4.803:=4194304)` to list **DONT_REQ_PREAUTH** accounts (→ AS-REP roasting) and `(servicePrincipalName=*)` to list service accounts (→ Kerberoasting), then crack the tickets **offline** for a domain foothold. The web bug is the door; AD's own attributes are the escalation. In bug bounty a single enumerated privileged username/SPN is enough proof — you don't run the offline cracking unless it's in scope.
+
+### Q109. What's your SAFE-PoC discipline for an LDAP auth bypass?
+Land on **your own** test-admin (or the first OU entry) and prove it with **one benign read** of the session's own identity (`/api/me` showing `uid`/`memberOf`) — never rummage a real user's records to "prove impact." For extraction, use **bounded** reads (a handful of records, or extract a non-sensitive marker attribute) rather than dumping the directory, and don't run blind char-by-char against a real user's `userPassword`. One impact, safely demonstrated, then stop and clean up.
+
+### Q110. A developer says "we switched to parameterised LDAP, we're safe." What do you verify?
+That escaping is applied for the **right context** and on **every** sink. RFC 4515 escaping (filters) is different from RFC 4514 (DNs) — a value safe in a filter can still break out of a DN. I'd re-test each input path: the login filter, the people-search filter, the group/authorization check, and any DN-building operation (add/modify/bind). I'd also confirm login is **search-then-bind** (the directory verifies the password) rather than "an entry matched → you're in," because that logic error survives even careful escaping.
+
+### Q111. Why can LDAP injection be worse than it looks despite "no shell"?
+Because it attacks the **source of truth for identity and authorization** for the whole organisation. One bug yields any of: log in as admin (auth bypass), read the entire staff directory with emails/phones/managers and the `memberOf` privilege graph (mass PII + a target map), forge group membership (privilege escalation), or bootstrap an AD attack to domain compromise. It doesn't need RCE — owning the directory is often *more* useful than a shell on one box.
+
+### Q112. Rapid-fire: (a) the login uses OR not AND — does the bypass change? (b) `userPassword` comes back but it's a hash — finding? (c) results are capped at 20 rows — how do you still enumerate?
+(a) Yes — for `(|(uid=$u)(mail=$u))` you don't need to kill a password clause; a single term that matches (e.g. `*`) is already true, so `*` or `admin)` lands you in. (b) Yes — a **readable `userPassword`** (even hashed) is High/Critical disclosure; report it (redact the hash), and note it enables offline cracking. (c) Enumerate alphabetically — `q=a*`, `q=b*`, … or existence-test a wordlist `(&(uid=NAME)(objectClass=*))` — to harvest names past the cap without dumping.
+
+---
+
+# LEVEL 8 — SCENARIO-BASED QUESTIONS (Q113–Q120)
+
+> *You're handed a situation — decide the next move and the severity. Worked, concrete answers.*
+
+### Q113. Scenario: a corporate SSO login returns "Invalid credentials" for a wrong password, but a username of `)` returns a 500. Walk me through the next three requests.
+The `500` on `)` says the filter is concatenated and my input lands unescaped — injectable, AND-context login. Request 1: `username=admin)(%26)&password=x` (the `(&)` absolute-true bypass) — a 302/session instead of "Invalid credentials" confirms auth bypass. Request 2: `GET /api/me` on the landed session to see *which* account and its `memberOf` — if it's `Domain Admins`, it's Critical. Request 3 (only if `admin` didn't exist): `username=*)(uid=*))(|(uid=*` to land on the first OU entry. Stop at the benign `/api/me` proof.
+
+### Q114. Scenario: your `)` probe throws no error and `*` isn't reflected, but `q=alice)(uid=alice)` and `q=alice)(uid=nobody999)` return **different** responses. What do you have?
+A **blind boolean oracle** — no visible reflection or error, but the app's response differs between a true and a false injected condition. That's enough to extract data char-by-char: build `(&(uid=admin)(userPassword=A*))` style tests and iterate each character by which response you get (Guide §8). Point `ldap_blind.py` at the true/false signal and dump a target attribute. Severity depends on what you extract (a hash/token/security-answer = High/Critical); prove it on a bounded, non-sensitive attribute first.
+
+### Q115. Scenario: `admin)(&)` fails, but `admin)(!(&))`-style payloads and trailing junk get rejected too — the backend looks strict. What now?
+Strict parser (likely `ldap3`/modern) that wants exactly one well-formed filter. Drop the "trailing junk" breakouts and keep the filter valid: try a lone `*` (matches any → first entry), `*)(objectClass=*`, or `admin*` (prefix-match on a known account). Also re-check whether the *password* field is concatenated into the filter (some apps do `(&(uid=…)(userPassword=$pass))` and a `pass=*` gives presence-only match). If none land, the sink may genuinely be escaped — pivot to the people-search and the group-authorization sinks, which are often less carefully handled than the login.
+
+### Q116. Scenario: the login is bulletproof, but after logging in as a normal user, an "Admin panel" link 403s. You notice the app checks group membership. How do you attack it?
+That group check is a second LDAP sink — likely `(&(uid=$you)(memberOf=CN=Admins,…))` with `$you` from a parameter or a mutable profile field. Try to make it always-true: inject `)(memberOf=*` or `)(&)` into whatever identifier feeds the check (a profile field, a header, a re-supplied `uid`). If the panel opens, it's **authorization bypass / privilege escalation** (CWE-285), independent of the login. Confirm with a benign admin-only read, and report it as its own finding — it's frequently higher-impact than the login.
+
+### Q117. Scenario: a people-directory search returns one row for a name, but `q=*)(objectClass=*)` returns 4,000 rows including emails and `memberOf`. How do you report it without over-collecting?
+This is directory disclosure — the wildcard turned a name lookup into a full dump. **Quantify without exfiltrating**: report the *count* ("`*)(objectClass=*)` returns all ~4,000 users incl. email + memberOf, vs 1 row for a specific name") and include **a handful** of records as proof, redacted. Do not download or store the full directory. Flag that `memberOf` maps the privilege graph (feeds authz/AD attacks). Severity High (mass PII); Critical if `userPassword`/secret attributes are readable via `…)(userPassword=*)`.
+
+### Q118. Scenario: the app is an Active Directory-backed VPN portal and you have a working injection in its search. What's the red-team escalation, and where do you stop for a bug bounty?
+Use the injection to enumerate AD: match `userAccountControl … :=4194304` for **DONT_REQ_PREAUTH** users (AS-REP roastable) and `(servicePrincipalName=*)` for service accounts (Kerberoastable), plus `memberOf`/`adminCount=1` to map privileged targets. In an authorized red-team scope you'd request the AS-REP/TGS tickets and crack them **offline** → domain foothold. For a **bug bounty**, stop at a single enumerated privileged username/SPN as proof of impact — don't run live cracking or touch Kerberos unless it's explicitly in scope.
+
+### Q119. Scenario: your injection works in a "forgot username" feature that emails you which accounts match — but nothing is shown on screen. Is it useful?
+Yes — that's a **blind/second-order oracle over email**. The feature tells you (out-of-band) whether an injected filter matched, so you can existence-test and enumerate accounts even though the page reveals nothing: submit `(&(uid=NAME)(objectClass=*))`-style conditions and infer true/false from whether you receive a "matching account" email. It's slower and noisier (emails), so keep it bounded and authorized, but it turns a "no visible output" sink into account enumeration and potentially char-by-char extraction.
+
+### Q120. Scenario: you get `admin)(&)` to log you in, but `/api/me` shows you landed on a low-priv service account, not admin. Still worth reporting?
+Absolutely — it's still an **authentication bypass** (you logged in with no valid password), which is a High finding on its own (CWE-287/90). Then try to land somewhere better: `username=*)(uid=*))(|(uid=*` often returns the *first* OU entry (frequently admin/a privileged service account), or target a known-admin username directly (`administrator)(&)`). Report the bypass you have now, and if a higher-priv landing works, upgrade the severity to Critical ATO — but never trawl the account you landed on to inflate impact.
 
 ---
 
