@@ -1,5 +1,7 @@
 # Cross-Site Request Forgery (CSRF) — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for CSRF: from "what is it" to account-takeover chains, token-defeat techniques, SameSite bypasses, JSON/CORS CSRF, OAuth/SSO CSRF, and red-team chaining. Q&A format, progressive difficulty, written as **"IF this → THEN that"** decision logic. Includes tools, payloads, methodology, real-world references, **and** defense + bypass.
 >
 > ⚖️ **Authorized use only.** For bug bounty (in-scope), sanctioned pentests, CTFs, and learning. Don't test systems you don't have written permission to test. CSRF PoCs auto-perform actions in a victim's session — only ever fire them against your own test accounts.
@@ -25,6 +27,8 @@
 - **Payload cheat sheets** (Q94–Q97)
 - **Real-world case patterns & references** (Q98–Q100)
 - **Defense — how to stop CSRF properly** (Q101–Q104)
+- **Level 7 — Interview questions (articulate it out loud)** (Q105–Q116)
+- **Level 8 — Scenario-based (you're handed a situation)** (Q117–Q124)
 - **Appendix — 60-second field checklist**
 
 ---
@@ -587,6 +591,91 @@ Referer-suppression helper (for Referer-check bypass): `<meta name="referrer" co
 
 ### Q104. One-paragraph summary to quote in a report.
 *"CSRF defense is layered: bind an unpredictable, session-tied anti-CSRF token to every state-changing request and reject it when missing/blank/foreign; set session cookies `SameSite=Lax`/`Strict` + `HttpOnly` + `Secure`; verify `Origin`/`Referer` on sensitive actions; never perform state changes via GET; and require re-authentication for the highest-value operations (email/password/2FA/payments/OAuth-linking). Remember SameSite is same-**site**, not same-**origin** — a subdomain XSS or open redirect re-enables CSRF, and double-submit cookies fall to cookie-tossing unless the token is HMAC-bound to the session. A single missing layer on a single sensitive endpoint (especially change-email or OAuth `state`) escalates to full account takeover."*
+
+---
+
+# LEVEL 7 — INTERVIEW QUESTIONS (articulate it out loud)
+
+> These test whether you can *explain* CSRF in the SameSite era, not just paste a form — what a senior interviewer or a triage engineer listens for. Say each out loud; aim for plain → mechanism → the proof that ends the argument.
+
+### Q105. Explain CSRF to a junior in one minute — and what makes it a *finding* vs a nag?
+*Plain:* "A logged-in user's browser automatically attaches their cookies to any request to a site — even a request triggered by a *different*, malicious page. CSRF abuses that: my page silently makes *your* browser send a state-changing request to a site you're logged into, and the site can't tell it wasn't you."
+*What makes it pay:* a missing token on a 'like' button is a nag; the same flaw on **change-email/change-password/disable-2FA** is account takeover. "I report the *takeover*, not 'no CSRF token' — same request, an order of magnitude of severity."
+
+### Q106. Why did `SameSite=Lax`-by-default (Chrome 80, 2020) not "kill CSRF"? Where does it still live?
+Lax stopped the *classic* case — a cross-site **POST** no longer carries the cookie by default — but it left real gaps: **`SameSite=None`** cookies (apps that need cross-site set it explicitly → full CSRF), **GET** state-changes (Lax *does* send cookies on top-level GET navigations), the **~2-minute Lax+POST** window on a freshly-set cookie, **on-site redirect/routing gadgets** and **same-site position** (a subdomain/sibling app makes the request same-site, beating even Strict), and **CORS-with-credentials** misconfigs.
+*The interview point:* "Lax raised the floor; it didn't close the door. That's exactly why I baseline the cookie's SameSite value first (§4) and only chase the gap it leaves."
+
+### Q107. A dev says "we require a CSRF token, so we're safe." What do you check before you believe it?
+Whether the token is *actually validated* and *unpredictable/bound*. The classic bypasses: the token is **checked only if present** (delete the param/header → accepted), **not tied to the session** (use your own valid token against the victim), **static/predictable/leaked** (in a URL→Referer, via CORS/JSONP, in the page HTML readable cross-origin only via XSS), validated by **weak comparison** (length-only, or only when non-empty), or enforced on the **web path but not the API/mobile** endpoint.
+*The one-liner:* "A token present in the request isn't a control; a token *validated, unguessable, and per-session* is. I test 'remove it, blank it, swap it, reuse another user's' before I accept it."
+
+### Q108. Explain the double-submit-cookie pattern and how you break it.
+*The pattern:* the app puts a random value in **both** a cookie and a request field and checks they match — no server-side state needed. It assumes an attacker can't read or set the cookie.
+*The break:* if you can **set/inject the cookie** — via a **subdomain XSS**, a **cookie-tossing** trick (a sibling/subdomain writing a cookie for the parent domain), or an app that reflects a value into `Set-Cookie` — you plant a value you *also* know, put the same value in the field, and both halves match. "Double-submit fails wherever cookie *integrity* fails; I look for any same-site foothold that lets me write the cookie."
+
+### Q109. Why is the *only* authoritative CSRF test a real, default-settings browser — not Repeater?
+Because Repeater/curl run **same-site** and send the victim's own cookie (and token) by hand, so they *always* "work" — which tells you nothing about whether a *cross-site* page can make the browser do it. The real question is: does the **browser** attach the cookie to a cross-origin request under its **default SameSite** policy? Only a cross-origin PoC opened in **stock Chrome** answers that.
+*The consequence:* "A PoC that only fires with SameSite disabled in `chrome://flags` is not a real-world bug. I never report a CSRF I haven't watched fire in a default browser — it's the single thing that keeps the report from being auto-closed (§4.2/§19)."
+
+### Q110. Compare CSRF vs SSRF vs XSS — juniors mix these up.
+Different actor, different trust abused. **CSRF:** the *victim's browser* is tricked into sending a request to a site it's authenticated to — attacker rides the victim's **cookies**, but usually can't read the response. **SSRF:** the *server* is tricked into sending a request to somewhere (internal/metadata) — attacker rides the server's **network position**. **XSS:** attacker runs **script in the victim's origin** — full read/write of that page, which *supersedes* CSRF (if you have XSS you don't need CSRF).
+*The tell:* "CSRF is blind cross-site *writes* via cookies; XSS is script execution; SSRF is the server making the request. I pick the class from *who* is fooled into sending *what*."
+
+### Q111. When is CSRF genuinely NOT exploitable — and you should say so?
+When any of the four preconditions fails: **(1)** auth isn't cookie-based (Bearer/localStorage → the browser won't auto-attach it → not CSRF); **(2)** the cookie is `SameSite=Lax/Strict` *and* the action is a cross-site POST with no bypass; **(3)** a validated, unpredictable, per-session token (or enforced custom header) guards it; **(4)** there's no state-changing action.
+*Why saying so matters:* "Honesty here is the reputation play — reporting a SameSite-blocked 'CSRF' gets you auto-closed and dinged. The §4 baseline exists so I *drop* the non-bugs and only spend a report on what fires in a default browser."
+
+### Q112. How does a CORS-with-credentials misconfig turn a "CSRF-proof" JSON API into CSRF?
+A JSON API that requires `Content-Type: application/json` (or a custom header) is normally CSRF-resistant because a cross-site form can't set those without triggering a **preflight** the server rejects. But if CORS is misconfigured to **reflect the attacker origin AND `Access-Control-Allow-Credentials: true`**, the browser *allows* the credentialed `fetch` with custom headers/JSON — and lets the attacker **read the response** too. So the CORS flaw both **re-enables** the CSRF and **adds data theft**.
+*The point:* "A custom-header/JSON defense assumes CORS is strict. `ACAO:reflected + ACAC:true` breaks that assumption — I always check CORS on a 'CSRF-proof' JSON endpoint (§17, cross-ref CORS kit)."
+
+### Q113. Curveballs — one sentence each.
+- **"Does HTTPS prevent CSRF?"** No — the forged request is perfectly valid HTTPS; TLS protects the channel, not the *intent*.
+- **"Does a WAF prevent CSRF?"** No — there's no malicious payload to signature; it's a legitimate-looking request from the victim's own browser.
+- **"We check the Referer header, aren't we safe?"** Only if you reject *absent* and *malformed* Referers and match strictly — many checks allow a missing Referer or fall to substring/suffix tricks (§7).
+- **"It's a GET, so it can't change state — right?"** Wrong-headed and dangerous: a state-changing GET is *more* CSRF-able (fires under SameSite=Lax and via `<img>`); the fix is not to change state on GET.
+- **"We use SameSite=Strict, we're immune."** Not if there's a **same-site gadget** (subdomain XSS, on-site open redirect, sibling app) that lets the request originate same-site (§6.6).
+
+### Q114. What's the honest severity range for CSRF, and what moves it?
+From **Info/Low** (tokenless non-sensitive action, or blocked by SameSite) to **High/Critical** (account takeover, admin/config change, → RCE). What moves it up: the action is **account-defining** (email/password/2FA/keys → ATO), it's **admin/infrastructure** (router DNS, feature flags, user-management → sometimes RCE), or it **chains** (self-XSS→stored via CSRF, OAuth `state`→ATO). What moves it down: **SameSite blocks it**, a **token validates**, or the action is trivial. "I calibrate on *what the forged action does*, gated by *whether it fires in a default browser*."
+
+### Q115. How do you write a CSRF report that doesn't get closed?
+Include the four things a triager needs to not re-test from scratch: **(1)** the **cookie-attached cross-site request** (showing `Origin: attacker.com` + the victim's `Cookie`); **(2)** the **SameSite value** of the auth cookie (proving it *can* fire); **(3)** a **before/after** of the state change plus the **browser + version** you proved it in (default settings); **(4)** the **impact chain** (…→ ATO), not just "no token."
+*The framing:* "I make it reproducible in one read and I lead with the takeover. The most common close reason is 'works only in Repeater / SameSite blocks it' — I pre-empt it with the default-browser screenshot."
+
+### Q116. How do you keep a CSRF test safe and in-scope?
+Two accounts **you own** (attacker `A` + victim `B`); fire the PoC only against **`B`** (never a real user — a CSRF PoC auto-performs a real action in whoever's session opens it); change `B`'s email to an inbox **you** control; complete the chain to prove ATO **once**; then **restore `B`'s state** (revert the email/password) and stop. "Because the PoC *is* the exploit the instant someone opens it, I host it where only I will, and I never leave a live auto-submitting page pointed at a real user's action."
+
+---
+
+# LEVEL 8 — SCENARIO-BASED (you're handed a situation → what do you do)
+
+> Each is a realistic snapshot. The skill tested is *routing through the SameSite gate* — reading the cookie and the defense, then picking the one path that fires in a default browser (or correctly deciding it doesn't).
+
+### Q117. The change-email request has no CSRF token and works in Repeater. Is it CSRF? What's your very next step?
+Repeater proves nothing (it's same-site with the cookie by hand) — the **next step is Stage 0**: read the auth cookie's **SameSite** flag. If **`None`** → build the cross-site auto-submit form and prove it in default Chrome → ATO chain (§11.1). If **`Lax`** (the default) → a cross-site POST is dead; check for a **GET** variant of the action or a same-site gadget before claiming anything. If **Bearer/localStorage** auth → not CSRF, stop. "'No token' + 'works in Repeater' is a *lead*; the cookie's SameSite value decides whether it's a finding."
+
+### Q118. The auth cookie is `SameSite=Lax` (default). The sensitive action is `POST /account/email`. Is CSRF dead here?
+For that cross-site **POST**, largely yes — Lax withholds the cookie. Don't stop there; work the Lax-era gaps: **(1)** is there a **GET** that performs the same change (`/account/email?email=…`)? Lax *sends* cookies on top-level GET navigation → `<img>`/link CSRF works (§6.1). **(2)** Was the cookie **set within the last ~2 minutes**? Lax allows a top-level POST in that window (legacy, shrinking). **(3)** Is there an **on-site redirect/routing gadget** or a **subdomain XSS** that makes the request **same-site** (beats even Strict, §6.6)? **(4)** A **CORS `ACAO:reflected+ACAC:true`** on the JSON endpoint re-enables it (§17). "Lax kills the naive POST, not the class — I hunt the GET path and the same-site gadgets."
+
+### Q119. There's a CSRF token, but it's the *same value for every user* and never changes. Exploitable?
+Yes — a **static/predictable token isn't a control**. Because it's identical for everyone (and not bound to the session), you simply **hardcode that value** into your PoC's hidden field; every victim's request carries the "valid" token and passes. Confirm it's truly static (register two accounts, compare; reload, compare) and that swapping it in fires in a default browser. "A token defends only if it's **unpredictable and per-session** — a global constant is just a required parameter I can fill in."
+
+### Q120. A JSON API endpoint (`Content-Type: application/json`) changes the email, cookie-authed, no token. Cross-site form can't set that Content-Type. What now?
+Three routes, in order: **(1) `text/plain` trick** — does the API *also* accept a body sent with `enctype="text/plain"`? A form can produce `{"email":"attacker@evil.com"}` as text/plain (with padding) — many parsers accept it, and text/plain is a **simple request** (no preflight) so it fires cross-site (§8/§13). **(2) urlencoded/multipart fallback** — does the same endpoint accept `application/x-www-form-urlencoded`? Then a plain form works. **(3) CORS** — is `ACAO` reflected with `ACAC:true`? Then a credentialed `fetch` with real JSON works *and* reads the response (§17). "If none of those hold — strict JSON, no text/plain, sane CORS — it's genuinely CSRF-resistant and I say so."
+
+### Q121. `SameSite=Strict` on the session cookie. The change-password action is a tokenless POST. Any path?
+Strict withholds the cookie on *all* cross-site requests, so an external page can't fire it — you need the request to originate **same-site**. Hunt a **same-site gadget on the target's own origin/subdomains**: an **open redirect** or **client-side routing gadget** on `target.com` you can point at the action (the final request is same-site, §6.6), a **subdomain XSS** (script on `sub.target.com` issues the same-site request), or a **sibling/less-hardened app** on the same site. Also the **307 method-preserving redirect** trick where applicable (§6.7). "Strict means 'must come from your own site' — so I find a foothold *on* their site; without one, honestly, it's not exploitable."
+
+### Q122. You have a self-XSS (only fires in your own account) that you couldn't report. How does CSRF rescue it?
+Chain them: **CSRF the login** so the victim's browser is silently logged into **your** account (login CSRF, §12), where your **self-XSS payload is stored** — now it executes in the victim's browser, in the target's origin, turning a useless self-XSS into a **stored-XSS-grade** compromise (§14). Or CSRF the victim into *saving* your payload into *their* profile field that later renders. "Self-XSS + login-CSRF (or a CSRF that plants the payload) = real XSS. The CSRF supplies the 'get my script into a victim's session' that self-XSS lacked."
+
+### Q123. An OAuth "link Google account" callback has no `state` parameter. Walk the attack.
+That's **CSRF on the callback** → account linking → ATO (§15). Steps: **(1)** start the OAuth flow with *your own* Google account and capture the `code` from the callback URL before it's consumed. **(2)** Craft a page that CSRFs the **victim** into the callback with *your* `code` (e.g. `GET /oauth/callback?code=<yours>`) while they're logged into their target account. **(3)** The app links **your Google identity to the victim's account** → you now log in to their account via "Sign in with Google." Prove with two own accounts; the missing `state` is the root cause. "`state` is the CSRF token of OAuth — its absence makes the callback forgeable, and a forgeable link/login callback is ATO."
+
+### Q124. Your CSRF PoC works in your testing browser but the triager says "can't reproduce." What went wrong and how do you fix the report?
+Almost always a **SameSite / browser-default mismatch**: you tested with SameSite disabled, in an old browser, or same-site, and the triager used a **stock modern browser** where Lax withholds the cookie. Fix it by re-proving under **default settings** and being explicit: state the **browser + version**, show the auth cookie's **`SameSite=None`** (or that you used the **GET/gadget** path that survives Lax), and include the **cross-site request with the cookie attached** from the real run. "If it *only* reproduces with flags flipped, it isn't a real-world bug and I retract it. If it reproduces in stock Chrome, I hand them the exact cookie value + browser version so they stop hitting the SameSite wall (§4.2/§19)."
 
 ---
 

