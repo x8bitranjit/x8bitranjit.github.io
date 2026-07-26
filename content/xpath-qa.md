@@ -8,6 +8,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 ## Level 0 — Fundamentals
 
 **Q1. What is XPath injection?** Manipulating an XPath query by injecting into user input that's concatenated into the expression, subverting the query's logic to bypass auth, extract the XML document, read files, or (XQuery) run code.
+> *Plain version:* the app stores data in an **XML filing cabinet** and a clerk runs a "find the folder where name=X and password=Y" query. Your username is supposed to be a plain word in the `X` slot; injection = writing the cabinet's own query-punctuation (`'`, `or`) into that slot so the search matches **everyone**, and you're handed the first folder (usually admin).
 
 **Q2. What is XPath?** A language for selecting nodes from an XML document (`//user[name='bob']`). Apps use it to authenticate against XML credential stores, query native XML databases, and select SAML/config nodes.
 
@@ -16,14 +17,16 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 **Q4. What's the impact ceiling?** Authentication bypass, full XML-store disclosure (all users/passwords blind), file read + SSRF (XPath 2.0 `doc`/`unparsed-text`), and RCE via XQuery on native XML DBs.
 
 **Q5. What's the biggest difference from SQLi?** XPath 1.0 has **no comment syntax** — you can't truncate the query with `--`/`#`. You must keep the expression syntactically balanced (typically leaving a trailing open quote to pair with the app's closing quote).
+> *Plain version:* SQL lets you type `'--` to "cross out" the rest of the query. XPath 1.0 has **no eraser** — leave the clerk's question half-finished and it just errors. So instead you *complete the sentence for them*: end your payload with a lone open-quote and let the app's own trailing `'` close it. Count the quotes and they balance.
 
 **Q6. What's the primary CWE?** **CWE-643** (XPath Injection). XQuery injection is **CWE-652**.
 
 **Q7. Where is XPath used in apps?** XML-based login, native XML databases (eXist-db, BaseX, MarkLogic, Sedna), SAML attribute selection, XML config/catalog lookups, SOAP/XML APIs, XSLT.
 
 **Q8. Give the canonical auth-bypass payload.** `' or '1'='1` injected into a username concatenated as `//user[name='INPUT' ...]` → `//user[name='' or '1'='1' ...]` → always true → login.
+> *Plain version:* you turn the clerk's *"name = (what you typed)"* into *"name = '' **or** 1=1"* — and since 1 always equals 1, the "or" makes the whole condition true no matter what, so the clerk says "yes, found a match" and logs you in.
 
-**Q9. Why does `and` vs `or` precedence matter?** In XPath, `and` binds tighter than `or`, so `name='' or '1'='1' and password='...'` parses as `name='' or ('1'='1' and password='...')` — but the simplest bypass leaves a trailing `or '1'='1'` that dominates the whole predicate as true.
+**Q9. Why does `and` vs `or` precedence matter?** In XPath, `and` binds tighter than `or`, so `name='' or '1'='1' and password='$p'` parses as `name='' or ('1'='1' and password='$p')` — which is true **only if** the password clause matches, **not** unconditionally. So a bare `' or '1'='1` in the **name** field of a `name=$u and password=$p` predicate does **not** reliably bypass. Make your always-true term land **outside** the `and`: inject the **last** field (`password=' or '1'='1` → `(… and password='') or '1'='1'` = true), inject the name field with a trailing OR (`' or 1=1 or ''='`), or inject **both** fields. This precedence trap is the #1 XPath-payload mistake.
 
 **Q10. Is XPath injection the same as XXE?** No. XXE ([../XXE/](../XXE/)) injects a DOCTYPE/entity into an XML **input document**. XPath injection injects into the **query** run against an XML document. Different bug, different fix.
 
@@ -58,6 +61,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 **Q21. Why baseline against a control?** XPath verdicts are differential — the injected logic must **change** the result. Without a valid/invalid baseline you can't distinguish a real steer from normal behavior → false positives.
 
 **Q22. What's the core boolean test?** Compare an always-true tail (`' or '1'='1`) with an always-false one (`' or '1'='2`). A consistent difference (that isn't just an error) confirms injection.
+> *Plain version:* ask the clerk the same thing two ways — once with a tail that's always true, once always false — and check the answers **differ** (true → more/all records or login-ok; false → the normal empty result). If they reliably differ and it's not just an error both times, your input is steering the query = confirmed. Keep the false one as your control.
 
 **Q23. What do quote/error probes tell you?** `'`/`"` causing an `XPathException`/`SAXParseException`/`Invalid predicate` confirms input reaches an XPath sink and reveals the context.
 
@@ -112,6 +116,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 **Q44. How do you extract a character?** `' or substring((//user[1]/password),POS,1)='C' or 'x'='y` — iterate C over the charset at each POS until true.
 
 **Q45. How do you dump the whole store?** Loop POS 1..length × charset for record 1 (`//user[1]`), then `//user[2]`, `//user[3]`, … using `count(//user)` to know how many — exfiltrating every field of every record.
+> *Plain version:* a game of 20-questions that reads the whole cabinet. Ask "is letter 1 of user #1's password an 'a'? a 'b'? …", nail each character, move to the next letter, then the next folder — because the whole database is one document with no per-folder locks, yes/no answers alone reconstruct **every** credential. Slow by hand, so `poc/xpath_blind.py` does it (binary search cuts the questions ~in half).
 
 **Q46. Why binary-search codepoints?** `string-to-codepoints(substring(...,i,1))[1]>M` halves the search space per request (~7 requests/char for ASCII) vs up to N with linear charset iteration.
 
@@ -140,6 +145,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 **Q56. How do you reach cloud metadata via XPath?** `doc('http://169.254.169.254/latest/meta-data/…')` on a 2.0 engine → IAM creds (chain [../SSRF/](../SSRF/)).
 
 **Q57. What is XQuery injection?** Injection into an XQuery expression (native XML DBs). FLWOR and module imports let you go beyond selection to call **extension functions** — potentially RCE. CWE-652.
+> *Plain version:* some apps run a whole database *on* XML using XPath's bigger sibling, **XQuery** — and those engines ship helper functions that can run OS commands (BaseX `proc:system`, eXist `util:eval`). Land your injection there and you go from "read the cabinet" to "run commands on the server" (RCE) — the top of this class's ceiling.
 
 **Q58. Give engine-specific RCE functions.** BaseX `proc:system('id')`; MarkLogic `xdmp:spawn`/`xdmp:document-load`; eXist-db `util:eval`/`file:read`. Match to the identified engine.
 
@@ -242,6 +248,58 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 **Q99. What must a SAFE-PoC always respect?** Control vs injected requests; a minimal proof (login as test account / own-record extraction redacted / one benign file/command); no prod dump/DoS; throttled loops.
 
 **Q100. One thing to remember about XPath injection?** *It's SQLi/LDAP for XML — with no comments.* Break out of the string, inject `or`-logic or `substring()`/`doc()`, and because the whole dataset is one document, one injectable field can dump everything. **Report the bypass / the extracted store / the file / the RCE — not the quote error.**
+
+---
+
+## Level 10 — Interview (explain it out loud)
+
+*Crisp, senior-sounding answers for an AppSec/pentest interview or a bounty-team screen. XPath is a great differentiator — it shows whether you understand injection as a family, not just SQLi syntax.*
+
+**Q101. In one sentence, what is XPath injection and why does it matter?** It's injecting into user input that's concatenated into an XPath expression, subverting the query to **bypass authentication, dump the entire XML store, read files/SSRF (XPath 2.0), or run code (XQuery)** — and it matters because XML-backed logins and native XML DBs concatenate input more often than people think, and it slips past SQLi-tuned defenses.
+
+**Q102. What's the single biggest difference from SQL injection?** **No access control on the data.** An XML document has no per-row/per-node privilege system, so a successful injection extracts the *whole* document — every user, every secret — whereas SQLi is limited to the privileges of the app's DB account. Amit Klein's 2004 "Blind XPath Injection" paper is built on exactly this: one injectable field = the complete database.
+
+**Q103. And the biggest syntactic difference?** **XPath 1.0 has no comment syntax.** You can't truncate the query with `--`/`#` like SQLi — you must keep the expression **balanced**, typically leaving a trailing quote or `or ''='` that pairs with the app's closing quote. That's also why XPath payloads don't match SQLi WAF signatures.
+
+**Q104. How do you confirm XPath injection with low false positives?** A **boolean differential**: send an always-true tail (`' or '1'='1`) and an always-false control (`' or '1'='2`) and require a **repeatable difference** in the response (record count / login result / length). A lone quote-error or a single odd 200 is a *lead*, not a finding — the oracle must flip with the boolean.
+
+**Q105. Walk me through the auth-bypass, including the AND-password gotcha.** If the query is `//user[name='$u' and password='$p']`, a bare `name='' or '1'='1'` isn't unconditionally true because of the trailing `and password`. So you use a payload whose OR sits **outside** the whole predicate — `' or '1'='1' or ''='` — making it true regardless of password, or inject `' or name='admin' or ''='` to land as admin specifically.
+
+**Q106. Once you have a boolean oracle, how do you dump the store?** **Booleanize** with `count()` (how many nodes), `string-length()` (value length), and `substring(value,pos,1)` compared/`>`-bisected to binary-search each character's codepoint (~7 requests/char). Walk every node and attribute. Because there's no ACL, this recovers **all** usernames and password hashes/tokens — the "XPath crawling + Booleanization" of Klein's paper.
+
+**Q107. How does the XPath *version* change your ceiling?** XPath **1.0** caps at auth-bypass + full blind dump. XPath **2.0/3.0** adds `doc()`/`document()` → **SSRF/OOB** (hit cloud metadata) and `unparsed-text()` → **arbitrary file read**. A **native XML DB** (BaseX/eXist/MarkLogic/Sedna) adds **XQuery** with extension modules → **RCE**. So fingerprinting the version/engine first (does `doc()` fire an OOB hit?) decides the whole attack.
+
+**Q108. What's XQuery injection and how does it reach RCE?** On native XML DBMSes the injection reaches XQuery, whose **extension modules** run code and exfiltrate: BaseX `proc:system('id')`/`proc:execute`, eXist-db `util:eval` + HTTP-client/mail modules (documented exfil via the eXist REST API), MarkLogic `xdmp:*`. CWE-652. Same injection, but now it's a shell, not just a dump.
+
+**Q109. How is XPath injection related to XXE — and how do you avoid confusing them?** Both are XML bugs and often live on the same endpoint, but they're different: **XXE** abuses the XML **parser** (external entities → file read/SSRF from the *document you send*), while **XPath injection** abuses a **query** built from your input over the server's XML data. If you control an uploaded/posted XML doc, think XXE; if your input lands in a `//node[...]` lookup, think XPath. Test both.
+
+**Q110. Where does XPath injection hide besides login forms?** Native XML database queries (eXist/BaseX/MarkLogic), **SAML** attribute/NameID selection (→ auth bypass / assertion tampering), XML config/catalog lookups, SOAP/XML API parameters, and XSLT. Any place user input selects nodes from XML is a candidate.
+
+**Q111. What's the correct fix, and why isn't escaping enough?** **Parameterize** XPath with variable binding (`$user`, `XPathVariableResolver`) so input is data, never expression syntax. Escaping is error-prone (quote contexts, functions) and a blacklist misses payloads; parameterization is primary, with **username allow-listing** (`^[A-Za-z0-9_]+$`), **hash comparison in code** (not inside the XPath), and **disabling `doc()`/`unparsed-text()`/extension modules** as defense-in-depth.
+
+**Q112. Rapid fire.** *Quote errors but no boolean diff?* → lead, not a finding. *`//user[name=$u and password=$p]`?* → use a trailing-OR bypass. *`doc()` OOB hit?* → XPath 2.0 → SSRF. *`unparsed-text()` works?* → file read. *BaseX/eXist/MarkLogic?* → XQuery → RCE. *CWE?* → **CWE-643** (XQuery **CWE-652**). *Why dump so much from one field?* → XML has no access control.
+
+---
+
+## Level 11 — Scenario (walk me through it)
+
+*"Here's the response — what do you do?" End-to-end reasoning from a probe to a proven Critical (or an honest downgrade). Full worked run: guide Appendix A.*
+
+**Q113. An XML-backed login errors on `x'` but returns 200 for `x' or '1'='1`. Confirm it's real before reporting.** A 200 alone proves nothing — I run the **differential**: `' or '1'='2'` (control) should behave differently from `' or '1'='1'`. If the always-true version logs me in or changes the result while the always-false doesn't, that's a confirmed boolean oracle = real XPath injection. Then I fingerprint the version and go for auth bypass. I don't report on the quote-error alone.
+
+**Q114. The query ANDs a password check after the name and your `' or '1'='1` doesn't log you in. Why, and what do you send?** Because of precedence: `name='' or ('1'='1' and password='wrong')` — the AND-password clause defeats a naive OR. I send a payload whose OR escapes the entire predicate: `' or '1'='1' or ''='` (always true regardless of password), or target a user directly with `' or name='admin' or ''='`. Now I land as admin with no password.
+
+**Q115. You have auth bypass. The program wants "more than a login bypass" — what else can one field give you?** The whole credential store — because XML has no access control. Using the same boolean oracle I Booleanize: `count(//user)` for the node count, `string-length(//user[1]/password)` for each length, then `substring(...,pos,1)` bisected to extract every character of every user's hash/token. For the report I extract **my own** record + a few chars of one hash (redacted) to prove the primitive, then stop — that demonstrates full-store disclosure without dumping prod.
+
+**Q116. Blind extraction is confirmed but slow (one char at a time). How do you speed it up and stay safe?** **Binary-search the codepoint** with `>`/`<` comparisons (or `string-to-codepoints()` on XPath 2.0) — ~log₂ per character (~7 requests) instead of 26+. I also throttle the loop (jitter, low concurrency) so I don't hammer prod, extract only enough to prove it, and redact. Speed comes from the algorithm, not from flooding the target.
+
+**Q117. Your `doc('http://your-oob/x')` payload fires a DNS/HTTP hit on your collaborator. What does that unlock?** It confirms **XPath 2.0+**, which means `doc()`/`document()` fetch URLs server-side = **SSRF**. I point it at internal services and cloud metadata (`doc('http://169.254.169.254/latest/meta-data/...')`) to reach IAM credentials, and I try `unparsed-text('/etc/passwd')` for **file read**. The version fingerprint just raised my ceiling from "dump the XML" to "SSRF + local file read." (Hand the SSRF to the SSRF kit's discipline.)
+
+**Q118. Fingerprinting shows the backend is BaseX (a native XML DB). What's the ceiling and how do you prove it safely?** **XQuery injection → RCE.** BaseX exposes the Process module, so `proc:system('id')` runs OS commands. I confirm with **one benign command** (`id`, or an OOB callback carrying its output to prove blind execution), capture the result, and **stop** — no shell, no persistence, tear down listeners. That's Critical (CWE-652 → CWE-78); I report the RCE with the single-command proof.
+
+**Q119. The endpoint takes an XML document you upload and also has a `search=` node lookup. Which bug is which?** Two different XML bugs on one endpoint. The **uploaded XML document** → test **XXE** (external entities in *your* document → file read/SSRF via the parser). The **`search=` that selects nodes** from the server's XML → test **XPath injection** (boolean oracle → dump). I test both independently and don't conflate them — different root cause, different payloads, both worth reporting.
+
+**Q120. A SAML SSO flow selects the NameID via XPath. What's the risk and your approach?** If user-influenced input reaches the XPath that selects the SAML NameID/attributes, injection can **alter which node is selected** → authenticate as a different user / bypass the assertion check → account takeover. I probe the XPath-controlled parameter with a boolean differential (carefully, on my own test IdP/accounts), and if it's injectable I demonstrate selecting a different identity. This chains into the OAuth/SAML kit — XPath is the underlying primitive, SSO ATO is the impact.
 
 ---
 
