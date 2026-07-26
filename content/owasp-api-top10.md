@@ -36,6 +36,7 @@
 - [API10:2023 — Unsafe Consumption of APIs](#api102023--unsafe-consumption-of-apis)
 - [Category → Kit quick map](#category--kit-quick-map)
 - [Severity calibration & reporting](#severity-calibration--reporting)
+- [Appendix — Verified Real-World Case Studies (deep dives)](#appendix--verified-real-world-case-studies-deep-dives)
 - [References](#references)
 
 ---
@@ -84,7 +85,7 @@
 □ GraphQL: node(id:), object-by-id resolvers, and IDs surfaced by one query reused in another. → GraphQL/
 ```
 
-**Real-world / examples.** BOLA in banking/social/health APIs enabling mass account access; the classic `/{id}` increment; UUIDs harvested from one endpoint and replayed at another; GraphQL `node(id:)` cross-object reads; the majority of high-bounty API reports.
+**Real-world / examples.** **T-Mobile (Jan 2023)** — a customer API that required **no authentication or rate limiting** let an attacker iterate object references and exfiltrate **~37 million** accounts (names, addresses, DOB, account numbers), undetected for ~6 weeks. The definitive modern BOLA-at-scale breach. Others: the classic `/{id}` increment; UUIDs harvested from one endpoint and replayed at another; GraphQL `node(id:)` cross-object reads; the majority of high-bounty API reports.
 
 **Prevention.** Enforce **per-object authorization on every request** — check the authenticated principal owns/may access the specific object, server-side, at the data layer (not by object obscurity); prefer random/unguessable IDs *and* an ownership check (defense-in-depth, not obscurity alone); centralize the authz check so no endpoint forgets it; test authz systematically (two-account diffs in CI).
 
@@ -112,7 +113,7 @@
 □ Auth on EVERY endpoint: any route that skips auth entirely (unauthenticated access to authed data)?
 ```
 
-**Real-world / examples.** JWT `alg:none`/weak-secret impersonation; OAuth `redirect_uri` token theft; unlimited-OTP 2FA bypass; leaked API keys in mobile apps / JS bundles → backend access; password-reset poisoning → ATO; endpoints missing auth entirely.
+**Real-world / examples.** **Optus (2022)** — an internet-facing API (`/users/{userId}`) had its access control silently broken by a 2018 coding error, so it required **no authentication at all**; with **enumerable sequential IDs**, attackers iterated and pulled **~9.8 million** customers (2.1M with passport/licence/Medicare numbers). "No auth on the endpoint" is broken authentication in its purest form. Others: JWT `alg:none`/weak-secret impersonation; OAuth `redirect_uri` token theft; unlimited-OTP 2FA bypass; leaked API keys in mobile apps / JS bundles → backend access; password-reset poisoning → ATO.
 
 **Prevention.** Standard, vetted auth (don't roll your own); strong JWT validation (verify signature + `alg` + `exp` + `aud`/`iss`; no `none`); rate limiting + lockout + MFA on all auth/OTP/reset endpoints; short-lived, revocable, rotated tokens; scoped, revocable API keys (never client-embedded as secrets); secure reset flows (host-independent links, strong tokens); authenticate every non-public endpoint.
 
@@ -142,7 +143,7 @@ OVER-READ (excessive data exposure):
 GraphQL: over-selection of fields; introspect the schema and request sensitive fields directly. → GraphQL/
 ```
 
-**Real-world / examples.** Mass-assignment privilege escalation (`isAdmin`/`role` in the body — a classic across frameworks); GitHub's historical mass-assignment; APIs returning full user objects (password hashes/PII) and hiding them only in the UI; setting `price`/`discount` on an order; GraphQL over-fetching sensitive fields.
+**Real-world / examples.** **GitHub / Egor Homakov (2012)** — the textbook **mass-assignment**: Rails bound request params straight to model attributes, so Homakov added a crafted `public_key[user_id]` and injected his own SSH key into the **rails/rails** org, gaining commit access; he proved it with a benign file push (fixed in ~1h). The write-side of BOPLA. Others: `isAdmin`/`role` in the body across frameworks; APIs returning full user objects (password hashes/PII) hidden only in the UI (the read-side); setting `price`/`discount` on an order; GraphQL over-fetching sensitive fields.
 
 **Prevention.** Explicit **allow-list of writable properties** per role/endpoint (bind only permitted fields — never blind `Model.update(req.body)`); explicit **allow-list of returned properties** (schema/DTO/serializer per role — never return the raw object and filter client-side); validate the caller may read/write *each* field; in GraphQL, field-level authorization; least-data responses.
 
@@ -171,7 +172,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 □ Concurrency: many parallel expensive requests.
 ```
 
-**Real-world / examples.** No-rate-limit OTP/login → brute-force ATO; GraphQL query-depth/batching DoS; pagination `limit=<huge>` memory exhaustion; denial-of-wallet on SMS/email/paid-API endpoints; unbounded bulk export.
+**Real-world / examples.** **Experian partner-API (2021, Bill Demirkapi)** — an API that returned anyone's **credit score** from name + address had **no rate limiting and no resource controls** (OWASP explicitly maps it to "Lack of Resources & Rate Limiting"), so it could be scripted to bulk-harvest scores for most Americans. Others: no-rate-limit OTP/login → brute-force ATO; GraphQL query-depth/batching DoS; pagination `limit=<huge>` memory exhaustion; denial-of-wallet on SMS/email/paid-API endpoints; unbounded bulk export.
 
 **Prevention.** Enforce rate limits + quotas per user/key/IP; cap request/response size, page size, array/batch length, and file size/count; **query-complexity + depth limits for GraphQL**; timeouts + resource ceilings on expensive ops; spend caps / cost circuit-breakers on cost-driving actions; throttle + alert on anomalous volume.
 
@@ -199,7 +200,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 □ GraphQL: privileged mutations (deleteUser, setRole, adminX) callable by a low-priv session. → GraphQL/
 ```
 
-**Real-world / examples.** Admin endpoints callable by normal users (create-admin, role-change); HTTP verb tampering bypassing method-scoped auth; `/internal`/`/debug` routes reachable externally; GraphQL admin mutations with no role check; unauthenticated privileged endpoints.
+**Real-world / examples.** **John Deere Operations Center (2021, Sick Codes, DEF CON 29)** — a low-privilege **demo developer account** could call the VIN-lookup API to read *other* customers' equipment/owner data, and a chain of authorization flaws reached **admin/root** on the Operations Center and the Pega CRM backend — a normal account invoking functions it should never reach (BFLA). Others: admin endpoints callable by normal users (create-admin, role-change); HTTP verb tampering bypassing method-scoped auth; `/internal`/`/debug` routes reachable externally; GraphQL admin mutations with no role check.
 
 **Prevention.** Deny-by-default; enforce **function/role authorization server-side on every endpoint and every method** (centralized, not per-controller ad-hoc); explicitly check role/permission for privileged operations; don't rely on the route being unguessable or the UI hiding it; treat every HTTP method on a route as separately authorized; review admin/internal routes for external reachability.
 
@@ -226,7 +227,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 □ Cost/impact model: quantify the business harm (stock denied, rewards farmed, revenue lost) for the report.
 ```
 
-**Real-world / examples.** Sneaker/ticket/console scalping bots; mass referral-bonus farming; coupon/promo stacking and abuse; fake-review/vote inflation; reserve-all-inventory denial-of-business; loyalty-point/gift-card draining.
+**Real-world / examples.** **Ticketmaster / Taylor Swift "Eras" presale (Nov 2022)** — bots and "industrial-scale scalping" drove **3.5 billion** requests (4× the prior peak); 14 million hit a flow built for 1.5M verified fans, forcing Ticketmaster to suspend the sale while tickets flipped at up to **70×** face value. The purchase flow worked exactly as coded — it just had **no anti-automation on a sensitive business flow**. Others: sneaker/console scalping bots; mass referral-bonus farming; coupon/promo stacking; fake-review/vote inflation; reserve-all-inventory denial-of-business; loyalty-point/gift-card draining.
 
 **Prevention.** Identify sensitive flows and add **anti-automation** proportionate to the risk: device fingerprinting/attestation, CAPTCHA/challenge on abuse signals, per-user/per-payment-method/per-device velocity limits and quotas, human-review for anomalies, and business-rule enforcement (one-per-customer, hold-then-confirm). Design the flow assuming a bot will run it a million times.
 
@@ -255,7 +256,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
    (../Web/OAuth/); and note the LLM twin: agent fetch-tools (../AI/LLM/ LLM06).
 ```
 
-**Real-world / examples.** Capital One (SSRF → metadata → S3 dump); webhook/URL-import SSRF to cloud metadata across bug bounties; gopher-SSRF to internal Redis → RCE; JWKS/OIDC-metadata SSRF; redirect-based allow-list bypass.
+**Real-world / examples.** **Capital One (2019)** — an **SSRF** on a misconfigured WAF reached the EC2 metadata service (IMDSv1), stole an over-privileged IAM role, and dumped **~106 million** applicants from S3; the archetypal API-SSRF → cloud-credential → data-store chain, and the reason AWS built IMDSv2. Others: webhook/URL-import SSRF to cloud metadata across bug bounties; gopher-SSRF to internal Redis → RCE; JWKS/OIDC-metadata SSRF; redirect-based allow-list bypass.
 
 **Prevention.** Avoid fetching client-supplied URLs where possible; if required, **allow-list schemes/hosts/ports and re-validate after every redirect**; block internal ranges + metadata IPs at the network layer (egress filtering, enforce IMDSv2); resolve-and-pin DNS to defeat rebinding; disable unused schemes (gopher/file/dict); isolate the fetcher service; never return the raw fetch response to the caller.
 
@@ -285,7 +286,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
    → ../Web/Recon/
 ```
 
-**Real-world / examples.** Permissive CORS enabling authed-data theft; verbose stack traces leaking secrets/versions; content-type-confusion WAF bypass; HPP filter bypass; cached sensitive API responses; exposed debug/Swagger endpoints; default-cred admin.
+**Real-world / examples.** **Microsoft Power Apps (2021)** — the **OData list API** was public by default when portals were misconfigured, so **~38 million** records (SSNs, COVID contact-tracing PII) across 47+ organisations were anonymously queryable; Microsoft first called it "by design," then flipped the default to secure — an insecure-default API misconfiguration at scale. Others: permissive CORS enabling authed-data theft; verbose stack traces leaking secrets/versions; content-type-confusion WAF bypass; HPP filter bypass; cached sensitive API responses; exposed debug/Swagger endpoints; default-cred admin.
 
 **Prevention.** Harden by default across the stack (repeatable, automated config + patch management); strict CORS (exact-origin allow-list, no reflect-with-credentials, no `null`); disable unnecessary methods/features; security headers everywhere; generic error messages (log details server-side); TLS everywhere; consistent content-type/param handling; lock down docs/debug endpoints and cloud storage; config drift detection.
 
@@ -314,7 +315,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 □ Third-party data-flow inventory: which external APIs receive your data? (feeds API10).
 ```
 
-**Real-world / examples.** Un-patched `/v1` still serving after `/v2` fixed the bug; forgotten staging APIs with prod data; undocumented internal endpoints reachable externally; Spring `/actuator` exposure; deprecated endpoints skipping new authz — a recurring high-bounty pattern ("the old API").
+**Real-world / examples.** **JustDial (2019)** — an **old, unused API endpoint** (live since ~2015, still wired to the primary database) required no authentication, exposing **~100 million** users' PII; a sibling forgotten endpoint even let anyone trigger OTPs for any number. The definitive "the old API nobody retired" (shadow/zombie endpoint) case. Others: un-patched `/v1` still serving after `/v2` fixed the bug; forgotten staging APIs with prod data; undocumented internal endpoints reachable externally; Spring `/actuator` exposure; deprecated endpoints skipping new authz.
 
 **Prevention.** Maintain a live **API inventory** (all endpoints, versions, environments, owners) + an OpenAPI spec kept current; retire/decommission deprecated versions (don't just "hide" them); segregate and access-control non-prod environments (no prod data); document + inventory third-party data flows; automated discovery + external attack-surface monitoring to catch shadow APIs.
 
@@ -343,7 +344,7 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 □ Third-party supply chain: is the integration itself trustworthy/pinned? (ties supply-chain). → ../Web/DependencyConfusion/
 ```
 
-**Real-world / examples.** Apps trusting partner-API responses that inject into DB/HTML; blind redirect-following into internal services; malicious webhook payloads processed unsafely; unvalidated OAuth `userinfo`/upstream JSON reaching a dangerous sink; poisoned third-party data.
+**Real-world / examples.** *(API10 is the newest category and has the fewest neatly-attributable headline breaches — the danger is a **pattern**: you apply less validation to data from a "trusted" integrated API than to user input.)* Concrete, documented patterns: an app **blindly follows a redirect** returned by a third-party API straight into `169.254.169.254`/internal services (SSRF through trusted consumption); an integration pipes an upstream partner's JSON/XML into a **SQL/HTML/command sink** unsanitised (injection via the supply side); a **malicious webhook** payload is processed with implicit trust; an OAuth **`userinfo`/JWKS** response from a compromised or spoofed upstream reaches a dangerous sink. The 2020–2024 wave of supply-chain incidents (Codecov, 3CX, SolarWinds) is the macro version — downstream systems trusting a compromised upstream. Treat every third-party API response as untrusted input: validate, sanitize, enforce TLS + allow-lists, and never auto-follow its redirects.
 
 **Prevention.** **Treat data from consumed APIs as untrusted input** — validate/sanitize/encode it for its sink exactly like client input; don't blindly follow redirects from integrations (allow-list); TLS + cert validation + timeouts + resource bounds on all upstream calls; validate upstream data against a schema; isolate/segment integration processing; vet + monitor third-party integrations.
 
@@ -389,6 +390,33 @@ GraphQL: over-selection of fields; introspect the schema and request sensitive f
 | **API10 Unsafe consumption → injection/SSRF from upstream** | **High–Medium** | `../Web/SSRF/` `../Web/Deserialization/` |
 
 **Reporting rules:** report the **concrete vuln + impact** with a **two-account/benign-marker proof**, then map to the API ID ("swap `account_id` on `GET /api/v1/accounts/{id}/statements` → read any customer's statements as a standard user → **API1 BOLA / IDOR**, CWE-639"). API9 findings are rated by the *underlying* bug you find on the shadow/old endpoint, not the inventory gap itself. Use the `REST/`/`GraphQL/` kit report templates for the hands-on finding; use this doc to place it in the API framework. Impact-first, own accounts, benign markers, safe PoC — per every kit's discipline.
+
+---
+
+# Appendix — Verified Real-World Case Studies (deep dives)
+
+> The per-category one-liners above are the quick citations; these are the full mechanism→escalation→lesson write-ups. APIs make these especially clean because the flaw is usually **one missing check on one endpoint** that automation turns into millions of records. All facts from public post-mortems / advisories (see References).
+
+**T-Mobile (API1 BOLA, Jan 2023).**
+*Root cause:* a customer-data API that enforced **no authorization on the object reference** (and no rate limiting). *Mechanism:* the attacker simply varied the identifier the API keyed on and pulled record after record — **~37 million** accounts (names, addresses, DOB, account/plan data) — starting ~25 Nov 2022 and running **undetected for ~6 weeks**. *Lesson:* BOLA is the #1 API risk because a single un-checked `{id}` plus a loop equals a mass breach; enforce per-object ownership **server-side on every call**, and alert on high-volume single-token object access (which would have caught this far sooner).
+
+**Optus (API2 Broken Authentication, 2022).**
+*Root cause:* an endpoint (`/users/{userId}`) that had become **internet-facing in 2020** while a **2018 coding error** left its access control ineffective — effectively **no authentication**. *Mechanism:* IDs were **sequential**, so attackers iterated `1,2,3,…` and scraped **~9.8 million** customers, **2.1 million** with passport/licence/Medicare numbers, going back to 2017. *Lesson:* "the endpoint requires no auth" is the most basic and most damaging API failure; test every route unauthenticated, and never rely on an endpoint being "internal/undocumented."
+
+**GitHub / Egor Homakov (API3 BOPLA — mass assignment, 2012).**
+*Root cause:* Rails **auto-bound request parameters to model attributes** with no allow-list. *Mechanism:* Homakov submitted a crafted `public_key[user_id]` to associate his SSH key with another account and pushed a benign file to **rails/rails**, proving org-level write access; GitHub fixed it in ~1 hour and Rails hardened defaults. *Lesson:* the write-side of BOPLA — bind only explicitly permitted fields (allow-list/DTO), never the whole object; `role`/`isAdmin`/`user_id` in a body must be ignored server-side.
+
+**John Deere Operations Center (API5 BFLA, 2021 — Sick Codes, DEF CON 29).**
+*Root cause:* function/authorization checks that didn't verify the *caller's* right to the *function*. *Mechanism:* a low-privilege **demo developer account** queried the VIN API to read other owners' equipment and PII, and chained flaws (plus a misconfigured Pega CRM) reached **admin/root** on the platform; usernames were brute-forceable with no rate limit. *Lesson:* BFLA = a valid low-priv identity reaching high-priv *functions*; test every privileged action from a low-priv (and demo/partner) account, and don't trust account "tier" as an authorization boundary.
+
+**Ticketmaster / Taylor Swift "Eras" presale (API6 Sensitive Business Flows, Nov 2022).**
+*Root cause:* a high-value purchase flow with **no effective anti-automation**. *Mechanism:* bots and industrial-scale scalping generated **3.5 billion** requests (4× prior peak); 14 million clients hit a flow sized for 1.5M verified fans, collapsing the sale and pushing resale prices to **~70×** face value. *Lesson:* API6 isn't a "bug" in the code — the flow works as designed; the missing control is **abuse resistance** (device/behavior fingerprinting, proof-of-work/CAPTCHA, per-identity purchase limits, queueing) on flows where automation has economic value.
+
+**Capital One (API7 SSRF, 2019).**
+*Root cause:* an SSRF-able request path plus an **over-privileged IAM role**. *Mechanism:* the attacker made the server request `169.254.169.254/…/iam/security-credentials/<role>` (IMDSv1, no token), took the temporary AWS creds, and dumped **~106 million** applicants from S3. *Lesson:* server-side fetch reaches *inside* the perimeter; enforce **IMDSv2**, least-privilege roles, and metadata-IP egress filtering — and treat any user-influenced URL as SSRF-suspect.
+
+**JustDial (API9 Improper Inventory Management, 2019).**
+*Root cause:* an **old API endpoint** (live since ~2015, never retired) still connected to the **production database** with no auth. *Mechanism:* anyone could query it for **~100 million** users' PII, and a sibling zombie endpoint let anyone trigger OTPs for arbitrary numbers. *Lesson:* your attack surface includes every version and every forgotten endpoint; maintain an API inventory, decommission `v1`/staging/demo routes, and re-test *old* endpoints against *current* authz rules.
 
 ---
 

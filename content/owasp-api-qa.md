@@ -31,6 +31,8 @@
 - **§API9 — Improper Inventory Management** (Q83–Q90)
 - **§API10 — Unsafe Consumption of APIs** (Q91–Q97)
 - **§XC — Cross-category chaining & reporting** (Q98–Q104)
+- **§RW — Verified real-world case studies (per category)** (Q105–Q114)
+- **§SD — Scenario drill (you're testing an API, what now?)** (Q115–Q124)
 
 > Each `§APIx` block runs in the same order: **Core → How to test → Red-team / escalation → Interview → Prevention.**
 
@@ -554,3 +556,75 @@ Use the **API Top 10** when the target is an API surface (mobile/SPA backend, pa
 
 ### Q104. The one meta-lesson of the API Top 10?
 **Authenticate once, authorize every time — at the object, function, and property level.** APIs hand attackers the IDs and endpoints directly, with no UI to hide behind, so a valid token is not permission. Enumerate the whole surface (including shadow/old versions), run the two-account differential on every object and function, and treat both client input *and* upstream-API data as untrusted.
+
+---
+
+# §RW — VERIFIED REAL-WORLD CASE STUDIES (per category)
+
+> One documented, named breach per API-Top-10 category — APIs make these unusually clean, because the flaw is usually *one missing check on one endpoint* that automation turns into millions of records. (Deep-dives for several are in the reference doc's Appendix.)
+
+### Q105. API1 (BOLA) — the canonical case?
+**T-Mobile (Jan 2023)** — a customer API with **no authorization on the object reference** (and no rate limiting) let an attacker loop over identifiers and exfiltrate **~37 million** accounts (names, addresses, DOB, account/plan data), undetected for ~6 weeks. One un-checked `{id}` + a loop = a mass breach — which is why BOLA is API1.
+
+### Q106. API2 (Broken Authentication) — the headline case?
+**Optus (2022)** — the endpoint `/users/{userId}` had become internet-facing while a 2018 coding error left its access control ineffective, so it required **no authentication**; sequential IDs let attackers scrape **~9.8 million** customers (2.1M with passport/licence/Medicare numbers). "No auth on the endpoint" is the purest broken-authentication failure.
+
+### Q107. API3 (BOPLA) — the textbook case?
+**GitHub / Egor Homakov (2012)** — Rails auto-bound request params to model attributes, so a crafted `public_key[user_id]` let Homakov add his SSH key to the **rails/rails** org and push a (benign) commit. The write-side of BOPLA — **mass assignment**; the read-side is APIs returning full objects (password hashes/PII) hidden only by the UI.
+
+### Q108. API4 (Unrestricted Resource Consumption) — a named case?
+**Experian partner-API (2021, Bill Demirkapi)** — an API returning anyone's credit score from name + address had **no rate limiting or resource controls** (OWASP maps it to "Lack of Resources & Rate Limiting"), so it could be scripted to bulk-harvest scores. Also the denial-of-wallet variant: unbounded SMS/email/paid-API calls.
+
+### Q109. API5 (BFLA) — a documented case?
+**John Deere Operations Center (2021, Sick Codes, DEF CON 29)** — a low-privilege **demo developer account** could call the VIN API to read other owners' data, and chained authorization flaws reached **admin/root** on the platform and the Pega CRM backend. BFLA = a valid low-priv identity reaching high-priv *functions*.
+
+### Q110. API6 (Sensitive Business Flows) — the case everyone saw?
+**Ticketmaster / Taylor Swift "Eras" presale (Nov 2022)** — bots and industrial-scale scalping drove **3.5 billion** requests (4× prior peak); 14M hit a flow built for 1.5M verified fans, collapsing the sale and pushing resale to ~70× face value. The flow worked as coded — it just had **no anti-automation**.
+
+### Q111. API7 (SSRF) — the archetype?
+**Capital One (2019)** — an SSRF on a misconfigured WAF reached EC2 metadata (IMDSv1), stole an over-privileged IAM role, and dumped **~106 million** applicants from S3; the reason AWS built IMDSv2. Server-side fetch reaches *inside* the perimeter.
+
+### Q112. API8 (Security Misconfiguration) — a named case?
+**Microsoft Power Apps (2021)** — the OData list API was **public by default** on misconfigured portals, exposing **~38 million** records (SSNs, COVID contact-tracing PII) across 47+ orgs; Microsoft first called it "by design," then shipped a secure default.
+
+### Q113. API9 (Improper Inventory Management) — the "old API" case?
+**JustDial (2019)** — an old, unused endpoint (live since ~2015, still wired to the prod DB) required no auth and exposed **~100 million** users' PII; a sibling zombie endpoint let anyone trigger OTPs for any number. Your attack surface includes every version and every forgotten route.
+
+### Q114. API10 (Unsafe Consumption) — why is a clean named case rare, and what's the pattern?
+API10 is the newest category with the fewest neatly-attributable breaches; the danger is a **pattern** — trusting an integrated API's data more than user input. Documented shapes: blindly **following a redirect** from a third-party API into `169.254.169.254`/internal (SSRF via consumption); piping upstream JSON/XML into a **SQL/HTML/command sink**; unsafe **webhook** processing. The macro version is the supply-chain wave (Codecov/3CX/SolarWinds) — downstream trusting a compromised upstream.
+
+---
+
+# §SD — SCENARIO DRILL (you're testing an API — what now?)
+
+> "You see X → do Y," mapped to the API buckets. Each answer is the decision + the concrete next move.
+
+### Q115. `GET /api/users/1337` returns your profile. First move?
+**API1/BOLA.** Grab a second account (B), capture B's token, and request A's `1337` with B's session — success = broken object authz. Confirm it's not a shared/public object (baseline: does the value differ per user?). Then enumerate a bounded, benign range to show scale, and reach a higher-value object (admin/other-tenant). Report "as B I read A's object 1337," CWE-639.
+
+### Q116. An endpoint answers the same with and without the `Authorization` header. Move?
+**API2.** That endpoint has **no authentication** — the most damaging API bug. Strip the token entirely and re-run the whole flow; if it still returns data, it's Optus-class. Enumerate object IDs (sequential? UUID harvested elsewhere?) and quantify records exposed. Critical; CWE-306 (missing auth).
+
+### Q117. A JSON update accepts fields the client never sends (`role`, `credit`, `verified`). Move?
+**API3/BOPLA (mass assignment).** Add the hidden fields to your PATCH/PUT (`"role":"admin"`) and check they actually **persist** server-side (re-GET the object). If they stick → privilege escalation / value tampering. Also check the read-side: does the response include fields the UI hides (hashes, PII, internal flags)? CWE-915.
+
+### Q118. Login/OTP has no lockout and responses are fast. Move?
+**API4 + API2.** Test rate limiting on the sensitive flow: can you send hundreds of OTP/login attempts? If so → brute-force ATO. Also probe denial-of-wallet (unbounded SMS/email), `limit=<huge>` pagination, and GraphQL depth/batching. Keep it bounded/benign; report the missing control, not a real DoS.
+
+### Q119. As a normal user, you find `/api/admin/*` or an admin GraphQL mutation. Move?
+**API5/BFLA.** Call the privileged function with your low-priv token; if it executes → broken function-level authz. Try **verb tampering** (GET→POST/PUT/DELETE) and method-override headers on 403s. Test from a *demo/partner* account too (John Deere lesson). Prove one privileged action (e.g., create a second admin you control), then stop.
+
+### Q120. There's a checkout / signup / referral flow with real economic value. Move?
+**API6.** Script the flow (bounded, your own accounts) to show it has **no anti-automation**: can one identity buy/redeem/claim unlimited times, or can you parallelize past intended limits? Demonstrate the abuse economics (scalping, bonus farming, inventory hoarding) without harming the live service. The fix is abuse resistance, not a code patch.
+
+### Q121. A field takes a URL — webhook, image-import, PDF-from-URL, `?url=`. Move?
+**API7/SSRF.** Point it at your Collaborator (confirm the server fetches it), then at `http://169.254.169.254/latest/meta-data/iam/security-credentials/` (IMDSv1 → creds, the Capital One path); if IMDSv2 blocks you, pivot to internal port-scanning / service reach. Validate creds once, stop. CWE-918, Critical when it hits identity/data.
+
+### Q122. Swagger/OpenAPI or JS reveals `/v1/` routes while the app uses `/v3/`. Move?
+**API9.** Test the **old** endpoints against **current** authz — deprecated versions often skip new checks (BOLA/BFLA that's fixed in v3 may be live in v1). Brute API routes (`kiterunner`/`ffuf`), mine JS/mobile for hosts, and hunt staging/demo subdomains with prod data (JustDial lesson). The "old API" is a recurring high-severity find.
+
+### Q123. Your API integrates a third-party API and reflects its data. Move?
+**API10.** Treat the upstream as untrusted: can you influence what it returns (a webhook you register, an OAuth `userinfo` from an IdP you control)? Trace where that data lands — a SQL/HTML/command sink (injection via consumption) or a redirect the app auto-follows into internal services (SSRF). Prove one benign sink hit; recommend validation + no redirect-following.
+
+### Q124. Everything's authenticated and rate-limited — where do you still look?
+The authorization layers the perimeter doesn't cover: **BOLA** (object-level — a valid token still shouldn't read object 1337), **BFLA** (function-level — a valid user still shouldn't call admin), **BOPLA** (property-level — a valid update still shouldn't set `role`), plus **shadow/old versions** (API9) and **SSRF** (API7, server-side fetch bypasses the client perimeter). Authentication being solid just pushes every bug into *authorization* — which is exactly where the two-account differential lives.
