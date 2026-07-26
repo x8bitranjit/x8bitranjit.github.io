@@ -1,5 +1,7 @@
 # Server-Side Request Forgery (SSRF) — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for SSRF: from "what is it" to cloud-account takeover, gopher-to-RCE, blind exfiltration, and filter-bypass mastery. Q&A format, progressive difficulty, written as **"IF this → THEN that"** decision logic. Includes tools, payloads, methodology, real-world references, **and** defense + bypass.
 >
 > ⚖️ **Authorized use only.** For bug bounty (in-scope), sanctioned pentests, CTFs, and learning. SSRF reaches *internal* systems and *cloud credentials* — stay strictly within scope; reading cloud metadata or pivoting internally can exceed program rules. Confirm with a benign OAST callback first; don't dump production data.
@@ -739,6 +741,78 @@ Because of **encodings** (decimal/octal/hex/IPv6-mapped), **DNS names** resolvin
 
 ### Q106. One-paragraph summary to quote in a report.
 *"SSRF defense must validate the destination the server will actually connect to — not the URL string. Allowlist permitted hosts/schemes/ports, resolve the name and reject any private/loopback/link-local/metadata IP, then pin and connect to that exact IP to defeat DNS rebinding; disable non-HTTP schemes and redirect-following; never echo fetched responses; and enforce network egress controls so the fetcher cannot reach `169.254.169.254` or internal admin services. On AWS, require IMDSv2 with hop-limit 1 and least-privilege instance roles. Also close the secondary vectors (XXE, ImageMagick/SVG, HTML-to-PDF, Host-header routing). A single unvalidated server-side fetch can escalate from a benign URL to internal RCE or full cloud-account takeover — as Capital One demonstrated."*
+
+---
+
+# LEVEL 7 — INTERVIEW (explain it out loud)
+
+> Crisp, senior-sounding answers for an AppSec/pentest interview or a bounty-team screen. SSRF is a cloud-era favorite because it forces you to reason about *network position*, not just a payload.
+
+### Q107. In one sentence, what is SSRF and why is it a cloud-era Critical?
+SSRF is making a **server** send an HTTP (or gopher/file/…) request to a destination **you** choose — so you borrow the server's **network position** to reach things you can't: localhost admin panels, internal services, and the **cloud metadata endpoint** that hands out IAM credentials. It's a cloud-era Critical because that one fetch can become **full cloud-account compromise** (Capital One) or the **front door of an RCE chain** (Exchange ProxyLogon).
+
+### Q108. What actually makes SSRF a *finding* — and what's just noise?
+A finding = the server **reached somewhere it shouldn't AND you obtained something real** there (IAM creds, internal data, a file, RCE, an internal service response). Noise = an OAST callback proving only that the server fetched an *external* URL with no inward reach — that "callback ≠ impact" and is often **Low or a non-issue**. The whole game is escalating from "it fetched my URL" to "it fetched *the metadata endpoint* and gave me the creds."
+
+### Q109. How do you confirm SSRF, and why is the source IP the key detail?
+Point the sink at an **OOB host** (Burp Collaborator / interactsh) and watch for a DNS+HTTP hit. The critical detail is the **source IP**: if the callback comes from the **server's** IP (or a cloud egress IP), it's genuine server-side SSRF; if it comes from *your* IP, the "fetch" happened client-side and it's **not SSRF**. The callback is both your confirmation and your evidence — most real SSRF is blind, so set OOB up first.
+
+### Q110. Walk me through SSRF → AWS credentials, including the IMDSv2 wrinkle.
+Reach `http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>`. On **IMDSv1** a plain GET returns the creds — no header needed (that's the Capital One path). On **IMDSv2** you must first **`PUT /latest/api/token`** and echo the returned token in an `X-aws-ec2-metadata-token` header on the GET — and a plain URL-fetch **can't add headers**, so you need `gopher://` or a redirect that scripts the two-step handshake. If you can't clear that bar, report the confirmed metadata *reach* honestly instead of claiming creds you never got.
+
+### Q111. Name the SSRF filter-bypass families.
+**IP obfuscation** (decimal `2852039166`, octal, hex, IPv6-mapped `[::ffff:169.254.169.254]`); **parser confusion** (`http://allowed.com@169.254.169.254/`, `#`, `\`, `allowed.com.evil.com`); **DNS** (a name that resolves to an internal IP, or **DNS rebinding** to beat a resolve-then-fetch TOCTOU allowlist); **redirects** (your 302 → internal/metadata); and **scheme/protocol** swaps (`gopher://`, `file://`, `dict://`). The root cause they all exploit: the validator and the HTTP client disagree about "the destination."
+
+### Q112. Why is "validate the URL string" a broken defense, and what's the right control?
+Because strings lie: encodings, DNS names, rebinding, redirects, and parser differentials all make the string say `allowed.com` while the socket connects to `169.254.169.254`. The robust control is **resolve the hostname → check the *actual IP* against private/loopback/link-local ranges → pin and connect to that exact IP** (so it can't rebind), plus an allowlist of hosts/schemes/ports and **no redirect-following**. Defense must validate the destination you'll *connect to*, not the text you were *given*.
+
+### Q113. How does SSRF become RCE (not just data disclosure)?
+Via **gopher://**, which lets you send arbitrary bytes to a TCP service — so you speak a backend protocol directly. The classic is **Redis**: `gopher://127.0.0.1:6379/_` with `CONFIG SET`/`SAVE` to write a cron job or a webshell → RCE. Other targets: FastCGI/PHP-FPM, unauthenticated Jenkins (`/script`), internal registries, the Kubernetes API. And chained (ProxyLogon), SSRF is simply the authenticated *reach* that a later file-write turns into a shell.
+
+### Q114. Blind SSRF with no response body — how do you still get impact?
+Several ways: **time-based port scanning** (fast reject vs slow hang reveals open internal ports); **side-effecting** endpoints (a gopher Redis write you later verify); **feature reflection** — a **PDF/screenshot** generator renders `<iframe src=http://169.254.169.254/…>` and `<img src=file://…>` **into the document**, giving you in-band metadata + file read from a "blind" sink; **DNS exfiltration** (encode data into a subdomain the server resolves); and **second-order** (a stored URL fetched later by a back-office worker with more reach).
+
+### Q115. Where do SSRF sinks hide besides `?url=`?
+Anywhere the server fetches on your behalf: **webhooks**, **"import from URL"/"test connection"**, **HTML-to-PDF / screenshot** renderers, **image/media proxies & thumbnailers** (ImageMagick/ffmpeg), **XML/SVG** parsers (XXE→SSRF), **OIDC/SAML** (`request_uri`/`jwks_uri`/metadata URLs), **link-preview/unfurl** features, and **request headers** (`Host`, `X-Forwarded-Host`, `Referer`, `True-Client-IP`). Also known **product endpoints** — Jira's `makeRequest` (CVE-2019-8451) is a pre-auth SSRF you get just by fingerprinting the product.
+
+### Q116. Two accounts / production discipline — what are the SSRF-specific rules?
+SSRF *reaches real internal systems and live cloud creds*, so restraint is mandatory: confirm with a **benign OAST** callback; for metadata, prove with a **read-only `aws sts get-caller-identity`** and **stop** — do not `s3 ls`, read other tenants' data, or pivot across the account; don't port-scan the whole internal range destructively; and if you retrieve creds, they're short-lived — note it, don't persist. Reading production internal data or looting buckets can exceed program scope even when the SSRF is in scope.
+
+### Q117. External-only SSRF — is it worth reporting, and at what severity?
+Sometimes, but honestly. If the server will fetch *arbitrary external* URLs but you can prove **no** internal/localhost/metadata reach, it's typically **Low** (SSRF-for-phishing/port-scan-of-external, or a building block). Report it as what it is, and try harder to demonstrate inward reach (encodings, redirect, rebinding) before assigning severity — the difference between Low and Critical is entirely *where it lands*, so invest in proving the landing.
+
+### Q118. Rapid fire.
+**Callback from YOUR IP?** → not SSRF (client-side fetch). **IMDSv2 blocks a plain GET?** → gopher/redirect for the token, or report reach honestly. **CWE?** → **CWE-918** (CWE-611 for XXE→SSRF). **`gopher://`?** → send raw bytes to internal TCP (Redis→RCE). **Best benign cloud proof?** → `sts get-caller-identity`, then stop. **PDF export field?** → `<iframe>` metadata + `<img file://>` = in-band read. **Blocked `169.254.169.254`?** → decimal `2852039166` / redirect / rebinding.
+
+---
+
+# LEVEL 8 — SCENARIO (walk me through it)
+
+> "Here's the behavior — what do you do?" End-to-end reasoning from a probe to a proven Critical (or an honest downgrade). Full worked run: guide **Appendix D**.
+
+### Q119. A webhook `url` field returns "delivered" and your OAST logs a hit from the server's IP. First moves?
+SSRF confirmed (server-side — the hit came from the server's IP, not mine). But that's *reach*, not impact, so I push inward: try `127.0.0.1`, internal ranges, and `http://169.254.169.254/latest/meta-data/`. If a filter blocks them, I walk the bypass ladder (decimal/octal IP, `@`/`#`, redirect, DNS rebinding). Goal = get from "fetches my external URL" (Low) to "fetches the metadata endpoint / an internal service" (Critical). I don't stop at the callback.
+
+### Q120. `169.254.169.254` is blocked by a denylist but `2852039166` returns metadata. Continue to creds — modern target.
+The denylist matched the dotted string; `2852039166` is the same IP as a 32-bit integer, which the HTTP client still resolves. I request `.../iam/security-credentials/`. If it's IMDSv1 I get the role name then the creds directly. If it returns "IMDSv2 required," a plain fetch can't add the token header — so I check whether the sink **follows redirects** (302 → a gopher that does the `PUT` token handshake) or gives request control for `gopher://`. Retrieve creds, then `sts get-caller-identity` read-only and stop.
+
+### Q121. You reach internal `127.0.0.1:6379` and it speaks Redis. Walk to RCE, safely.
+Redis on loopback, unauthenticated → **gopher → RCE**. First a **benign** proof I own it: `gopher://127.0.0.1:6379/_` with `SET ssrf-poc "<marker>"` then `INFO` — reading my marker back proves control without harm. To demonstrate RCE potential I'd describe (or, only on my own instance, execute) the `CONFIG SET dir`/`dbfilename` + `SAVE` webshell/cron technique. For a bug-bounty report the controlled-Redis proof + the documented RCE path is the Critical; I don't drop a real shell on someone's production Redis.
+
+### Q122. The only SSRF you can find is byte-identical whether the internal host is up or down. Prove internal reach.
+Fully blind → **timing + side effects**. Time-based port scan: a closed port rejects fast, an open/filtered one hangs — the latency delta maps internal reachability. If there's a PDF/screenshot feature, pivot to it (`<iframe src=http://169.254.169.254/…>` renders creds into the doc = in-band from a blind sink). Otherwise use DNS exfil (encode a probe result into a subdomain the server resolves) or a second-order sink. I pace scans to avoid hammering internal infra.
+
+### Q123. The app renders user HTML to a PDF. How is that an SSRF, and what's the highest-impact test?
+The PDF engine (headless Chrome / wkhtmltopdf) fetches resources referenced in the HTML — from the **server's** network position. So `<iframe src="http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>">` and `<img src="file:///etc/passwd">` make the **metadata creds and local files render into the PDF** — in-band exfil from what looks like a document feature. It's among the highest-impact, most reliable SSRF because the response comes back *to you in the PDF*. Test iframe-metadata + img-file:// first.
+
+### Q124. You retrieved live IAM creds. A teammate says "list the S3 buckets to show impact." Do you?
+No. `aws sts get-caller-identity` already proves you hold the instance's cloud identity — that **is** the Critical. Listing/reading buckets accesses real customer data, likely exceeds program scope, and adds legal risk for zero extra bounty (this is literally the Capital One harm). I prove the identity, note the role's Arn and the theoretical blast radius, recommend IMDSv2 + least-privilege, and stop. Restraint on cloud creds is non-negotiable (guide §23).
+
+### Q125. The fetcher resolves a hostname, checks it's public, then fetches it. How do you beat that (TOCTOU)?
+**DNS rebinding.** I control the DNS for `rebind.evil.com` and answer with two IPs on a short TTL: a **public** IP for the validator's resolution (passes the check), then flip the record to `169.254.169.254` (or an internal IP) for the *actual fetch* moments later. Because the app resolves twice — once to validate, once to connect — it validates the safe answer and connects to the malicious one. The fix is **resolve once, pin the IP, and connect to that exact IP** (guide §7).
+
+### Q126. Fingerprinting shows the target runs Jira 8.2. What's your first SSRF move and why?
+Jira 7.6.0–8.3.4 has **CVE-2019-8451**, a **pre-auth SSRF** in `/plugins/servlet/gadgets/makeRequest` (a `JiraWhitelist` logic bug). So before hunting bespoke sinks I test that known endpoint — a product/version banner can hand you an SSRF outright. I'd point `makeRequest` at my OOB host to confirm, then inward to internal services / metadata. This is the §3 recon lesson: fingerprint the product, because the SSRF may be a documented CVE rather than something you have to discover.
 
 ---
 
