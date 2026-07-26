@@ -81,7 +81,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Cross-tenant: tenant-scoped objects/RAG/storage reachable across tenants.
 ```
 
-**Real-world / examples.** **First American Financial (May 2019)** — a title-insurance app served documents at sequential, **unauthenticated** URLs; incrementing the document number in the link returned any other customer's file → **~885 million** records (SSNs, bank statements, wire receipts, driver's-license images) exposed with no login required. The textbook A01/IDOR at breach scale. Others: BOLA in APIs (the #1 API risk too); mass-assignment privilege escalation; JWT `role` tampering; admin panels reachable by forced browsing.
+**Real-world / examples.** **First American Financial (May 2019)** — a title-insurance app served documents at sequential, **unauthenticated** URLs; incrementing the document number in the link returned any other customer's file → **≈885 million** records (SSNs, bank statements, wire receipts, driver's-license images) exposed with no login required. The textbook A01/IDOR at breach scale. Others: BOLA in APIs (the #1 API risk too); mass-assignment privilege escalation; JWT `role` tampering; admin panels reachable by forced browsing.
 
 **Prevention.** Deny-by-default; enforce access control **server-side** on every request, per-object and per-function (never trust client-supplied identity/role); use unguessable references or ownership checks (not just obscurity); centralize authz; log access-control failures (A09); test authz systematically (two-account diffs).
 
@@ -109,7 +109,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Improper crypto in the app: ECB, static IVs, hardcoded keys, custom crypto (usually found via source/JS/mobile).
 ```
 
-**Real-world / examples.** **Adobe (2013)** — **153 million** account passwords were **encrypted (3DES in ECB mode) instead of hashed**, using the *same key* for everyone, with users' plaintext password *hints* stored right alongside; ECB's identical-input→identical-output revealed which accounts shared a password and the hints finished the job (~1.9M used "123456"). The canonical "encrypted ≠ safely stored" failure — encryption is reversible, password storage must be a slow one-way hash. Others: session tokens over HTTP; JWT with a weak/guessable secret; unsalted MD5 dumps cracked instantly; predictable password-reset tokens → ATO; API keys in JS bundles.
+**Real-world / examples.** **Adobe (2013)** — **153 million** account passwords were **encrypted (3DES in ECB mode) instead of hashed**, using the *same key* for everyone, with users' plaintext password *hints* stored right alongside; ECB's identical-input→identical-output revealed which accounts shared a password and the hints finished the job (≈1.9M used "123456"). The canonical "encrypted ≠ safely stored" failure — encryption is reversible, password storage must be a slow one-way hash. Others: session tokens over HTTP; JWT with a weak/guessable secret; unsalted MD5 dumps cracked instantly; predictable password-reset tokens → ATO; API keys in JS bundles.
 
 **Prevention.** TLS everywhere + HSTS; strong algorithms (AES-GCM, SHA-256+), proper KDFs (Argon2/bcrypt/scrypt/PBKDF2) for passwords; strong random for all security tokens; proper key management (rotation, hardware-backed, no hardcoding); classify + minimize sensitive data; don't return secrets in responses; validate certs.
 
@@ -194,7 +194,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ File-upload misconfig: unrestricted upload → webshell. → ../Web/FileUpload/
 ```
 
-**Real-world / examples.** **Microsoft Power Apps (2021)** — the OData list API was **public by default** whenever a portal was left misconfigured, so **~38 million** records (including SSNs and COVID-19 contact-tracing PII) across 47+ organisations were anonymously retrievable. Microsoft first classified it "by design," then shipped a *secure* default (table permissions on) — the archetypal insecure-default misconfiguration where the platform's safe setting was off. Others: XXE file-read/SSRF in XML APIs; open S3 buckets; exposed `.git`/`.env` → source+secrets; default admin creds; debug mode leaking secrets; permissive CORS enabling account data theft.
+**Real-world / examples.** **Microsoft Power Apps (2021)** — the OData list API was **public by default** whenever a portal was left misconfigured, so **≈38 million** records (including SSNs and COVID-19 contact-tracing PII) across 47+ organisations were anonymously retrievable. Microsoft first classified it "by design," then shipped a *secure* default (table permissions on) — the archetypal insecure-default misconfiguration where the platform's safe setting was off. Others: XXE file-read/SSRF in XML APIs; open S3 buckets; exposed `.git`/`.env` → source+secrets; default admin creds; debug mode leaking secrets; permissive CORS enabling account data theft.
 
 **Prevention.** Harden by default (no defaults, no debug in prod, minimal features/ports); disable XXE (disallow DOCTYPE/external entities); security headers (CSP, HSTS, X-Content-Type-Options, etc.); strict CORS + Host allow-list; lock down cloud storage; remove exposed VCS/config/backups; automated config review + drift detection.
 
@@ -222,7 +222,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Outdated components with CVEs: verify exploitability in-context (not just version-in-a-list).
 ```
 
-**Real-world / examples.** **Equifax (2017)** — an **unpatched Apache Struts** RCE (**CVE-2017-5638**, triggered by a malicious `Content-Type` header; the patch shipped the *same day* the CVE was disclosed) on the online-dispute portal was exploited just **3 days after the fix was available**; attackers dwelled ~2.5 months and exfiltrated **147.9 million** people's data. The definitive "known-vulnerable component, catalogued and left unpatched" case. Others: Log4Shell (Log4j RCE, mass-exploited); Spring4Shell RCE; deserialization RCE via known gadgets; vulnerable jQuery/AngularJS → XSS; typosquatted npm/PyPI packages.
+**Real-world / examples.** **Equifax (2017)** — an **unpatched Apache Struts** RCE (**CVE-2017-5638**, triggered by a malicious `Content-Type` header; the patch shipped the *same day* the CVE was disclosed) on the online-dispute portal was exploited just **3 days after the fix was available**; attackers dwelled ≈2.5 months and exfiltrated **147.9 million** people's data. The definitive "known-vulnerable component, catalogued and left unpatched" case. Others: Log4Shell (Log4j RCE, mass-exploited); Spring4Shell RCE; deserialization RCE via known gadgets; vulnerable jQuery/AngularJS → XSS; typosquatted npm/PyPI packages.
 
 **Prevention.** Inventory components (SBOM); patch/update continuously; monitor vulnerability feeds; remove unused dependencies; pin + verify (integrity); use SCA tooling in CI; subscribe to advisories for your stack.
 
@@ -332,7 +332,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
    (../AI/LLM/ LLM06), OAuth request_uri/JWKS (../Web/OAuth/).
 ```
 
-**Real-world / examples.** **Capital One (2019)** — Paige Thompson exploited an **SSRF** on a misconfigured WAF (ModSecurity) to reach the **EC2 metadata service** (IMDSv1), stole the instance's **over-privileged IAM role** credentials, and used them to list and dump **~106 million** applicants' data from S3 (SSNs, bank accounts). This breach is the direct reason AWS built **IMDSv2** (session-token-bound metadata). Others: SSRF-to-metadata IAM credential theft across cloud bug bounties; gopher-SSRF to Redis RCE; SSRF via image/PDF/URL-import features; redirect-based allow-list bypass.
+**Real-world / examples.** **Capital One (2019)** — Paige Thompson exploited an **SSRF** on a misconfigured WAF (ModSecurity) to reach the **EC2 metadata service** (IMDSv1), stole the instance's **over-privileged IAM role** credentials, and used them to list and dump **≈106 million** applicants' data from S3 (SSNs, bank accounts). This breach is the direct reason AWS built **IMDSv2** (session-token-bound metadata). Others: SSRF-to-metadata IAM credential theft across cloud bug bounties; gopher-SSRF to Redis RCE; SSRF via image/PDF/URL-import features; redirect-based allow-list bypass.
 
 **Prevention.** Don't fetch client-supplied URLs where avoidable; if you must, allow-list schemes/hosts/ports and **re-validate after redirects** (don't follow to non-allow-listed hosts); block internal ranges + metadata IPs at the network layer (egress filtering, IMDSv2); resolve+pin DNS to defeat rebinding; disable unused URL schemes (gopher/file/dict); isolate the fetcher.
 

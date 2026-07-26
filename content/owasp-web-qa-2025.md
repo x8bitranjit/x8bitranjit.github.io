@@ -619,13 +619,13 @@ Report the **concrete vuln + impact + CWE** (edition-independent), then give **b
 > One documented, named breach per 2025 category — the citation to drop when someone asks "has this actually happened?" (Full deep-dives for several of these are in the reference doc's Appendix.)
 
 ### Q115. A01 (Broken Access Control, incl. SSRF) — the canonical cases?
-**First American Financial (2019)** — a document viewer required **no login** and used **sequential IDs**, so incrementing the number in the URL exposed **~885 million** title files (SSNs, bank statements, DL images). And **Capital One (2019)** — an **SSRF** on a WAF reached EC2 metadata (IMDSv1), stole an over-privileged IAM role, and dumped **~106 million** applicants from S3 (SSRF is filed under A01 in 2025, and this breach is why AWS shipped IMDSv2).
+**First American Financial (2019)** — a document viewer required **no login** and used **sequential IDs**, so incrementing the number in the URL exposed **≈885 million** title files (SSNs, bank statements, DL images). And **Capital One (2019)** — an **SSRF** on a WAF reached EC2 metadata (IMDSv1), stole an over-privileged IAM role, and dumped **≈106 million** applicants from S3 (SSRF is filed under A01 in 2025, and this breach is why AWS shipped IMDSv2).
 
 ### Q116. A02 (Security Misconfiguration) — a headline case?
-**Microsoft Power Apps (2021)** — the OData list API was **public by default** on misconfigured portals, exposing **~38 million** records (SSNs, COVID contact-tracing data) across 47+ orgs. Microsoft initially called it "by design," then changed the default to secure — the textbook insecure-default misconfiguration.
+**Microsoft Power Apps (2021)** — the OData list API was **public by default** on misconfigured portals, exposing **≈38 million** records (SSNs, COVID contact-tracing data) across 47+ orgs. Microsoft initially called it "by design," then changed the default to secure — the textbook insecure-default misconfiguration.
 
 ### Q117. A03 (Software Supply Chain Failures) — the defining cases?
-**xz-utils / liblzma (CVE-2024-3094, 2024)** — a multi-year social-engineering takeover of a volunteer project planted an `sshd` backdoor (CVSS 10.0 pre-auth RCE) caught only because a Microsoft engineer noticed a ~500 ms slowdown. **Shai-Hulud (Sept 2025)** — the first **self-propagating npm worm**: it harvested tokens, exfiltrated to attacker GitHub repos, and auto-republished malware to every package the tokens could reach. Plus **SolarWinds (2020)** and Log4Shell (2021).
+**xz-utils / liblzma (CVE-2024-3094, 2024)** — a multi-year social-engineering takeover of a volunteer project planted an `sshd` backdoor (CVSS 10.0 pre-auth RCE) caught only because a Microsoft engineer noticed a ≈500 ms slowdown. **Shai-Hulud (Sept 2025)** — the first **self-propagating npm worm**: it harvested tokens, exfiltrated to attacker GitHub repos, and auto-republished malware to every package the tokens could reach. Plus **SolarWinds (2020)** and Log4Shell (2021).
 
 ### Q118. A04 (Cryptographic Failures) — the classic case?
 **Adobe (2013)** — **153 million** passwords **encrypted with 3DES-ECB (not hashed)**, same key for all, with plaintext hints stored alongside; ECB leaked which accounts shared a password and the hints did the rest. The permanent reminder that **encryption is reversible — password storage needs a slow one-way hash** (Argon2/bcrypt/scrypt).
@@ -646,7 +646,7 @@ Report the **concrete vuln + impact + CWE** (edition-independent), then give **b
 **Target (2013)** — FireEye **detected** the malware and fired alerts (even naming the exfil servers), but the team **ignored** them and auto-eradicate was off; **40 million** cards were stolen and the CEO+CIO resigned. Detection without a response = no detection — which is why 2025 puts "**Alerting**" in the category name.
 
 ### Q124. A10 (Mishandling of Exceptional Conditions) — the defining case?
-**CrowdStrike Falcon (Jul 2024)** — a content update (Channel File 291) fed the kernel sensor data it couldn't validate; the resulting **out-of-bounds read** wasn't handled gracefully and BSOD-bootlooped **~8.5 million** Windows machines worldwide. The purest A10 lesson: exceptional conditions must **fail safely and locally**, not catastrophically. The security-relevant cousin is failing **open** (an authz exception that defaults to "allow", CWE-636).
+**CrowdStrike Falcon (Jul 2024)** — a content update (Channel File 291) fed the kernel sensor data it couldn't validate; the resulting **out-of-bounds read** wasn't handled gracefully and BSOD-bootlooped **≈8.5 million** Windows machines worldwide. The purest A10 lesson: exceptional conditions must **fail safely and locally**, not catastrophically. The security-relevant cousin is failing **open** (an authz exception that defaults to "allow", CWE-636).
 
 ---
 

