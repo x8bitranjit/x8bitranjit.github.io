@@ -1,5 +1,7 @@
 # JavaScript Files / Client-Side Recon — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **mining client-side JavaScript** — from "why JS matters" to the
 > expert chains (leaked cloud key → RCE, DOM XSS → ATO, hidden admin API → privilege escalation, source-map → full
 > source recovery). Q&A format, progressive difficulty. Covers harvesting, deobfuscation, bundle internals, source
@@ -33,6 +35,8 @@
 - **Cheat sheets** (Q96–Q98)
 - **Real-world patterns & references** (Q99)
 - **Defense — securing client-side JS** (Q100)
+- **Level 7 — Interview questions** (Q101–Q112)
+- **Level 8 — Scenario-based questions** (Q113–Q120)
 
 ---
 
@@ -518,6 +522,78 @@ curl -s 'https://<proj>.firebaseio.com/.json'                               # Fi
 **Controls:** never ship server/cloud/CI secrets to the client — keep them server-side and proxy; use only **publishable/restricted** keys in the browser, locked to origin/referrer; **don't deploy source maps to production** (or access-restrict them); **enforce authorization server-side** on every endpoint (never trust client-side gates or feature flags); store session tokens in **HttpOnly cookies**, not localStorage; use **`textContent`/safe templating** and a **sanitizer + Trusted Types** instead of `innerHTML`; **validate `event.origin`** on every `message` handler and never `postMessage` secrets with `'*'`; **freeze prototypes / use null-proto objects** to kill prototype pollution; claim your internal **npm scopes**; rotate any leaked key immediately; and run **CI secret scanning** (gitleaks/trufflehog) to prevent regressions.
 
 > *"The frontend is source code you publish. Treat every secret, endpoint, role, and flag in your JS as known to the attacker: keep real secrets off the client, ship no production source maps, enforce every authorization decision on the server, encode all DOM output and validate every message origin, and freeze your prototypes. A single shipped cloud key, an unguarded admin route the bundle reveals, or one origin-less postMessage handler can turn 'just JavaScript' into cloud compromise or account takeover."*
+
+---
+
+# LEVEL 7 — INTERVIEW QUESTIONS
+
+> *The questions a senior interviewer or triage lead actually asks. Say the crisp version out loud; each layers plain → mechanism → practical.*
+
+### Q101. Explain JS recon to someone non-technical in three sentences.
+To work in your browser, a website ships you its whole program as JavaScript — the app's own blueprint, handed to every visitor at the door. That blueprint lists every door the app can open (API endpoints), sometimes a keypad code someone forgot to erase (a secret), and occasionally the architect's fully-labelled drawings (a source map). JS recon is reading that blueprint like a burglar reads a floor-plan — but the finding is never "I found a blueprint," it's "the blueprint showed an unlocked vault and I opened it."
+
+### Q102. What's the single most common JS report that gets closed as Informational, and why?
+"I found an API key in the JavaScript" where the key is a **public client key** — a Google Maps/Firebase `AIza…`, a Stripe **publishable** `pk_live_…`, or a Sentry DSN. Those are *designed* to live in client code: domain-restricted and non-privileged. Mechanism: they identify a project or a client, they don't authenticate a privileged action. The fix is discipline — **validate the key does something privileged before reporting** (§10); a raw match is a lead, not a finding.
+
+### Q103. A junior says "the Firebase apiKey is exposed, that's Critical." How do you correct them?
+Gently: the Firebase web `apiKey` is **public by design** — it names the project and grants no access on its own, so the key alone is Informational. The *actual* bug is one level deeper: **misconfigured security rules** that let anyone read/write the Firestore/Realtime DB/Storage the config points at. So don't report the key — use it to test `/.json` unauthenticated read/write, and if the database answers, *that* (exposed user data / anonymous write) is the finding, with the impact demonstrated.
+
+### Q104. Why is a source map such a big deal, and how do you find one?
+A minified bundle is the blueprint with every label scrubbed off (`_0x4f2a` instead of `checkAdminPassword`). A **source map** is the developers' original labelled drawing — they upload it to debug and often forget to strip it from production. Find it via `//# sourceMappingURL=…` at the end of a bundle, but **try `<bundle>.js.map` even when nothing references it**, and note Chrome DevTools auto-loads it. Its value isn't the map — it's that you then re-mine the *original commented source* (TODO-secret comments, dead admin code, real server keys) at far higher signal than the minified text.
+
+### Q105. Why do you always harvest historical JS, not just what's live?
+Because old bundles are gold. Teams "rotate" a leaked key by editing the code but frequently never actually **revoke** it server-side, and they delete features from the UI without removing the endpoints — so an archived bundle from `gau`/`waybackurls` often hands you a still-live key or a still-answering `/api/…` route that the current site hides. Diffing current vs archived JS is one of the highest-yield, lowest-noise recon moves there is.
+
+### Q106. How do you decide whether a leaked secret is Critical or noise?
+Three questions, in order (§10): **Is it live?** (one read-only call that returns identity — `aws sts get-caller-identity`, `GET /user`, `/balance`). **Is it privileged?** (a server/secret key, not a public client key.) **What's its scope?** (read / write / admin / cross-tenant.) The severity ladder then follows the *scope*: a live cloud/CI/signing secret that reaches code-exec or forged auth is Critical; a live-but-read-only third-party key is lower. No live+privileged proof → it's a lead, not a finding.
+
+### Q107. Why is a `postMessage` handler with no origin check a bug you can only find by reading JS?
+Because there's nothing to fuzz — the vulnerability is a *missing* check in the code. You read the JS, find `window.addEventListener('message', e => { … e.data … })` with **no `if (e.origin === …)` guard**, and trace `e.data` into a sink like `innerHTML` or `eval`. If it flows unfiltered, any page that frames or `window.open`s the target can post a script payload and run it in the target's origin — cross-origin DOM-XSS → ATO of any logged-in visitor, no server bug required.
+
+### Q108. Compare a regex-based secret scanner with an AST-based one like JSluice. Why does it matter?
+A regex matches flat text, so it misses secrets and endpoints the bundle **builds at runtime** — `base + "/api/" + version` or a key assembled by concatenation. JSluice (BishopFox, 2023) parses the JS into a **tree-sitter AST**, so it understands string concatenation and resolves the real URL/value (substituting `EXPR` for genuinely unknowable pieces). Practically: run both — regex for speed and known key formats, AST (`jsluice`, `ast-grep`) to recover the dynamic endpoints and sinks a regex silently skips.
+
+### Q109. "We minify and obfuscate our JS, so reverse-engineering it isn't a real risk." Rebut that.
+Minification is not a security control — it's compression. `webcrack`/`synchrony` reverse `obfuscator.io` string-arrays and control-flow flattening in seconds, `js-beautify` re-indents, and if a source map shipped, the *original* code comes back verbatim. Everything in the bundle — endpoints, keys, role logic — is present, just harder to read for a minute. Security has to live on the **server** (real secrets off the client, authorization enforced server-side); obfuscation only buys the attacker a coffee's worth of delay.
+
+### Q110. Where does JS recon fit relative to the other bug classes — is it its own vuln?
+Mostly it's a **force-multiplier / hub**, not a standalone class. Reading JS *finds* the input for other kits: a live cloud key → the SSRF/cloud-RCE path, a hidden admin route → IDOR/authz, a URL param → SSRF, a JWT secret → token forgery. The exceptions that *are* self-contained JS bugs are the **client-side** ones — DOM-XSS from a source→sink flow, and prototype pollution — which you find by reading and exploit with no server bug at all.
+
+### Q111. What's your SAFE-PoC discipline for a live cloud key on a bug-bounty target?
+Prove **access read-only, then stop**: one `aws sts get-caller-identity` returns the principal ARN — that's a complete Critical without touching a byte of customer data. I do **not** enumerate S3, read secrets, assume roles, or call any write API. In the report I **name the ceiling** ("this prod IAM identity typically reaches SSM/Lambda run-command = cloud shell") backed by the identity proof, redact the key (prefix + length + the validation response), and recommend immediate rotation. Code-exec is demonstrated only on my *own* tenant, never theirs.
+
+### Q112. Rapid-fire curveballs: (a) key works in `curl` but the app is on HTTPS — does that matter? (b) the JS references `/admin` — is that a finding? (c) you found the same AWS key in 8 bundles — how many reports?
+(a) No — the inbound TLS is irrelevant; what matters is that the **key** authenticates to its service. (b) No — *mentioning* a path isn't access; it's only a finding if the server fails to enforce authz when you actually call it. (c) **One** — same root-cause secret = one report; list the occurrences, lead with the validated proof, don't split "found it" from "exploited it."
+
+---
+
+# LEVEL 8 — SCENARIO-BASED QUESTIONS
+
+> *You're handed a situation — decide the next move and the severity. Worked, concrete answers.*
+
+### Q113. Scenario: `secret_scan.py` returns an `AIzaSy…` Google key, a `pk_live_…` Stripe key, and a Sentry DSN. What do you report?
+**Nothing from that list — yet.** All three are public-by-design client keys (§17 rows 1–3): the Google key is domain-restricted, the Stripe `pk_` is *publishable* (can't charge or read — the secret key is `sk_`), the Sentry DSN belongs in client code. Filing these is the #1 way to get closed Informational. Instead, treat the miss as a signal: the *real* secret isn't in the minified bundle → go pull the **source map** (§9) and re-mine the recovered original source, which is where the server key usually hides.
+
+### Q114. Scenario: `curl -w '%{http_code}' https://app.target.com/static/js/main.7f3a9c.js.map` returns `200`. Walk me through the next five minutes.
+Jackpot — the production map shipped. Unpack it (`sourcemap_unpack.py` / `unwebpack-sourcemap`) to rebuild the `src/` tree, then `grep -RniE '(secret|password|token|api[_-]?key|internal|admin|TODO|FIXME)'` over the **recovered** source. Read the config files and the router table first. You're hunting the three highest-value reveals: a real server/cloud secret next to a dev comment, dead/hidden admin code, and internal hostnames. Then validate any secret read-only (§10) and chase the highest thing it unlocks — the §11.1 chain.
+
+### Q115. Scenario: you recover `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY` from the source map. How do you prove Critical without crossing a line?
+One command: `aws sts get-caller-identity`. A 200 with an ARN like `arn:aws:iam::…:user/app-prod-backend` proves the key is **live and privileged** — a complete Critical — while reading zero customer data. Then **stop and name the ceiling** in the report (a prod backend identity typically reaches SSM `SendCommand`/Lambda = cloud shell/RCE), redact the key, and recommend rotation. I never enumerate buckets, list secrets, or call a write API on their account; any actual code-exec proof happens only on my own resource.
+
+### Q116. Scenario: the bundle reveals `/api/internal/admin/export`, not linked anywhere in the UI. What do you do, and what's the severity?
+Call it directly with my **normal, low-privilege** session and see what happens. If it returns `200` with an admin-only CSV, the server never enforced authorization on the route the UI simply hides — **broken access control** (CWE-862), Medium–High, Critical if it enables account/admin takeover. Proof is a single request showing the unauthorized response; I do **not** exfiltrate the whole dataset — one own-vs-own demonstration is the finding. "Security by not linking it" is not access control.
+
+### Q117. Scenario: you read `el.innerHTML = new URLSearchParams(location.search).get('msg')` in a bundle. Is it exploitable, and how do you prove it safely?
+It's a textbook DOM-XSS source→sink: attacker-controlled `location.search` flows unfiltered into `innerHTML`. Confirm control and context, then fire a **benign marker** first — `?msg=<img src=x onerror=alert(document.domain)>` — and check it executes (mind CSP / Trusted Types, which may block it). If it fires, escalate to session/token theft **on my own account only** to demonstrate ATO (cross-ref the XSS kit). Severity High. If CSP/Trusted Types blocks execution, I note the sink but don't claim XSS without a firing PoC.
+
+### Q118. Scenario: an old Wayback bundle from 2 years ago contains a `ghp_…` GitHub token; the current bundle doesn't. Dead lead?
+Not until you check. "Removed from the current code" ≠ "revoked." Validate read-only: `curl -s -H "Authorization: token ghp_…" https://api.github.com/user` — a 200 shows the account and, crucially, the **scopes**. If it's live with `repo`/`workflow` scope, that's a supply-chain Critical (a malicious Action/pipeline on a repo *I* own proves code-exec). This is exactly why historical harvesting is first-class: the rotated-but-live secret is a recurring, high-value pattern.
+
+### Q119. Scenario: you find `lodash.merge(config, JSON.parse(location.hash.slice(1)))` in the JS. What class is this, how do you confirm it, and how far can it go?
+Recursive merge of attacker-controlled JSON into an object = **prototype pollution** (§13). Confirm in the console: load `#{"__proto__":{"polluted":"yes"}}`, then check `({}).polluted === 'yes'`. Client-side, chain it to a **gadget** — a library that reads an undefined config off a plain object (a template/sanitizer option) you polluted to inject markup → DOM-XSS (High). If the same pattern exists **server-side** (a JSON body merged into config in Node) plus a gadget reaching `child_process`/template/`require`, it's **RCE (Critical)**. Identify the exact library + version from the JS to pick the known gadget.
+
+### Q120. Scenario: your scanner dumps 40 secret matches. The clock's ticking before you submit. How do you triage to avoid a junk report?
+Ruthless prioritization by the §10 questions. First **kill the public-key FPs** (AIza/pk_/DSN/reCAPTCHA/GA) — that removes most of the 40. Of what remains, run **read-only liveness** only on the server/cloud/CI/signing/DB candidates (`get-caller-identity`, `/user`, `/balance`, `auth.test`) — `trufflehog --only-verified` can pre-filter. Report **only** the ones that come back live + privileged, deduped by root cause, each with its redacted validation proof and the impact it unlocks. A wall of 40 unvalidated matches is the fastest route to "Informational / N/A"; one validated cloud key is a Critical.
 
 ---
 

