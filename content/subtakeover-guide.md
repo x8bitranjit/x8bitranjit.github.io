@@ -57,11 +57,13 @@
 19. [Building a Professional, Safe PoC](#19-building-a-professional-safe-poc)
 20. [Reporting, CWE/CVSS & De-duplication](#20-reporting-cwecvss--de-duplication)
 21. [Automation & Red-Team Notes](#21-automation--red-team-notes)
+22. [Real-World Case Studies (Verified)](#22-real-world-case-studies-verified)
 
 **Appendices**
 - [Appendix A — Subdomain-Takeover Workflow Cheat Sheet](#appendix-a--subdomain-takeover-workflow-cheat-sheet)
 - [Appendix B — Subdomain-Takeover Decision Tree](#appendix-b--subdomain-takeover-decision-tree)
 - [Appendix C — Important Links & References](#appendix-c--important-links--references)
+- [Appendix D — Worked End-to-End Transcript (dangling CNAME → claim → session ATO)](#appendix-d--worked-end-to-end-transcript-dangling-cname--claim--session-ato)
 
 ---
 
@@ -127,9 +129,12 @@ python3 poc/subtakeover_scan.py -l subs.txt        # our resolver + fingerprint 
 # 2. Subdomain-Takeover Anatomy
 
 ## 2.1 What it is
+> 🔰 **In plain words — the anchor for this whole kit.** Picture a company that hangs a sign on its **own front door**: *"Our shop is now at Booth 14 in the mall."* Later they close Booth 14 but **never take the sign down**. Booth 14 sits empty, and the mall rents it to whoever asks. **You** rent Booth 14. Now the company's own sign — on the company's own trusted building — sends every customer straight to *you*, and they arrive carrying their loyalty cards (**cookies**) and door keys (**auth tokens**) because they trust the sign. That's a subdomain takeover: the **DNS record** is the sign (`shop.target.com`), the **third-party service** (S3 bucket / Heroku app / GitHub Pages) is the mall booth, **claiming** it is renting the empty booth, and the **whole prize is that the sign lives on the target's trusted address** — not the booth itself. An empty booth is worthless; an empty booth that the target's own trusted signpost points at is a Critical.
+
 The target created a DNS record — usually a **`CNAME`** — pointing a subdomain (`shop.target.com`) at a third-party service (`target-shop.myshopify.com`, `s3.amazonaws.com`, `target.github.io`, `target.herokuapp.com`). Later the service resource is **deleted or de-provisioned**, but **the DNS record is left behind ("dangling")**. Because the provider lets *anyone* register that exact resource name, **you** create it → the subdomain now resolves to **your** content. It's the DNS/cloud member of the **"dangling reference to an unowned resource"** family.
 
 ## 2.2 The record types that matter (decides the attack)
+> **In plain words:** not all abandoned signs are equal — *what kind* of sign decides how big the win is. A **CNAME** ("shop is at Booth 14") is the everyday case: claim the booth, serve from `sub.target.com`. But an **NS** sign is like handing someone the mall's **master directory** for that whole wing — claim it and you decide where *every* address in that subdomain points (and can print valid-looking ID = TLS certs). An **MX** sign reroutes the company's **mail** to you — including password-reset letters, which is a straight line to account takeover. NS and MX are the sleeper Criticals; don't treat every takeover as "just a CNAME."
 ```
 CNAME → third-party SaaS/PaaS/CDN/bucket → claim the resource → serve content from sub.target.com (the common case). §5
 A     → an IP no longer owned (cloud elastic IP, shared host) → claim the IP/host → serve content.  Rarer, harder.
@@ -176,6 +181,8 @@ DEAD RESOURCE       the CNAME resolves but the resource behind it is deprovision
 # 4. Baseline — Which Records Are Dangling & Claimable?
 
 **Do this before trying to claim anything.** Separate "dangling" (points at a dead resource) from "claimable" (you can actually register it).
+
+> **In plain words:** two different questions, and people skip the second. First: **is the sign pointing at an empty booth?** (does the record resolve to a provider "not found" page / NXDOMAIN?). Second — the one that separates a real bug from noise: **can you actually rent that exact booth?** Some malls refuse to re-rent a released booth number, or demand paperwork you can't produce. A sign pointing at an empty-but-*un-rentable* booth is just Info. Confirm both before you get excited.
 
 ## 4.1 The baseline checks
 ```
@@ -226,6 +233,8 @@ DNAME / SRV:         rarer delegation forms; same principle — a dangling point
 
 Confirm the resource is genuinely dead (not just an app that returns 404 for `/`):
 
+> **In plain words:** you need to be sure the booth is *actually empty and run by the mall*, not "the shop is open but has no page at this exact spot." The tell is the **mall's own generic 'nothing here' notice** — each provider prints a specific one (S3 says "NoSuchBucket", GitHub Pages says "There isn't a GitHub Pages site here"). Match that exact wording, and confirm it's served by the *provider's* infrastructure — a plain `404` from the target's own app looks similar but means the opposite (still owned). Compare against a known-live booth on the same provider so you don't mistake a normal empty page for an abandoned one.
+
 ```
 □ HTTP BODY SIGNATURE: match the provider's specific "not found" string (the Arsenal lists them per service):
     AWS S3:        "NoSuchBucket" / "The specified bucket does not exist"
@@ -270,6 +279,8 @@ The step that separates a report from noise: can you **actually register** this 
 
 The core PoC: register the dangling resource and serve an innocuous, uniquely-identifiable file from the target subdomain.
 
+> **In plain words:** this is the moment "I found an abandoned sign" becomes "I proved I own the booth it points to." You rent the exact booth (create the bucket/app/page with the exact name the sign uses), and put a single **harmless note with your name and the date** on the wall — then check that walking to `sub.target.com` shows *your* note. That screenshot is the finding; a fingerprint without it is just a lead. Crucial discipline: it's **harmless** (no phishing, no user-targeting), and you **take it down** the moment you've got the proof, then tell them to remove the sign.
+
 ```
 1. Create the resource in YOUR account with the exact name the dangling record points at (bucket/app/page/site).
 2. Bind sub.target.com as the custom domain (so the existing CNAME now resolves to YOUR resource).
@@ -301,6 +312,8 @@ bare claimed host, no trust chain              Defacement / info                
 
 The most common high-impact escalation. If the app sets cookies scoped to the **parent domain**, a page you control on any subdomain reads and writes them.
 
+> **In plain words:** remember the customers arrive carrying loyalty cards. If the company issues cards stamped **"valid at any `.target.com` booth"** (a cookie with `Domain=.target.com`), then your booth can *read and re-stamp* those cards too — including the one that proves who's logged in. Read it (if it's not `HttpOnly`) and you're now logged in as the victim = account takeover. Even if you can't read it, you can *hand the victim a card you wrote* (set a `.target.com` cookie) to fix their session or overwrite their anti-CSRF token on the main site. The single thing to check is the cookie's **`Domain`** attribute: `.target.com` = jackpot; a host-only `app.target.com` card is useless at your booth.
+
 ```
 1. Confirm domain-scoped cookies: log into the main app; inspect the session cookie's Domain attribute.
    Domain=.target.com  (or target.com)  → EVERY subdomain, including your taken-over one, can read/set it.
@@ -318,6 +331,8 @@ The most common high-impact escalation. If the app sets cookies scoped to the **
 # 11. `NS` / `MX` Takeover → DNS Control / Email Interception → ATO ⭐
 
 The top-tier outcomes — these out-rank a CNAME-to-bucket.
+
+> **In plain words:** these are the "own the whole wing" wins. An **NS** takeover means you've claimed the *directory desk* that answers "where is any address in this subdomain?" — so you can point `sub.target.com` anywhere, receive its mail, and even get a genuine TLS padlock issued (the certificate authority asks the directory desk to prove control, and *you're* the desk). An **MX** takeover means the company's **mail for that host lands in your inbox** — and the letter you want is the **password-reset**: intercept it and you reset the victim's account. Both are Critical; prove them the safe way (a cert for your *own* claim, a test email *you* send yourself), never by catching real users' mail.
 
 ```
 NS TAKEOVER (dangling delegation):
@@ -351,6 +366,8 @@ When there's no cookie/OAuth/DNS chain, the trusted hostname is still a potent p
 # 13. Second-Order: OAuth / CSP / CORS / `<script src>` Trust ⭐
 
 The highest-value takeovers are the ones the **main app already trusts** — claiming them yields script execution or token theft on the primary application, not a standalone page.
+
+> **In plain words:** the very best abandoned signs are the ones the *main store's staff* were told to trust. If the main app's rulebook says "it's fine to load code from `sub.target.com`" (a CSP `script-src` or a `<script src>` on its pages), then claiming that booth lets you run **your JavaScript inside the main app itself** — that's XSS on the real application, mass session theft. If the rulebook says "send login codes to `sub.target.com`" (an OAuth `redirect_uri`), your booth **receives victims' login tokens** → ATO. These "second-order" takeovers don't just give you a standalone page — they reach back into the primary app. Always check what the main app *references* before you write off a dead subdomain as low-value.
 
 ```
 □ OAuth redirect_uri ALLOW-LIST: the taken-over subdomain is a registered redirect_uri (or matches a wildcard) → run the
@@ -427,6 +444,8 @@ Confirm on the **real** target subdomain, claim in **your own** provider account
 
 # 17. Severity Calibration — how triagers really rate subdomain takeover
 
+> **In plain words:** severity is decided entirely by **what the trusted sign unlocks**, not by the fact you rented a booth. Owning the directory desk (NS) or the mailbox (MX) = Critical. A booth whose customers carry `.target.com` loyalty cards, or that the main store loads code from = High–Critical. A booth with nothing but the brand name on it = phishing value, High-ish in context. A booth you rented that carries no trust at all = Low–Medium (defacement). And a sign pointing at a booth you *can't* rent = Info. Match your evidence to the row and lead the report with that impact.
+
 | Scenario | Typical | What moves it |
 |---|---|---|
 | **`NS` takeover → full DNS control (certs/mail/host)** | **Critical** | You own the subdomain outright. |
@@ -439,7 +458,7 @@ Confirm on the **real** target subdomain, claim in **your own** provider account
 | **Fingerprint only / non-claimable service** | **Info / N-A** | Not exploitable. |
 
 **CVSS / CWE:**
-- Standard takeover (defacement/phishing): `AV:N/AC:L/PR:N/UI:N/S:C/C:L/I:L/A:N` → Medium. **CWE-350** (Reliance on Reverse DNS / untrusted inputs) — commonly cited; also **CWE-284** (Improper Access Control) / **CWE-1104** (use of unmaintained third-party components) contextually.
+- Standard takeover (defacement/phishing): `AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N` → **6.1 Medium** (the victim must visit the taken-over host, so `UI:R`; `S:C` because the impact lands on the parent domain's trust — the same shape as the canonical open-redirect score). *(Score it `UI:N` and it rises to 7.2 High — only justified if control alone yields impact with no victim visit.)* **CWE-350** (Reliance on Reverse DNS / untrusted inputs) — commonly cited; also **CWE-284** (Improper Access Control) / **CWE-1104** (use of unmaintained third-party components) contextually.
 - Cookie-ATO chain: `C:H/I:H` → High–Critical. + **CWE-384** (Session Fixation) / CWE-565 (cookie trust).
 - Second-order script-exec (CSP/`<script src>`): → High–Critical. + **CWE-79**.
 - NS/MX: → Critical. + **CWE-350** and the email/DNS trust context.
@@ -544,6 +563,32 @@ python3 poc/subtakeover_scan.py -l subs.txt        # our resolver + fingerprint 
 
 ---
 
+# 22. Real-World Case Studies (Verified)
+
+> Subdomain takeover is where **recon becomes a Critical**: a DNS record nobody cleaned up, claimed in your own account, escalated by the *trust the hostname carries*. These are documented, attributed facts — each maps to a technique in this guide. (Verify-before-write: every claim checked against primary sources, cited inline.)
+
+**① The class's origin — Frans Rosén & Detectify (2014). Why "dangling DNS" is a bug at all.**
+Subdomain takeover was **pioneered by Frans Rosén and popularized by Detectify in 2014**: a subdomain still `CNAME`s to a third-party service (GitHub Pages, Heroku, S3, Fastly…) that was *deleted*, so an attacker re-registers that resource and serves their own content from `sub.target.com`. Even security-forward companies — **Sony, Slack, Snapchat, and Uber** among them — have been bitten. That's the mechanic this whole kit teaches: the record is a **fingerprint**, the takeover is a **claim** (§6→§7→§8).
+→ *Technique:* §5–§8 (record → fingerprint → claim). *Lesson:* an unmaintained DNS pointer to a de-provisioned resource is an attacker-registerable asset.
+*Source:* [HackerOne — A Guide to Subdomain Takeovers 2.0](https://www.hackerone.com/blog/guide-subdomain-takeovers-20) · [Detectify Labs — subdomain takeover research](https://labs.detectify.com/)
+
+**② `can-i-take-over-xyz` — the fingerprint-≠-claimable discipline (EdOverflow, community).**
+The canonical database **`can-i-take-over-xyz`** (Ed Overflow et al.) catalogs services, their takeover **fingerprints**, and — crucially — **whether each is actually claimable** (~76 services tracked; Nuclei ships ~72 takeover templates from it). Some 404 fingerprints (e.g., certain CloudFront/Statuspage states) are **NOT claimable** — reporting them is a false positive (§16). This is the guide's §7 rule made concrete: *a fingerprint is a lead; claimability is the finding.*
+→ *Technique:* §6 (fingerprint) → §7 (claimability check). *Lesson:* always cross-check claimability before you report; a matching 404 signature is not a takeover.
+*Source:* [EdOverflow — can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz) · [OWASP — Subdomain Takeover Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Subdomain_Takeover_Prevention_Cheat_Sheet.html)
+
+**③ Microsoft / Azure — the cloud-scale acknowledgment (2020–2021). Why this is a first-class, ongoing threat.**
+Microsoft formally documents subdomain takeover as **"a common, high-severity threat for organizations that regularly create and delete many resources"** — dangling DNS pointing at de-provisioned Azure resources. It was presented at **RSA 2020** (Microsoft's own subdomains were affected), and Microsoft shipped a PowerShell tool, **`Get-DanglingDnsRecords`**, plus **Azure DNS alias records + App Service custom-domain verification** as the fix. When a hyperscaler builds tooling and docs around it, the class is neither niche nor solved — it's a churn-driven, evergreen recon win.
+→ *Technique:* §3 (recon at scale) → §4 (dangling detection) → §21 (monitoring). *Lesson:* resource churn *manufactures* danglers continuously; the finder-who-monitors wins.
+*Source:* [Microsoft Learn — Prevent dangling DNS & subdomain takeover](https://learn.microsoft.com/en-us/azure/security/fundamentals/subdomain-takeover) · [Microsoft DevBlogs — Dangling DNS and Subdomain Takeovers](https://devblogs.microsoft.com/premier-developer/dangling-dns-and-subdomain-takeovers/)
+
+**④ Why a "just a takeover" becomes a Critical — the second-order trust chain (HackerOne / OWASP).**
+The severity is **the trust the hostname carries**, documented by HackerOne and OWASP: a **`.target.com`-scoped cookie** is sent to *any* subdomain, so a taken-over `sub.target.com` **receives session cookies** (or sets them → fixation) → **session ATO** (§10); a **`*.target.com` CSP `script-src`** or **`<script src>`** trusting the sub lets you serve JS that **executes on the main app** (§13); a **`*.target.com` OAuth `redirect_uri`** allow-list lets the taken-over sub **receive the OAuth token** → ATO (§13); and **`NS`/`MX`** takeovers give **full DNS control / password-reset-email interception** (§11) — the sleeper Criticals. The defensive tell (and your remediation advice): the **`__Host-` cookie prefix** binds a cookie to the exact origin, blocking the cookie path.
+→ *Technique:* §10 (cookie ATO), §11 (NS/MX), §13 (second-order OAuth/CSP/CORS). *Lesson:* score the takeover by what trusts the hostname, not by "I served a page."
+*Source:* [HackerOne — A Guide to Subdomain Takeovers 2.0](https://www.hackerone.com/blog/guide-subdomain-takeovers-20) · [OWASP — Subdomain Takeover Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Subdomain_Takeover_Prevention_Cheat_Sheet.html)
+
+---
+
 # Appendix A — Subdomain-Takeover Workflow Cheat Sheet
 
 ```
@@ -622,6 +667,85 @@ ALWAYS: CLAIM to prove it, serve a BENIGN marker, capture evidence, then UNPUBLI
 
 **CWE / standards to cite**
 - **CWE-350** (Reliance on Reverse DNS Resolution / untrusted external inputs — the usual anchor) · **CWE-284** (Improper Access Control) · **CWE-384** (Session Fixation, cookie chain) · **CWE-79** (second-order script-exec) · **CWE-1104** (unmaintained third-party components): https://cwe.mitre.org/
+
+---
+
+# Appendix D — Worked End-to-End Transcript (dangling CNAME → claim → session ATO)
+
+> **What this shows.** The whole spine in one run — the [Master Testing Sequence](#master-testing-sequence--the-testing-order) in motion — on a fictional `target.com`. It walks the discipline that defines this kit: a dangling record is a **fingerprint**, the takeover is a **claim**, and the severity is **the trust the hostname carries** — here, a `.target.com`-scoped session cookie that turns "I served a page" into **account takeover**. Every claim is in **your own** account with a **benign marker**, and it ends with *unpublish + tell them to remove the record*. Placeholders are benign; do this only on an authorized target.
+
+**Step 1 — recon: enumerate + resolve + look for danglers (§3).** Enumerate every subdomain, resolve, and flag the ones pointing at third-party services:
+
+```
+$ subfinder -d target.com -all -silent | dnsx -silent -cname -resp | anew resolved.txt
+blog.target.com    [CNAME]  target-blog.github.io          ← points at GitHub Pages
+shop.target.com    [CNAME]  d1a2b3c4.cloudfront.net        ← CloudFront (often NOT claimable — check §7)
+cdn.target.com     [CNAME]  target-cdn.s3.amazonaws.com    ← S3 bucket
+```
+
+**Step 2 — baseline + fingerprint: which are actually dangling? (§4, §6).** Fetch each and match the service's "unclaimed" signature:
+
+```
+$ curl -s https://blog.target.com/
+   → 404 "There isn't a GitHub Pages site here."          ← GitHub Pages dangling fingerprint (§6)
+$ curl -s https://cdn.target.com/
+   → 404 "NoSuchBucket"                                    ← S3 bucket deleted/unclaimed
+$ curl -s https://shop.target.com/
+   → 200 normal CloudFront content                          ← NOT dangling; skip
+```
+
+**Step 3 — claimability check: fingerprint ≠ takeover (§7 — the validity gate).** Cross-check each fingerprint against `can-i-take-over-xyz` before touching it:
+
+```
+GitHub Pages 404  → can-i-take-over-xyz: CLAIMABLE (create a repo, add a CNAME file for blog.target.com)   ✅
+S3 NoSuchBucket   → CLAIMABLE (bucket names are global; register target-cdn in your account)               ✅
+CloudFront (some states) → often NOT claimable → would be a FALSE POSITIVE to report (§16)
+```
+
+> **The kit's core rule (§7).** A matching 404 is a *lead*, not a finding. `blog.target.com` → dead GitHub Pages **is** claimable, so it's the one to prove. Don't waste a report on a non-claimable fingerprint.
+
+**Step 4 — the benign claim: prove control from `sub.target.com` (§8).** Register the dead resource **in your own account** and serve an unmistakable, harmless marker:
+
+```
+# in YOUR github account: create repo, add a file `CNAME` containing:  blog.target.com
+#   + index.html:  "Subdomain takeover PoC by <you> — authorized test for target.com. Contact: <bugbounty ref>. yyyy-mm-dd"
+$ curl -s https://blog.target.com/
+   → 200  "Subdomain takeover PoC by <you> — authorized test..."   ← YOU now serve content on blog.target.com. Takeover proven.
+```
+
+**Step 5 — escalate by the trust the hostname carries: cookie-scoped session ATO (§10).** Check the main app's cookie scope — the difference between Medium and Critical:
+
+```
+# observe the main app's Set-Cookie on login:
+Set-Cookie: session=...; Domain=.target.com; Path=/; Secure          ← scoped to .target.com (NOT __Host-/__Secure- host-locked)
+#   → ANY subdomain, including the one I now control, receives this cookie.
+# Weaponize benignly from the page I serve on blog.target.com (a host the browser treats as same-site to target.com):
+#   - read document.cookie for .target.com cookies the browser sends to my host, OR
+#   - SET a session cookie (Domain=.target.com) to pin a victim to an attacker session (fixation), OR
+#   - defeat SameSite=Lax CSRF defenses (my host IS a target.com site) to hit state-changing endpoints.
+```
+
+> **Impact (§10/§17).** A `Domain=.target.com` session cookie + a controlled subdomain = **session theft / fixation → account takeover** — the takeover jumped from "defaced a dead blog" (Low) to **ATO (Critical)**. The one-line fix to recommend: **`__Host-` cookie prefix** (binds the cookie to the exact origin so subdomains can't read/set it). *Even bigger, if present (§13):* if `blog.target.com` is in the main app's **CSP `script-src`** or an **OAuth `*.target.com` `redirect_uri`** allow-list, I now get **JS execution on the main app** or **OAuth-token theft** — the second-order jackpot.
+
+**Step 6 — clean up + report (§19–§20).** Prove, then immediately stop being a risk:
+
+```
+1) Screenshot the benign marker + the Set-Cookie scope; capture the CNAME chain + the can-i-take-over-xyz claimability note.
+2) UNPUBLISH the marker / delete the repo (don't leave a live claim on their domain).
+3) Report — lead with the IMPACT:
+```
+
+```
+Title:  Subdomain takeover of blog.target.com (dangling GitHub Pages CNAME) → session ATO via .target.com cookie scope
+Chain:  CNAME → dead GitHub Pages (404 fingerprint) → claimable (can-i-take-over-xyz) → claimed in my account +
+        benign marker served on blog.target.com → main app sets Domain=.target.com session cookies →
+        controlled subdomain reads/sets them → session theft/fixation = account takeover.
+Impact: full session ATO of any target.com user (Critical). Also enables SameSite bypass + brand phishing.
+Fix:    REMOVE the dangling CNAME now (blog.target.com); adopt __Host- cookie prefix; monitor DNS/CT for danglers.
+Notes:  benign marker only, unpublished immediately; no user data accessed.
+```
+
+That is a full subdomain-takeover run: **§3 recon → §4/§6 fingerprint → §7 claimability (the validity gate) → §8 benign claim → §10 trust-chain escalation → §19–§20 clean up + report.** A leftover CNAME became account takeover — the exact "recon becomes a Critical" arc (§22 ①/④), proven benignly and unpublished.
 
 ---
 

@@ -1,5 +1,7 @@
 # Subdomain Takeover — Arsenal (fingerprints, claim steps & commands)
 
+**Author:** x8bitranjit
+
 > Companion to `SUBDOMAIN_TAKEOVER_TESTING_GUIDE.md`. A fingerprint is a **lead**, not a finding — always confirm the
 > service is **claimable** (guide §7), then **claim it and serve a benign marker** (§8), then chain the **trust** (§10–§13).
 > The authoritative, continuously-updated per-service matrix is **`can-i-take-over-xyz`** (EdOverflow) — cross-check it.
@@ -7,7 +9,42 @@
 
 ---
 
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire subdomain-takeover run on one screen — the **decision spine** every section below plugs into. The mantra: a dangling record is a **fingerprint**, the takeover is a **claim**, and the severity is **the trust the hostname carries**. Don't stop at "vulnerable to takeover" — *claim it benignly, then chain the trust to ATO.* Follow the arrows to the matching section.
+
+```
+# ── 1. RECON: enumerate + resolve EVERY record type (guide §3) ───────────
+subfinder/amass/crt.sh → subs   →   dnsx -a -cname -ns -resp   (CNAME *and* NS/MX — the big ones hide in NS/MX)
+
+# ── 2. FINGERPRINT: which are dangling? (guide §6) ───────────────────────
+curl each → match the service "unclaimed" signature (GitHub "There isn't a GitHub Pages site here", S3 "NoSuchBucket", ...)
+subzy / subjack / nuclei -tags takeover   (these output LEADS, not findings)
+
+# ── 3. CLAIMABILITY: fingerprint ≠ takeover (guide §7) — the VALIDITY gate ─
+cross-check can-i-take-over-xyz  →  CLAIMABLE? (GitHub Pages/S3/Heroku/... = yes · some CloudFront/Statuspage = NO = FP §16)
+
+# ── 4. CLAIM benignly: prove control from sub.target.com (guide §8) ──────
+register the dead resource IN YOUR OWN ACCOUNT (repo+CNAME file / bucket name / heroku app) → serve a BENIGN marker page
+curl https://sub.target.com/ → your marker = takeover PROVEN
+
+# ── 5. ESCALATE by the trust the hostname carries (guide §10–§13) ────────
+cookie:  main app Set-Cookie Domain=.target.com (not __Host-)  → sub reads/sets session cookie → SESSION ATO ⭐
+2nd-order: sub in main app's CSP script-src / <script src>     → serve JS → exec on MAIN app (XSS/mass session theft) ⭐
+         sub in OAuth *.target.com redirect_uri allow-list     → receive victim's token → ATO (→ OAuth kit) ⭐
+NS/MX:   NS takeover → full DNS control + valid TLS   ·   MX takeover → intercept reset/MFA email → ATO ⭐
+else:    credential phishing on the real brand domain (Medium–High)
+
+# ── 6. CLEAN UP + report (guide §19–§20) ─────────────────────────────────
+screenshot marker + trust proof → UNPUBLISH the claim → report IMPACT → tell them to REMOVE the DNS record
+```
+
+> **Cash-out map (guide §17 severity):** claimable + benign marker = takeover **proven** → **cookie-scope/OAuth/CSP trust → session ATO / token theft / script-exec on the MAIN app** (Critical) · **NS/MX → DNS control / reset-mail interception → ATO** (Critical, the sleepers) · else **brand phishing** (Medium–High). Fingerprint you **can't** claim = **Info/FP** (§16). Full worked run: **guide Appendix D**.
+
+---
+
 ## 1. Enumeration & resolution (find every subdomain + record)
+> **What & when:** step one — build the full list of the target's signs and see where each points. Enumerate every subdomain (passive + CT logs + brute), then resolve *every* record type (CNAME **and** NS/MX/A), because the highest-value danglers (NS/MX) hide where CNAME-only tools never look.
 
 ```bash
 # passive enum (CT logs + APIs + scraping)
@@ -37,6 +74,7 @@ python3 poc/subtakeover_scan.py -l subs.txt
 ---
 
 ## 2. Per-service fingerprints (HTTP "not found" signatures) + claimability
+> **What & when:** your lookup table for "is this booth empty, and can I rent it?" Match the provider's exact "not found" wording to identify the service, then read the **Claimable?** column — and always cross-check `can-i-take-over-xyz`, because a fingerprint on a *non*-claimable service (CloudFront, reserved names) is Info, not a bug.
 
 > `claimable?` reflects the common state — **verify against `can-i-take-over-xyz`** (providers change policy). "Edge" = sometimes/region-dependent.
 
@@ -77,6 +115,7 @@ TXT/SPF/CAA:  references to claimable third-party verification/anti-spam resourc
 ---
 
 ## 3. Confirming the fingerprint (don't trust a bare 404)
+> **What & when:** run this before you get excited — prove the booth is *actually empty and run by the mall*, not "the shop is open but has no page here." Match the provider's exact string, confirm the provider's own headers served it, and compare against a known-live sibling so a normal 404 doesn't fool you.
 
 ```bash
 # does the CNAME target itself resolve? NXDOMAIN often == registrable
@@ -92,6 +131,7 @@ curl -sk https://sub.target.com/ | grep -iE 'NoSuchBucket|There isn.t a GitHub P
 ---
 
 ## 4. The benign claim (per common provider) — serve proof, then UNPUBLISH
+> **What & when:** the moment that turns a lead into a finding — rent the exact booth and hang your nameplate. Pick your provider's recipe, serve a single harmless marker, screenshot `sub.target.com` returning *your* content, then **immediately unpublish**. The screenshot is the proof; leaving the claim live is a safety violation.
 
 **AWS S3 (CNAME → `<bucket>.s3.amazonaws.com`):**
 ```bash
@@ -124,6 +164,7 @@ curl -s https://sub.target.com/st-poc-<rand>.txt            # returns YOUR marke
 ---
 
 ## 5. Trust-chain escalation payloads (guide §10–§13)
+> **What & when:** once you own the booth, these prove *what the trust unlocks* — the difference between Medium and Critical. Check the cookie `Domain` stamp (ATO), test OAuth/CSP/CORS allow-list membership (token theft / script-exec on the main app), or the NS/MX angle (certs/mail). Prove each with your own accounts and a benign marker.
 
 **Cookie scope check (§10):**
 ```
@@ -162,6 +203,7 @@ Origin: https://sub.target.com    → if the API returns Access-Control-Allow-Or
 ---
 
 ## 6. Confirm-it checklist (don't submit before this)
+> **What & when:** the final gate before you hit submit — every box must be ticked. If you can't tick "I claimed it and my marker served" and "here's the trust chain," you have a fingerprint or a bare claim, not an impactful takeover.
 
 ```
 □ The record actually DANGLES (exact provider "not found" fingerprint, served by the provider — not a target 404).
