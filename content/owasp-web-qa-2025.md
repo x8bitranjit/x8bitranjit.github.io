@@ -30,6 +30,8 @@
 - **§A09 — Security Logging & Alerting Failures** (Q94–Q99)
 - **§A10 — Mishandling of Exceptional Conditions** (Q100–Q108)
 - **§XC — Cross-category chaining & reporting** (Q109–Q114)
+- **§RW — Verified real-world case studies (per category)** (Q115–Q124)
+- **§SD — Scenario drill (you're on a target, what now?)** (Q125–Q134)
 
 > Each `§A0x` block runs in the same order: **Core → How to test → Red-team / escalation → Interview → Prevention.**
 
@@ -609,3 +611,75 @@ Report the **concrete vuln + impact + CWE** (edition-independent), then give **b
 
 ### Q114. The one meta-lesson across all ten (2025 edition)?
 **Never trust the client, separate code from data — and design your *failure* paths as carefully as your success paths.** 2025 keeps the classic lessons (A01 trust, A05 code/data) but elevates two modern truths: your security is only as strong as your **supply chain** (A03) and your app is only as safe as **how it behaves when things break** (A10, fail-closed). Zero-trust input, least privilege, verified dependencies, and fail-closed errors collapse most of the list.
+
+---
+
+# §RW — VERIFIED REAL-WORLD CASE STUDIES (per category)
+
+> One documented, named breach per 2025 category — the citation to drop when someone asks "has this actually happened?" (Full deep-dives for several of these are in the reference doc's Appendix.)
+
+### Q115. A01 (Broken Access Control, incl. SSRF) — the canonical cases?
+**First American Financial (2019)** — a document viewer required **no login** and used **sequential IDs**, so incrementing the number in the URL exposed **~885 million** title files (SSNs, bank statements, DL images). And **Capital One (2019)** — an **SSRF** on a WAF reached EC2 metadata (IMDSv1), stole an over-privileged IAM role, and dumped **~106 million** applicants from S3 (SSRF is filed under A01 in 2025, and this breach is why AWS shipped IMDSv2).
+
+### Q116. A02 (Security Misconfiguration) — a headline case?
+**Microsoft Power Apps (2021)** — the OData list API was **public by default** on misconfigured portals, exposing **~38 million** records (SSNs, COVID contact-tracing data) across 47+ orgs. Microsoft initially called it "by design," then changed the default to secure — the textbook insecure-default misconfiguration.
+
+### Q117. A03 (Software Supply Chain Failures) — the defining cases?
+**xz-utils / liblzma (CVE-2024-3094, 2024)** — a multi-year social-engineering takeover of a volunteer project planted an `sshd` backdoor (CVSS 10.0 pre-auth RCE) caught only because a Microsoft engineer noticed a ~500 ms slowdown. **Shai-Hulud (Sept 2025)** — the first **self-propagating npm worm**: it harvested tokens, exfiltrated to attacker GitHub repos, and auto-republished malware to every package the tokens could reach. Plus **SolarWinds (2020)** and Log4Shell (2021).
+
+### Q118. A04 (Cryptographic Failures) — the classic case?
+**Adobe (2013)** — **153 million** passwords **encrypted with 3DES-ECB (not hashed)**, same key for all, with plaintext hints stored alongside; ECB leaked which accounts shared a password and the hints did the rest. The permanent reminder that **encryption is reversible — password storage needs a slow one-way hash** (Argon2/bcrypt/scrypt).
+
+### Q119. A05 (Injection) — a named case with consequences?
+**TalkTalk (2015)** — a plain **SQL injection** on unpatched legacy pages breached **156,959 customers** (15,656 with bank details), drew a then-record **£400,000** ICO fine (the same flaw had been exploited months earlier), and led to arrests including a 15-year-old.
+
+### Q120. A06 (Insecure Design) — a case that's a *design* flaw, not a bug?
+**Experian partner-API (2021, Bill Demirkapi)** — the API returned anyone's **credit score** from just name + address and accepted **all-zeros for date-of-birth**; there was no authentication, no rate limiting, no abuse resistance **by design**. You can't patch your way out of "this sensitive endpoint shouldn't exist unauthenticated" — that's the essence of A06.
+
+### Q121. A07 (Authentication Failures) — the case everyone cites?
+**Colonial Pipeline (2021)** — DarkSide entered via **one legacy VPN account with no MFA**, using a reused password found in a breach dump; it shut the largest U.S. fuel pipeline and forced a state of emergency. A single MFA prompt on that account would likely have prevented it.
+
+### Q122. A08 (Software or Data Integrity Failures) — the archetype?
+**SolarWinds / SUNBURST (2020)** — the **Orion build pipeline** was compromised so the backdoored DLL was **validly code-signed** by SolarWinds and auto-updated to **18,000+** orgs (SVR/APT29). Signature verification proved *who built it*, not *that the build was clean* — the exact gap A08 targets. (2025 nuance: pure dependency/registry compromise now lands in A03; unsigned/unverified updates and insecure deserialization stay in A08.)
+
+### Q123. A09 (Security Logging & Alerting Failures) — the case?
+**Target (2013)** — FireEye **detected** the malware and fired alerts (even naming the exfil servers), but the team **ignored** them and auto-eradicate was off; **40 million** cards were stolen and the CEO+CIO resigned. Detection without a response = no detection — which is why 2025 puts "**Alerting**" in the category name.
+
+### Q124. A10 (Mishandling of Exceptional Conditions) — the defining case?
+**CrowdStrike Falcon (Jul 2024)** — a content update (Channel File 291) fed the kernel sensor data it couldn't validate; the resulting **out-of-bounds read** wasn't handled gracefully and BSOD-bootlooped **~8.5 million** Windows machines worldwide. The purest A10 lesson: exceptional conditions must **fail safely and locally**, not catastrophically. The security-relevant cousin is failing **open** (an authz exception that defaults to "allow", CWE-636).
+
+---
+
+# §SD — SCENARIO DRILL (you're on a target — what now?)
+
+> "You see X → do Y," mapped to the 2025 buckets. Each answer is the decision + the concrete next move.
+
+### Q125. You can change a URL `id` and see another user's invoice. First moves?
+This is **A01/IDOR**. Confirm with the **two-account differential** (as B, request A's object → success = broken authz), prove it's not a shared-object false positive, then **escalate the impact**: enumerate the ID space to show scale (bounded/benign), reach a higher-value object (admin/other-tenant), and pair with mass-assignment or `role` tamper if present. Report "as B I retrieved A's object 1337," CWE-639, rate by data sensitivity × count (à la First American).
+
+### Q126. A metadata/URL field makes the server fetch a URL you control. Where does it go in 2025?
+That's **SSRF → now A01**. Prove it (Collaborator hit), then aim it at cloud metadata: `http://169.254.169.254/latest/meta-data/iam/security-credentials/` — if IMDSv1, pull role creds (Capital One path); if IMDSv2 blocks you, pivot to internal services/port-scan. Escalate creds to their blast radius (S3/read) but **validate once and stop**. CWE-918, Critical when it reaches identity/data.
+
+### Q127. Your dependency scan flags a package pulled from a public registry with an internal-sounding name. Move?
+**A03 supply chain.** Check for **dependency confusion** (is the internal name unclaimed publicly? → `../DependencyConfusion/`), typosquats, and a compromised/backdoored version (diff against a known-good, watch post-install scripts — the Shai-Hulud tell). For a build/maintainer anomaly, treat it like xz: inspect the *build* artifacts, not just the source. Prove with a benign callback from CI, then report — never weaponize.
+
+### Q128. `/admin` returns 403. What do you run before giving up?
+**A01 function-level authz.** Run the ACL-bypass matrix: path-normalisation (`/admin/`, `/./admin`, `//admin`, `/admin..;/`, `/%2e/admin`), trusted proxy headers (`X-Original-URL`, `X-Rewrite-URL`, `X-Forwarded-For: 127.0.0.1`), and **verb/method tampering** (403 on GET → POST/HEAD/`X-HTTP-Method-Override`). A 403 that flips to 200 is the finding; distinguish 401 vs 403 vs 404.
+
+### Q129. Login works over HTTPS but you see a session token in a response body / localStorage. Move?
+**A04 crypto / A07 auth.** Check token entropy and structure (JWT? `alg:none`, weak HS256 secret → crack, RS256→HS256 confusion → `../JWT/`), transport (any HTTP leak, missing HSTS), storage (localStorage = XSS-stealable, prefer HttpOnly cookies), and lifetime/rotation. Escalate a forged/weak token to impersonation → ATO.
+
+### Q130. A password-reset email arrives with a link whose host matches the `Host` header you sent. Move?
+**A07 + host-header (`../HostHeader/`).** Try **reset-link poisoning**: set `Host`/`X-Forwarded-Host` to your domain, trigger reset for a victim you control, and see if the token-bearing link points at your host (token capture → ATO). Also test token predictability and reuse. Prove on your own two accounts, CWE-640.
+
+### Q131. An import/upload feature accepts an XML or Office file. 2025 routing + move?
+Injection surface (**A05**) via **XXE** (`../XXE/`): SVG/DOCX are XML — internal-entity canary first, then blind-OOB file read → SSRF (which now chains into A01). Also consider the file as an **A08** integrity risk (deserialization on import) and an **A10** angle (malformed file → unhandled exception → DoS/info-leak). Benign proof, escalate to `.env`/creds, stop.
+
+### Q132. Sending malformed input returns a stack trace with DB/schema details. Move?
+**A10 (mishandling exceptional conditions) + A09.** The verbose error is CWE-209 info-leak — use it for **injection recon** (DB type, table/column names → `../SQLi/`) and note the app **fails unsafely**. Probe whether the exception path **fails open** anywhere security-relevant (an authz check that errors into "allow"). Report the leak *and* any fail-open as its own finding.
+
+### Q133. You have a low-priv account and the JSON body has fields the UI never shows (`role`, `isVerified`). Move?
+**A01 mass-assignment / BOPLA.** Add the hidden fields to your update request (`"role":"admin"`, `"isAdmin":true`) and check for persistence (the property actually changes server-side). If it sticks → vertical privilege escalation → ATO. Pair with an IDOR to hit other users' objects. CWE-915/639.
+
+### Q134. Everything's "well protected" — strict CSP, WAF, MFA. Where do you still look in 2025?
+The modern buckets the perimeter doesn't cover: **A03** (a poisoned dependency runs *inside* the trusted origin — CSP/WAF won't stop it), **A01 SSRF** (server-side fetch bypasses the client perimeter entirely), **A06 insecure design** (a business-logic/rate-limit flaw the WAF can't see), and **A10** (feed it malformed/edge input and watch how it fails — open or closed?). "Hardened" front doors push the bugs to the supply chain, the server-side fetch, the design, and the failure path.

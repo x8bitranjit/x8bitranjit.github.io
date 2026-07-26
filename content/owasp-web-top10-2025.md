@@ -45,6 +45,7 @@
 - [A10:2025 — Mishandling of Exceptional Conditions](#a102025--mishandling-of-exceptional-conditions)
 - [Category → Kit quick map](#category--kit-quick-map)
 - [Severity calibration & reporting](#severity-calibration--reporting)
+- [Appendix — Verified Real-World Case Studies (deep dives)](#appendix--verified-real-world-case-studies-deep-dives)
 - [References](#references)
 
 ---
@@ -89,7 +90,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
    169.254.169.254 metadata / internal services → cloud/RCE. → ../Web/SSRF/ (+ ../Web/OpenRedirect/ for redirect-bypass).
 ```
 
-**Real-world / examples.** BOLA in APIs (the #1 API risk too); IDOR mass account access; mass-assignment privilege escalation; JWT `role` tampering; admin panels via forced browsing; **Capital One (SSRF → metadata → S3 dump)** — now filed under A01.
+**Real-world / examples.** **First American Financial (2019)** — sequential, **unauthenticated** document URLs → **~885 million** records (SSNs, bank statements, driver's-license images) walkable by incrementing an ID (pure IDOR at breach scale). **Capital One (2019)** — an **SSRF** on a misconfigured WAF reached the EC2 metadata service, stole an over-privileged IAM role, and dumped **~106 million** applicants from S3; **in 2025 SSRF lives here under A01**, and this breach is why AWS built IMDSv2. Others: BOLA in APIs (the #1 API risk too); mass-assignment privilege escalation; JWT `role` tampering; admin panels via forced browsing.
 
 **Prevention.** Deny-by-default; enforce access control **server-side** on every request, per-object and per-function (never trust client identity/role); unguessable references *plus* ownership checks; centralize authz; **for the SSRF sub-class** — allow-list outbound schemes/hosts/ports, re-validate after redirects, block internal ranges + metadata IPs (egress filtering, IMDSv2); log access-control failures (A09).
 
@@ -118,7 +119,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ File-upload misconfig: unrestricted upload → webshell. → ../Web/FileUpload/
 ```
 
-**Real-world / examples.** XXE file-read/SSRF in XML APIs; open S3 buckets; exposed `.git`/`.env` → source+secrets; default admin creds; debug mode leaking secrets; permissive CORS; cache-poisoning mass-XSS.
+**Real-world / examples.** **Microsoft Power Apps (2021)** — the OData list API was **public by default** whenever a portal was misconfigured, exposing **~38 million** records (SSNs, COVID-19 contact-tracing PII) across 47+ organisations anonymously; Microsoft first called it "by design," then shipped a secure default — the archetypal insecure-default misconfiguration, now #2 on the list. Others: XXE file-read/SSRF in XML APIs; open S3 buckets; exposed `.git`/`.env` → source+secrets; default admin creds; debug mode leaking secrets; permissive CORS; cache-poisoning mass-XSS.
 
 **Prevention.** Harden by default (no defaults, no debug in prod, minimal features/ports); disable XXE (no DOCTYPE/external entities); security headers (CSP, HSTS, X-Content-Type-Options); strict CORS + Host allow-list; lock down cloud storage; remove exposed VCS/config/backups; automated config review + drift detection.
 
@@ -147,7 +148,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ CI/CD & pipeline: exposed pipeline config, unsigned artifacts, injectable build steps (overlaps A08).
 ```
 
-**Real-world / examples.** Log4Shell (mass-exploited); SolarWinds CI/CD compromise; **Shai-Hulud npm worm (2025)**; typosquatted npm/PyPI packages; dependency-confusion RCE in CI (Birsan 2021). CWEs: CWE-1104 (unmaintained third-party), CWE-1395 (dependency on vulnerable component), CWE-1329, CWE-477.
+**Real-world / examples.** **xz-utils / liblzma backdoor (CVE-2024-3094, 2024)** — a patient social-engineering campaign (the "Jia Tan" persona) earned *maintainer* trust over ~2 years, then planted an obfuscated backdoor in xz 5.6.0/5.6.1 that hooked `sshd` (via liblzma) for **unauthenticated RCE** — a CVSS **10.0** near-miss caught only because Andres Freund noticed sshd was ~500 ms slow. **Shai-Hulud npm worm (Sept 2025)** — the first **self-propagating** npm worm: a post-install script harvested tokens, exfiltrated them to attacker "Shai-Hulud" GitHub repos, and **auto-republished** malicious versions of every package the stolen tokens could reach, spreading to hundreds of packages (a second wave hit Nov 2025). Others: Log4Shell (mass-exploited); SolarWinds CI/CD compromise; typosquatted npm/PyPI; dependency-confusion RCE in CI (Birsan 2021). CWEs: CWE-1104 (unmaintained third-party), CWE-1395 (dependency on vulnerable component), CWE-1329, CWE-477.
 
 **Prevention.** Inventory components (**SBOM**); patch/update continuously; monitor advisories; remove unused deps; **pin + verify integrity/provenance** (signatures); vet + reserve internal package names; secure CI/CD (least privilege, signed builds, no injectable steps); use SCA in CI.
 
@@ -173,7 +174,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Improper crypto: ECB, static IVs, hardcoded keys, custom crypto (found via source/JS).
 ```
 
-**Real-world / examples.** Session tokens over HTTP; JWT with a weak/guessable secret; unsalted MD5 dumps cracked instantly; predictable reset tokens → ATO; API keys in JS bundles.
+**Real-world / examples.** **Adobe (2013)** — **153 million** account passwords were **encrypted (3DES-ECB) instead of hashed**, with the same key for everyone and users' plaintext password *hints* stored alongside; ECB's identical-input→identical-output plus the hints made bulk recovery trivial (~1.9M used "123456"). The canonical "encrypted ≠ safely stored" failure — password storage needs a slow one-way KDF, not reversible encryption. Others: session tokens over HTTP; JWT with a weak/guessable secret; unsalted MD5 dumps cracked instantly; predictable reset tokens → ATO; API keys in JS bundles.
 
 **Prevention.** TLS + HSTS; strong algorithms (AES-GCM, SHA-256+), adaptive KDFs (Argon2/bcrypt/scrypt/PBKDF2) for passwords; cryptographic RNG for tokens; proper key management (rotation, hardware-backed, no hardcoding); classify + minimize sensitive data; validate certs.
 
@@ -203,7 +204,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ XXE (XML injection): → ../Web/XXE/ (bucketed in A02, but injection-flavored).
 ```
 
-**Real-world / examples.** SQLi mass breaches; SSTI-to-RCE; command injection in image/PDF processors; stored XSS session theft; NoSQLi auth bypass (`{"$ne":null}`).
+**Real-world / examples.** **TalkTalk (2015)** — a plain **SQL injection** against unpatched legacy pages exposed **156,959 customers** (15,656 with bank details) and drew a then-record **£400,000** ICO fine because the same flaw had been exploited months earlier and left unfixed. Others: SSTI-to-RCE (Jinja2/Twig); command injection in image/PDF processors (ImageTragick, Ghostscript); stored XSS session theft; NoSQLi auth bypass (`{"$ne":null}`).
 
 **Prevention.** Parameterized queries / prepared statements (SQL); safe APIs; input validation (allow-list) + context-aware output encoding (XSS); sandbox/disable dangerous template features (SSTI); avoid shell (exec-array APIs); escape for the exact interpreter; least-privilege DB/service accounts.
 
@@ -228,7 +229,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Trust-boundary / workflow: does the design trust the client for security decisions? multi-step flows re-validated?
 ```
 
-**Real-world / examples.** Race-condition limit overruns; price manipulation in carts; workflow bypass skipping payment; unlimited OTP → 2FA bypass; coupon stacking.
+**Real-world / examples.** **Experian partner-API (2021, Bill Demirkapi)** — a lender's site queried an Experian API that returned anyone's **credit score** given just a name + address, and it *accepted all-zeros for date-of-birth*; the flow was **designed with no authentication, no rate limiting, and no abuse resistance** for a sensitive lookup — an insecure *design*, not a coding bug (input-validation can't fix "this endpoint shouldn't exist unauthenticated"). Others: race-condition limit overruns; price manipulation in carts; workflow bypass skipping payment; unlimited OTP → 2FA bypass; coupon stacking.
 
 **Prevention.** Threat-model early; secure design patterns + a control library; enforce business rules server-side + re-validate each step; design in rate limiting / anti-automation / atomicity (defeat races); write + test abuse cases; segment trust boundaries.
 
@@ -255,7 +256,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Registration / pre-ATO: unverified-email SSO merge, username collision. → ../Web/AccountTakeover/ + OAuth/
 ```
 
-**Real-world / examples.** Password-reset poisoning → ATO; unlimited-OTP 2FA bypass; OAuth `redirect_uri` token theft; JWT `alg:none` impersonation; pre-account-takeover via unverified-email SSO; session fixation.
+**Real-world / examples.** **Colonial Pipeline (2021)** — the DarkSide group got in through a **single legacy VPN account with no MFA**, using a password reused and exposed in a prior-breach dump; that one authentication gap let ransomware shut down the largest U.S. fuel pipeline and trigger a state of emergency. MFA on that one account would likely have stopped it. Others: password-reset poisoning → ATO; unlimited-OTP 2FA bypass; OAuth `redirect_uri` token theft; JWT `alg:none` impersonation; pre-account-takeover via unverified-email SSO; session fixation.
 
 **Prevention.** Strong auth (MFA, no default/weak passwords, breached-password checks); rate limiting + lockout on all auth/OTP/reset endpoints; secure sessions (rotate on login, invalidate on logout, short-lived, HttpOnly/Secure/SameSite); host-independent reset links + strong tokens; exact-match OAuth `redirect_uri` + `state` + PKCE; verify email before SSO linking.
 
@@ -281,7 +282,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ CI/CD: exposed pipeline config, unsigned artifacts, injectable build steps (also A02/A03).
 ```
 
-**Real-world / examples.** ysoserial Java deserialization RCE; .NET ViewState RCE via leaked machineKey; PHP phar/POP-chain RCE; SolarWinds CI/CD; dependency-confusion RCE in CI.
+**Real-world / examples.** **SolarWinds / SUNBURST (2020)** — attackers (Russia's SVR / APT29) compromised the **Orion build pipeline** and shipped a **validly code-signed** trojanised update to **18,000+** organisations; because the malicious build was signed by SolarWinds itself, every downstream integrity check passed — the definitive broken software-integrity (trusted-update) failure. *(Note the 2025 split: pure dependency/registry compromise → A03; unsigned/unverified updates + insecure deserialization live here in A08.)* Others: ysoserial Java deserialization RCE; .NET ViewState RCE via leaked machineKey; PHP phar/POP-chain RCE; dependency-confusion RCE in CI.
 
 **Prevention.** Avoid deserializing untrusted data (or safe formats + type allow-lists + integrity checks); sign + verify updates/plugins/artifacts; verify dependency integrity/provenance + pin; secure CI/CD; don't trust unsigned data for security decisions.
 
@@ -307,7 +308,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Alerting bypass / anti-forensics (red-team): operate below alerting thresholds.
 ```
 
-**Real-world / examples.** Breaches undetected for months; Log4Shell = a *logging* path to RCE; log-forging via CRLF; credentials/PII in application logs later exposed.
+**Real-world / examples.** **Target (2013)** — the FireEye monitoring system **did** detect the card-stealing malware and fired alerts (even naming the exfil servers), but the security team **ignored** them and the auto-eradicate feature was switched off; **40 million** cards were stolen and the CEO and CIO resigned. Detection without a response (the "Alerting" now explicit in the 2025 name) is operationally the same as no detection. Others: breaches undetected for months; Log4Shell = a *logging* path to RCE; log-forging via CRLF; credentials/PII in application logs later exposed.
 
 **Prevention.** Log security-relevant events (auth, authz, input failures, high-value actions) with context + integrity; centralize + monitor + **alert** (the 2025 emphasis); protect logs (encode logged input; no sensitive data in logs); define + test incident response; retain appropriately.
 
@@ -336,7 +337,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Resource-lock DoS: cause an exception mid-operation that leaves a lock/handle/connection held → exhaustion.
 ```
 
-**Real-world / examples.** Uncaught file-upload exception leaving resources locked → DoS; database errors revealing schema/system info → SQLi recon; interrupted transfer without rollback → double-spend/drain. CWEs: CWE-209 (sensitive error messages), CWE-234, CWE-476 (NULL deref), **CWE-636 (failing open insecurely)**.
+**Real-world / examples.** **CrowdStrike Falcon (19 Jul 2024)** — a content update (Channel File 291) fed the kernel sensor data it couldn't validate, triggering an **out-of-bounds read** the driver failed to handle gracefully → `SYSTEM_THREAD_EXCEPTION_NOT_HANDLED` **BSOD bootloops on ~8.5 million** Windows machines worldwide (airlines, hospitals, banks grounded). The purest A10 case: an **unhandled exceptional condition in a trusted code path that failed catastrophically instead of safely**. *(Security twist: the flip side is failing **open** — an exception in an auth/authz check that defaults to "allow" — CWE-636.)* Others: uncaught file-upload exception leaving resources locked → DoS; database errors revealing schema/system info → SQLi recon; interrupted transfer without rollback → double-spend/drain. CWEs: CWE-209 (sensitive error messages), CWE-234, CWE-476 (NULL deref), **CWE-636 (failing open insecurely)**.
 
 **Prevention.** Catch exceptions at their source; centralized/global exception handling; **fail closed** (default-deny on error, complete rollback on partial failure); generic error messages (log detail server-side — ties A09); input validation + resource quotas + rate limiting; monitor repeated-error patterns as attack signals.
 
@@ -383,6 +384,33 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 
 ---
 
+# Appendix — Verified Real-World Case Studies (deep dives)
+
+> The per-category one-liners above are the *quick* citations; these are the full mechanism→escalation→lesson write-ups for the marquee breaches. Use them in a report or an interview to show *why* the category exists and how a small root cause became a headline. All facts are from public post-mortems / advisories (see References).
+
+**xz-utils / liblzma backdoor — CVE-2024-3094 (A03 Software Supply Chain Failures, 2024).**
+*Root cause:* a **human** supply-chain compromise. A persona, "Jia Tan," spent ~2 years making legitimate contributions to the volunteer-run `xz` project while sockpuppet accounts pressured the burned-out original maintainer to hand over commit rights. Once trusted, Jia Tan shipped xz **5.6.0/5.6.1** with a backdoor hidden in *test fixture* binary blobs and activated only by the build machinery — not visible in the source tree.
+*Mechanism:* on affected distros, `liblzma` is pulled into `sshd` (via a systemd/libsystemd patch), so the backdoor hooked the `sshd` symbol-resolution path and let an attacker holding the right private key achieve **pre-auth RCE** on virtually any exposed OpenSSH server — CVSS **10.0**.
+*Why it was (barely) caught:* Andres Freund (Microsoft) investigated `sshd` logins that were **~500 ms slower** and a Valgrind error, and traced it to liblzma before the backdoored versions reached most stable distros.
+*Lesson:* dependency trust is **transitive and human** — "it's a signed release from an established project" is not integrity. Pin/verify builds from source, watch maintainer-change and build-system anomalies (A03 + A08), and remember your real attack surface includes your dependencies' dependencies.
+
+**Capital One (A01 Broken Access Control, incl. SSRF, 2019).**
+*Root cause:* an SSRF-able request path plus an **over-privileged IAM role** on a WAF host. *Mechanism:* Paige Thompson coerced the app/WAF into requesting `http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>` (IMDSv1, no token required), lifted the temporary AWS credentials, and — because that role could list and read S3 — exfiltrated **~106 million** credit-card applications (SSNs, bank accounts) from ~700 buckets. *Lesson:* SSRF is now **A01** because its payoff is an access-control break — it steps *around* the perimeter into internal identity. Fixes are defense-in-depth: enforce **IMDSv2** (token-bound metadata), scope IAM roles to least privilege, and egress-filter metadata IPs.
+
+**SolarWinds / SUNBURST (A08 Software or Data Integrity Failures, 2020).**
+*Root cause:* a compromised **build pipeline**, not a stolen signing key. *Mechanism:* the SUNSPOT implant watched the Orion build and swapped a source file *during compilation*, so the malicious `SolarWinds.Orion.Core.BusinessLayer.dll` was compiled and then **legitimately code-signed** by SolarWinds' own CI; ~**18,000** customers auto-updated to a backdoored, validly-signed binary that beaconed out and enabled selective second-stage intrusion (attributed to SVR/APT29). *Lesson:* signature verification only proves *who built it*, not *that the build was clean* — you must protect build integrity (reproducible builds, isolated signing, SBOM, artifact attestation), which is exactly the A08 control set.
+
+**Equifax (A03/A06-lineage — vulnerable component, 2017).**
+*Root cause:* a **known, patch-available** Apache Struts RCE (**CVE-2017-5638**) left unremediated on an internet-facing dispute portal. *Mechanism:* a crafted `Content-Type` header triggered OGNL evaluation → RCE; attackers entered ~3 days after the fix shipped, then dwelled ~**76 days** — partly because an **expired certificate** meant inspection tooling wasn't decrypting traffic — and exfiltrated **147.9 million** identities. *Lesson:* component inventory + fast patching (A03/A06) *and* working detection (A09) are one chain; breaking any link turns a published CVE into a nation-scale breach.
+
+**CrowdStrike Falcon (A10 Mishandling of Exceptional Conditions, 2024).**
+*Root cause:* a kernel driver that **trusted its own content update** and lacked bounds validation. *Mechanism:* Channel File 291 contained a field count the sensor's parser didn't expect; dereferencing it caused an **out-of-bounds read**, and because this ran in kernel mode with no graceful failure path, ~**8.5 million** Windows hosts hit `SYSTEM_THREAD_EXCEPTION_NOT_HANDLED` BSOD bootloops within hours — grounding airlines, hospitals and banks globally. *Lesson:* exceptional conditions must fail **safely and locally**, not catastrophically — validate all inputs (even trusted-channel ones), stage/canary updates, and design for graceful degradation. The security-relevant cousin is failing **open** (an exception in an authz check that defaults to "allow" — CWE-636).
+
+**First American Financial (A01 Broken Access Control, 2019).**
+*Root cause:* **no authorization check at all** on a document-viewer endpoint. *Mechanism:* completed real-estate transactions produced links like `…/DocEdit.aspx?...=<number>`; the number was sequential and the page required **no login**, so anyone could decrement/increment it and read strangers' title files — **~885 million** documents (SSNs, bank statements, wire receipts, driver's-license images) going back years. *Lesson:* the textbook IDOR — "logged in" was never even required. Enforce per-object ownership checks server-side on every request; unguessable IDs are not a substitute for authorization.
+
+---
+
 # References
 
 **Primary**
@@ -394,7 +422,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 - OWASP Web Security Testing Guide (WSTG) + ASVS + Cheat Sheet Series.
 
 **Note on editions**
-- **2025** is the current standing edition (8th installment, released as RC1); this doc tracks it. The **2021** edition reference is kept alongside as `OWASP_WEB_TOP_10.md` (some bug-bounty programs still scope to 2021). Per-kit content is edition-independent — the concrete techniques don't change with the ranking; only the category grouping does. Biggest 2025 shifts to remember: **SSRF → A01**, **new A03 Supply Chain** (from 2021-A06), **new A10 Exceptional Conditions**, **A02 Misconfig → #2**.
+- **2025** is the current standing edition (8th installment, **finalized 6 November 2025** with two new categories — A03 Supply Chain, A10 Exceptional Conditions); this doc tracks it. The **2021** edition reference is kept alongside as `OWASP_WEB_TOP_10.md` (some bug-bounty programs still scope to 2021). Per-kit content is edition-independent — the concrete techniques don't change with the ranking; only the category grouping does. Biggest 2025 shifts to remember: **SSRF → A01**, **new A03 Supply Chain** (from 2021-A06), **new A10 Exceptional Conditions**, **A02 Misconfig → #2**.
 
 **Companion kits in this repo**
 - All 32 Web kits (see the Category → Kit map) + `../API/REST/`, `../API/GraphQL/`, `../AI/LLM/` (LLM Top 10), `../Mobile/` (Mobile Top 10). This document is the OWASP-Web-Top-10 **2025** umbrella over the per-class kits — categories here, payloads there. The 2021 umbrella is `OWASP_WEB_TOP_10.md`.
