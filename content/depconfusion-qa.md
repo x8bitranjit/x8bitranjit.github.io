@@ -1,4 +1,4 @@
-# Dependency Confusion (Supply-Chain) — Zero to Expert (100 Q&A)
+# Dependency Confusion (Supply-Chain) — Zero to Expert (120 Q&A)
 
 **Author:** x8bitranjit
 Study guide + field reference. **Authorized + responsible-disclosure only.** The finding is a **benign callback from the
@@ -349,6 +349,92 @@ It confirms private packages exist and points you at where to hunt the names.
 
 **100. Final checklist before submitting?**
 Claimable (public 404)? Benign callback from the target's build with your token? Authorized name, unpublished? Secrets described not taken? CWE-829/CVSS set? Reserve-the-name remediation given? All yes → Critical.
+
+---
+
+## I. Interview questions — articulate it out loud (101–112)
+
+> These test whether you can *explain* dependency confusion and its unusual **authorized-and-benign** ethic, not just run the tools. Say each out loud; aim for plain → mechanism → the proof (or the restraint) that ends the argument.
+
+**101. Explain dependency confusion to a non-security stakeholder in thirty seconds.**
+"Imagine a company that orders supplies by nickname and has a lazy rule: 'buy the newest version from whoever offers it — our in-house closet *or* the public marketplace.' An attacker lists a fake product under that nickname, stamps it version 99, and the ordering robot buys the fake because it's 'newest.' In software, 'opening the box' runs code — so the attacker's code runs inside the company's build machines."
+*Why this framing wins:* it lands the *impact* (their build, their secrets) without a single technical term — the same instinct you use to title the report "RCE in CI/CD," not "internal package name is claimable."
+
+**102. Why is it Critical — what's actually at risk when your package runs?**
+Because it runs in **CI/CD**, the highest-trust environment the org has: cloud IAM roles, `NPM_TOKEN`/registry creds, code-signing keys, deploy access, and the full private source. One install hook = read those secrets, tamper the build, or ship a poisoned artifact to the org's customers (supply-chain propagation).
+*The severity point:* "It's `S:C` (scope-changed) in CVSS — my public package crosses a trust boundary into their private build — which is exactly what pushes it to ~9–10. Birsan turned this into RCE at Apple, Microsoft, PayPal, Netflix, Tesla and 30+ others for $130k+."
+
+**103. Walk me through the three preconditions out loud.**
+"Three things must all hold: **(1)** a package name the org uses **privately** (a nickname I can learn from leaked manifests/bundles); **(2)** that name is **unclaimed** on the **public** registry, so I can register it; and **(3)** the org's tooling is willing to **look at the public registry** and **prefer the higher version**. Miss any one and it doesn't fire — which is why my recon proves (1), a read-only 404 proves (2), and their resolver config (or a callback) proves (3)."
+
+**104. Why does "highest version wins" make `99.99.99` the whole trick? Which tools do this?**
+Many resolvers, when the same name exists in two sources, simply pick the **biggest version number** — so publishing `99.99.99` beats their private `1.4.2` every time, no other cleverness needed. It's the default-ish behaviour of **pip with `--extra-index-url`**, **npm** for unscoped/unreserved names, **NuGet** and **RubyGems** across sources.
+*The tell:* "I pin the proof package absurdly high precisely because the resolver's tiebreak is version, not trust — the registry doesn't know 'private' from 'public,' only 'newer.'"
+
+**105. Why is pip's `--extra-index-url` the textbook offender, and what's the safe alternative?**
+Because `--extra-index-url` tells pip to query **both** the private index **and** public PyPI and install the **highest version across both** — so a higher public version wins. The safe alternative is **`--index-url`** pointed at a private index that *proxies/controls* what's exposed (or explicit per-package pinning), so pip never independently reaches public for internal names.
+*The real-world anchor:* "This is exactly how the **PyTorch `torchtriton`** compromise (Dec 2022) happened — a public PyPI package outranked the one PyTorch-nightly shipped from its own index; pip took the public one."
+
+**106. How is dependency confusion different from typosquatting and repo-jacking?**
+All three are supply-chain, but the *trick* differs. **Dependency confusion** fools the **resolver** (right name, wrong source, higher version). **Typosquatting** fools the **human** (a misspelled name — `reqiests` — that someone fat-fingers). **Repo-jacking** hijacks an **abandoned name** (a deleted `github.com/<user>` that a `go.mod` still imports — you re-register the freed username).
+*When to reach for each:* "Confusion is my first move; if the ecosystem is namespace-strict (Go/Cargo use full paths), I pivot to **repo-jacking**; typosquatting is a lower-probability hygiene finding."
+
+**107. A dev says "we found the internal name in a bundle — that's the bug." Rebut it.**
+A referenced name is a **lead**, not a finding. The bug is "their build **runs my package**," which needs two more things: the name must be **claimable** (404 on the public registry) *and* their resolver must **prefer the public copy**. A name that's already reserved, or that only ever resolves privately, is safe.
+*The one-liner:* "I don't report 'I found `@acme/config`'; I report 'I published `@acme/config@99.99.99` (authorized) and a callback from your GitHub-Actions runner proves your build executed it.' The callback is the finding."
+
+**108. Why is a benign DNS/HTTP callback the correct and sufficient proof? Why not dump the secrets?**
+Because the callback **already proves arbitrary code execution** in the build — the token says "my package," the CI hostname says "your pipeline." Execution is the whole vulnerability; dumping `AWS_*`/`NPM_TOKEN` adds **zero** severity (RCE is already Critical) and **crosses into an actual attack** — real data theft on real infrastructure.
+*The discipline:* "I *describe* the reachable secrets ('the build env exposes `AWS_*`, `NPM_TOKEN`') from the fact of execution; I don't exfiltrate them. That's the line between authorized research and the malicious copycats that flooded npm after Birsan."
+
+**109. How would you prove this responsibly and stay legal?**
+Publish **only** a name you can **attribute to your authorized scope**; make the package **tiny and inert** except one **benign beacon** (token + hostname); **unpublish/yank immediately** after the callback and record the window; then **report at once** and recommend they reserve the namespace. Never touch a name you can't tie to the target (that harms unrelated orgs).
+*Why the ethic is unusually strict here:* "Unlike most bugs, the PoC publishes a real artifact to a public registry that *real* builds worldwide might pull. Restraint isn't just etiquette — a lingering or payload-bearing package is itself a supply-chain incident."
+
+**110. What's the single most effective remediation, and why isn't "scan our dependencies" it?**
+**Reserve your internal names/scopes on the public registry** (publish placeholders) **and** pin resolution to the private source (npm scope→registry mapping; pip `--index-url` not `--extra-index-url`; explicit repo pinning). Scanning finds *known* claimable names but doesn't stop the next unreserved one; reservation + private-only resolution **removes the precondition entirely**.
+*The proof it works:* "It's exactly what PyTorch did after `torchtriton` — renamed the dep **and registered a placeholder** to reserve the name. Reservation is what actually stops the bleeding."
+
+**111. Curveballs — one sentence each.**
+- **"Does a lockfile fix it?"** A pinned lockfile with **integrity hashes** blocks confusion for *pinned* deps, but CI that runs `npm install` (not `npm ci`), or a **new/unpinned/transitive** internal dep, is still exposed.
+- **"Does having a private registry fix it?"** Only if the resolver uses it **exclusively** for internal names — a private registry *plus* public fallback/`--extra-index-url` is the vulnerable setup.
+- **"Are Go/Cargo immune?"** Largely to *classic* confusion (full-path/namespaced), but they're exposed to **repo-jacking** of freed usernames/domains.
+- **"Does `npm ci` help?"** Yes — it installs strictly from the lockfile (fails if it drifts), unlike `npm install` which may resolve new versions/sources.
+- **"We use an Artifactory/Nexus virtual repo, so we're fine?"** Only if its **merge policy** prefers local(private) over remote(public) — the policy itself is often the bug.
+
+**112. How do you scope which names you're allowed to publish, and why does it matter?**
+Only publish a name you can **directly attribute to the authorized target** (their scope `@acme`, their leaked manifest, their bundle) — never a generic name that other orgs might also use privately. It matters because publishing an unrelated org's internal name is an **actual attack on them**, outside your authorization and illegal.
+*The habit:* "Detection is broad and safe (read-only lookups across everything); *publishing* is narrow and attributable. I keep those two phases mentally separate."
+
+---
+
+## J. Scenario-based — you're handed a situation (113–120)
+
+> Each is a realistic snapshot. The skill tested is *routing to the callback* — turning a leaked name into a benign, authorized, unpublished proof, or correctly recognising a lead/false-positive.
+
+**113. You find `@acme/config` referenced in a JS bundle. Very next steps, and what makes it a finding vs a lead?**
+It's a **lead** until it's claimable and their build calls back. Next: **(1)** claimability — `GET https://registry.npmjs.org/@acme%2Fconfig` (404 = claimable) and check the `@acme` **scope** is unreserved (`/-/org/acme`). **(2)** Resolution — any evidence their tooling reaches public (a committed `.npmrc`, `--extra-index-url`, unscoped resolution). **(3)** If authorized, publish a **benign `99.99.99` beacon**, catch a callback **from their CI**, **unpublish**, report. "The finding is Step 3's callback; the bundle reference was just the nickname."
+
+**114. `@acme/config` returns 200 on npm (already public). Is it dead? What do you check?**
+Not necessarily — check **who owns it and why**. If the org **defensively reserved** it (a placeholder they published), that's *good security*, not a bug — move on. If a **squatter or unknown third party** owns it, that's a *different* (and serious) problem — the org may already be pulling an untrusted package (report that). Also check **other** names/scopes: one taken name doesn't mean the whole `@acme` scope is reserved. "200 means 'not claimable by me'; it doesn't mean 'safe' — I check the owner."
+
+**115. You published a benign `99.99.99` and got no callback after a week. Diagnose.**
+Work the causes: **(1)** the name may be **reserved/resolved privately** (their resolver prefers the internal source — the secure config). **(2)** Your version isn't actually higher, or the dep is **lockfile-pinned** and CI runs `npm ci`. **(3)** They simply **haven't built** in that window (low build frequency). **(4)** Their **build egress is blocked** so the beacon can't leave (try DNS, which escapes more egress than HTTP). **(5)** It's a **transitive** dep that isn't currently pulled. "No callback is a real answer — often it means they're configured correctly. I recheck version/reservation/build-frequency before concluding, and I don't report 'no callback' as a bug."
+
+**116. You get a callback — but from your own IP / a scanner, not the target. What went wrong, and how do you be sure it's real?**
+That's a **false positive** — your own `npm install` while testing, or a registry security scanner (many auto-fetch new packages), hit the beacon. To be sure it's the *target*: embed a **unique per-target token** so the callback provably maps to your specific package, and **correlate the source IP/ASN** to the target's CI/corp egress (GitHub-Actions/GitLab/Jenkins ranges, or their corporate netblock) plus a CI-shaped **hostname** (`fv-az…`, `runner`, `ip-10-…`). "A callback from `20.x` GitHub-Actions space with hostname `runner` is the target's CI; a callback from *my* IP is me — the token + source ASN disambiguate it."
+
+**117. The target is a Go shop; classic confusion doesn't apply. Where do you look instead?**
+Go modules are named by **full path** (`github.com/acme/pkg`), so you can't confuse a resolver with a bare name — pivot to **repo-jacking** (§10): scan their `go.mod`/import URLs for a `github.com/<user>` or `<org>` that now **404s** (the user renamed or deleted the account). If you find one, **register that freed username**, host the module at the exact path, and their `go get`/build pulls **your** code. Also check **GOPRIVATE misconfig** and expired domains used as module homepages. "Namespace-strict ecosystems trade confusion for **abandoned-name hijack** — I hunt freed usernames, not claimable package names."
+
+**118. Their `package-lock.json` pins everything with integrity hashes. Is confusion dead? Where's the gap?**
+Not necessarily dead — the lock protects **pinned** deps *if* CI installs strictly (`npm ci`). Gaps: **(1)** CI actually runs **`npm install`** (which can resolve new versions/sources) rather than `npm ci`. **(2)** A **new or transitive** internal dependency added but not yet locked. **(3)** A **different repo/pipeline** in the same org without the hardened lockfile. **(4)** Dev machines running `npm install` outside CI. "A hashed lockfile + `npm ci` is a strong control, so I check whether it's *actually* used everywhere — the gap is usually a pipeline or a dev workflow that skips it."
+
+**119. You confirmed a CI callback. Write the impact section without touching their secrets.**
+State execution + *reachable* impact from the fact of execution, not from stolen data: "A benign `preinstall` hook in my public `@acme/config@99.99.99` executed inside your GitHub-Actions CI (callback: token `DCPOC`, host `fv-az417-3`, user `runner`, source `20.55.x.x`). Code execution in this pipeline can read build secrets (`AWS_*`, `NPM_TOKEN`, signing keys — **described, not accessed**), tamper build artifacts, and propagate to downstream consumers — i.e. RCE in the build with org-wide supply-chain impact (CWE-829, `S:C` Critical). Package unpublished at HH:MM; window ~N minutes." "I *name* what's reachable; I never paste a secret."
+
+**120. You find an unreserved `@acme` scope, but you're only authorized to test `acme.com`'s web app. Can you publish `@acme/anything`?**
+Only if `@acme` is **attributable to your authorized target** and publishing is within the engagement's rules — and even then you publish the **specific name they use**, benign, and unpublish fast. If `@acme` might belong to (or be used privately by) an **unrelated** org, publishing it is an **attack on that third party**, outside your scope and illegal — don't. When in doubt, **report the claimable exposure from detection alone** (read-only claimability is a valid High) and let the program authorize the publish. "Detection needs no permission; **publishing a real package does** — I never claim a name I can't tie to my authorization."
 
 ---
 
