@@ -157,7 +157,7 @@ Non-canonical multi-byte encodings of `.` and `/` that legacy parsers (old IIS) 
 If the code does `open(BASE + "/" + input)`, your input just needs enough `../` to climb out of BASE: `../../../../etc/passwd` → `BASE/../../../../etc/passwd` resolves to `/etc/passwd`. You don't need an absolute path.
 
 ### Q31. How do I beat a forced suffix/extension (`.png` appended)?
-Modern stacks killed the null byte, so: (a) target a file that already ends in the forced ext (a real `.log`/`.pdf`/`.bak`), (b) legacy PHP **path truncation** (pad `/././…` past ~4096 chars so the appended ext falls off), or (c) legacy `%00`. If none work, the suffix may genuinely constrain you.
+Modern stacks killed the null byte, so: (a) target a file that already ends in the forced ext (a real `.log`/`.pdf`/`.bak`), (b) legacy PHP **path truncation** (pad `/././…` past ≈4096 chars so the appended ext falls off), or (c) legacy `%00`. If none work, the suffix may genuinely constrain you.
 
 ### Q32. How do I beat a name allowlist?
 Traverse *from* an allowed value if the code concatenates a subpath (`allowed.txt/../../../etc/passwd`), or exploit a substring/prefix check (`/var/www/allowed/../../../etc/passwd`, `/base/../../../etc/passwd`). The allowlist entry becomes your anchor to climb from.

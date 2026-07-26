@@ -408,7 +408,7 @@ CONDITION SLEEP:  ' AND IF(ASCII(SUBSTRING((SELECT database()),1,1))>100,SLEEP(5
 CONFIRM not noise: run the SAME payload with SLEEP(0) and SLEEP(5) a few times; only the 5s variant should delay,
                    and it should delay CONSISTENTLY. Tune the delay up if the network is jittery.
 ```
-> **If this → then that:** `AND SLEEP(5)` (or the per-DBMS equivalent) makes the response take ~5s while `SLEEP(0)` returns fast, **repeatably** → **confirmed time-blind SQLi**. This also **fingerprints the DBMS** (only MySQL has `SLEEP`, only PG has `pg_sleep`, only MSSQL has `WAITFOR`). Time-blind is slow — pace it and prefer boolean/UNION if available; but it's the channel that works when nothing else does (§25 for safe, bounded extraction).
+> **If this → then that:** `AND SLEEP(5)` (or the per-DBMS equivalent) makes the response take ≈5s while `SLEEP(0)` returns fast, **repeatably** → **confirmed time-blind SQLi**. This also **fingerprints the DBMS** (only MySQL has `SLEEP`, only PG has `pg_sleep`, only MSSQL has `WAITFOR`). Time-blind is slow — pace it and prefer boolean/UNION if available; but it's the channel that works when nothing else does (§25 for safe, bounded extraction).
 
 ---
 
@@ -787,9 +787,9 @@ Prove on **production** with **benign reads** (`version()`, one benign row) and 
 | **Error string reflected / `'` 500, no query change** | **Low (info) / — ** | Verbose-error info leak at best; prove a query change. |
 
 **CVSS / CWE:**
-- RCE: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` → ~10.0 (Critical). **CWE-89**.
-- Auth bypass → admin: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N` → ~9.1 (Critical). CWE-89 (+ **CWE-287**).
-- DB read (dump): `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` → ~7.5 (High); raise `I` if writable, raise scope if it crosses systems.
+- RCE: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` → ≈10.0 (Critical). **CWE-89**.
+- Auth bypass → admin: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N` → ≈9.1 (Critical). CWE-89 (+ **CWE-287**).
+- DB read (dump): `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` → ≈7.5 (High); raise `I` if writable, raise scope if it crosses systems.
 - Anchor to **CWE-89** (Improper Neutralization of Special Elements used in an SQL Command); parent **CWE-74** (Injection); add **CWE-287** (auth bypass), **CWE-285** (authorization), **CWE-78** (when it reaches OS-command/RCE).
 
 ---

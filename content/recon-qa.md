@@ -84,7 +84,7 @@ gaps.
 
 ### Q7. Why are API keys a "force multiplier" for recon?
 Subdomain tools aggregate dozens of sources, many gated behind free/cheap API keys (Censys, Shodan, SecurityTrails,
-VirusTotal, GitHub, Chaos). **Without keys you find ~60% of subdomains; with keys ~95%.** Configuring those keys is a
+VirusTotal, GitHub, Chaos). **Without keys you find ≈60% of subdomains; with keys ≈95%.** Configuring those keys is a
 "what others miss" edge that costs nothing.
 
 ### Q8. What does "go wide vs go deep" mean?
@@ -683,7 +683,7 @@ Because it's not *info* — it's the **whole application**, including deleted se
 A source map (`main.<hash>.js.map`, pointed to by a `//# sourceMappingURL=` comment at the end of a bundle) reverses minification — it **reconstructs the original, commented, un-minified front-end source tree** (component names, internal API routes, feature flags, sometimes a hardcoded key). Build tools (Webpack/Vite/Rollup/esbuild) emit them and teams forget to disable them in prod. Pull the `.map`, un-webpack it (`sourcemapper`), and you're reading their source like a developer — which usually hands you the exact vulnerable endpoint on a plate.
 
 ### Q112. "Breadth then depth" — but you said depth pays. Reconcile that.
-Go **wide first** (find *every* asset — you can't test what you never found), then go **deep only on the few assets that smell exploitable** (auth/SSO, APIs, admin/internal, dev/staging, file upload, payment). You never deep-dive the marketing site. Breadth guarantees coverage; depth on the *right* hosts is what converts to a bug. Spend ~80% of effort on the ~20% of surface that has a real backend, auth, or money behind it.
+Go **wide first** (find *every* asset — you can't test what you never found), then go **deep only on the few assets that smell exploitable** (auth/SSO, APIs, admin/internal, dev/staging, file upload, payment). You never deep-dive the marketing site. Breadth guarantees coverage; depth on the *right* hosts is what converts to a bug. Spend ≈80% of effort on the ≈20% of surface that has a real backend, auth, or money behind it.
 
 ### Q113. How do you decide a recon finding is worth testing vs. just "coverage"?
 It maps to the **§23 surface→bug matrix** with a plausible impact. A live host that's a static brochure is coverage — note it, let automation (takeover/exposure) and monitoring cover it, don't manually deep-dive. A host with `api`/`admin`/`dashboard`/`dev` in the name, a login, a `/graphql`, an `{id}` in a URL, a `url=` parameter, or an upload — that *routes to a class* (IDOR/SSRF/XSS/RCE) and goes on the ranked testing queue. Recon is done when you have a **ranked, routed testing queue**, not a pile of hosts.

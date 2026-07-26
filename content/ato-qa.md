@@ -401,7 +401,7 @@ When you only registered the email but the victim's later SSO/login didn't actua
 
 **91. CVSS anchor for 0-click unauth ATO?**
 `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` ≈ 9.8.
-*Decoded:* remote (**AV:N**), easy (**AC:L**), no login needed (**PR:N**), no victim click (**UI:N**), full damage (**C/I/A:H**) — every dial at worst, which is why it scores ~9.8. Paste your scenario into the CVSS calculator; it builds this string for you.
+*Decoded:* remote (**AV:N**), easy (**AC:L**), no login needed (**PR:N**), no victim click (**UI:N**), full damage (**C/I/A:H**) — every dial at worst, which is why it scores ≈9.8. Paste your scenario into the CVSS calculator; it builds this string for you.
 
 **92. What downgrades an ATO finding?**
 Requiring an implausible precondition, only working on your own account, or stopping at the primitive without the takeover.

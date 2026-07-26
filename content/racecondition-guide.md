@@ -119,7 +119,7 @@ Races are **timing-validated** — the whole game is making requests arrive **si
 curl -sI --http2 https://target.com/ | head -1     # "HTTP/2 200" → single-packet attack viable
 ```
 
-> **The cardinal rule of race tooling:** *requests must land in the same window.* Use **single-packet (HTTP/2)** when available — it removes network jitter by putting ~20–30 requests in **one TCP packet**. Fall back to **last-byte-sync (HTTP/1.1)**. "Send group in parallel" in Burp picks the right one automatically (§5–§7).
+> **The cardinal rule of race tooling:** *requests must land in the same window.* Use **single-packet (HTTP/2)** when available — it removes network jitter by putting ≈20–30 requests in **one TCP packet**. Fall back to **last-byte-sync (HTTP/1.1)**. "Send group in parallel" in Burp picks the right one automatically (§5–§7).
 
 > **Windows:** Burp + Turbo Intruder run natively; the Python `poc/` helper runs in WSL or native Python (needs an async HTTP/2 client like `httpx[http2]`). Keep test balances/coupons on **your own** accounts.
 
@@ -181,7 +181,7 @@ Send **5** at once → **−$50**; **20** → **−$200**. Notice what you did *
 | **Idempotent** | Repeating it gives the same result as doing it once — often means *not* a race (§16) |
 | **Limit overrun** | The outcome: something limited happened more times than allowed |
 | **Double-spend** | A limit overrun involving money — the classic financial race |
-| **Single-packet attack** | Putting ~20–30 requests into ONE network packet so they arrive together (§5) |
+| **Single-packet attack** | Putting ≈20–30 requests into ONE network packet so they arrive together (§5) |
 | **Control baseline** | Running the action once *first*, to prove the parallel result is abnormal (§4) |
 
 ## 2.2 The race window
@@ -283,7 +283,7 @@ CREATE UNIQUE INDEX one_bonus_per_user ON bonus_claims (user_id);
 
 ## 2.4 The 2026 mental model
 
-- **Single-packet attack changed the game (2023).** Before it, races needed many connections and luck; now **20–30 requests in one HTTP/2 packet** arrive within ~1ms of each other on commodity links. Most "can't reproduce" races from a few years ago are now reliably exploitable.
+- **Single-packet attack changed the game (2023).** Before it, races needed many connections and luck; now **20–30 requests in one HTTP/2 packet** arrive within ≈1ms of each other on commodity links. Most "can't reproduce" races from a few years ago are now reliably exploitable.
 - **Idempotency ≠ no race.** An endpoint can be idempotent in result yet still race on a **side counter** (rate limit, bonus). Test the *invariant*, not just the response.
 - **The proof is a delta, not a vibe.** Always: control (1×) → parallel (N×) → show the invariant broke (negative balance, 2× redemption, 6th OTP accepted).
 
@@ -341,7 +341,7 @@ This is what makes a race **un-false-positive-able**: a measured delta between o
 
 # 5. The Single-Packet Attack (HTTP/2)
 
-**The single best technique (PortSwigger / James Kettle, 2023).** Over HTTP/2 you can place **~20–30 requests in one TCP packet**; the server receives them essentially simultaneously, eliminating network jitter and hitting the same sub-ms window.
+**The single best technique (PortSwigger / James Kettle, 2023).** Over HTTP/2 you can place **≈20–30 requests in one TCP packet**; the server receives them essentially simultaneously, eliminating network jitter and hitting the same sub-ms window.
 
 **5.1 How it works.** HTTP/2 multiplexes many requests on one connection. You withhold each request's last frame, then send all the final frames **in a single packet** → the server processes them together.
 
@@ -365,7 +365,7 @@ The trick is a delivery one: **make the network carry all your requests in a sin
 
 **The mechanic, step by step:**
 
-1. Open **one** HTTP/2 connection and start ~20–30 requests on it (HTTP/2 allows many parallel "streams" on a single connection).
+1. Open **one** HTTP/2 connection and start ≈20–30 requests on it (HTTP/2 allows many parallel "streams" on a single connection).
 2. Send *almost* all of each request — but **hold back the very last frame** of each. A request the server hasn't fully received yet is a request it can't start processing.
 3. Now send **all the withheld final frames together in one TCP packet**.
 4. The server receives that single packet, and in one go all 20 requests become "complete" — so it starts processing all of them essentially simultaneously, **inside the same window**.
@@ -381,7 +381,7 @@ It's the network equivalent of walking 20 people to the cookie jar and having th
 
 **5.3 When to use it.** Whenever the target is HTTP/2 (or HTTP/3). It's the most reliable; try it first.
 
-**5.4 Constraints (and when it falls back).** The single-packet trick batches roughly **20–30 requests** — bounded by the TCP **initial congestion window** (~10 packets) and the need for all the withheld final frames to ship in one go. It assumes each request is **small enough** that only its last frame is outstanding; a **large body / many big headers** can't be single-packeted cleanly. **IF** the target is **HTTP/1.1 only**, or the requests are large, or an intermediary (some CDNs/proxies) coalesces or buffers streams → **fall back to last-byte-sync (§7)**, raise N, and repeat. Burp's "Send group in parallel" auto-selects single-packet vs last-byte; if reproducibility is poor, that's usually a window/intermediary issue — widen the window (§8.5).
+**5.4 Constraints (and when it falls back).** The single-packet trick batches roughly **20–30 requests** — bounded by the TCP **initial congestion window** (≈10 packets) and the need for all the withheld final frames to ship in one go. It assumes each request is **small enough** that only its last frame is outstanding; a **large body / many big headers** can't be single-packeted cleanly. **IF** the target is **HTTP/1.1 only**, or the requests are large, or an intermediary (some CDNs/proxies) coalesces or buffers streams → **fall back to last-byte-sync (§7)**, raise N, and repeat. Burp's "Send group in parallel" auto-selects single-packet vs last-byte; if reproducibility is poor, that's usually a window/intermediary issue — widen the window (§8.5).
 
 # 6. Burp "Send Group in Parallel" & Turbo Intruder
 
@@ -558,7 +558,7 @@ attempt 6  → 429 {"error":"too many attempts, account locked"}   ← ✅ the g
 ❌ **Invariant broken.** The cap is 5; **38 guesses were actually checked**. Every one of those 38 read `attempts < 5` before any of them incremented the counter.
 
 **Step 4 — Why this equals account takeover (do this math in your report).**
-A 6-digit code has **1,000,000** possibilities. With the intended 5-attempt limit, an attacker's chance is 5 in 1,000,000 — effectively zero, which is the entire security assumption behind SMS 2FA. But if one burst yields ~38 usable guesses:
+A 6-digit code has **1,000,000** possibilities. With the intended 5-attempt limit, an attacker's chance is 5 in 1,000,000 — effectively zero, which is the entire security assumption behind SMS 2FA. But if one burst yields ≈38 usable guesses:
 
 ```
 guesses per burst           ≈ 38
@@ -716,9 +716,9 @@ Every confirmed overrun has a "now do Y."
 
 | Scenario                                                                               | Typical severity        | CVSS 3.1 vector (example)                                      |
 | -------------------------------------------------------------------------------------- | ----------------------- | -------------------------------------------------------------- |
-| **File-upload TOCTOU → RCE** (access before scan/rename)                        | **Critical**      | `AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H` (~9; AC:H = timing)    |
-| **Financial double-spend → real money out**                                     | **Critical/High** | `AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N` (~7–8; AC:H = timing) |
-| **OTP/2FA/rate-limit / predictable-token / OAuth-code race → account takeover** | **High/Critical** | `AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N` (~8)                   |
+| **File-upload TOCTOU → RCE** (access before scan/rename)                        | **Critical**      | `AV:N/AC:H/PR:L/UI:N/S:C/C:H/I:H/A:H` (≈9; AC:H = timing)    |
+| **Financial double-spend → real money out**                                     | **Critical/High** | `AV:N/AC:H/PR:L/UI:N/S:U/C:N/I:H/A:N` (≈7–8; AC:H = timing) |
+| **OTP/2FA/rate-limit / predictable-token / OAuth-code race → account takeover** | **High/Critical** | `AV:N/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:N` (≈8)                   |
 | **Coupon/credit/bonus overrun (limited $ value)**                                | **Medium/High**   | `…/I:H/A:N`, severity scales with extractable value         |
 | **One-per-user / vote / oversell (business abuse)**                              | **Medium**        | `…/I:L–H`, depends on business impact                      |
 | **State/partial-construction with security impact**                              | **Medium/High**   | per outcome                                                    |

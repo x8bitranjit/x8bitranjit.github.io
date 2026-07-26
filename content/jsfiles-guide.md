@@ -603,7 +603,7 @@ Confirm on **production** assets. Validate secrets against the **real** service 
 | **Public client key / unvalidated match / endpoint list** | **Info** | — | Not a vuln by itself. |
 
 **CVSS / CWE:**
-- Live secret in client code: **CWE-798** (Hardcoded Credentials) / **CWE-200/CWE-540** (info exposure via source). Cloud-key→RCE → Critical (~9.x).
+- Live secret in client code: **CWE-798** (Hardcoded Credentials) / **CWE-200/CWE-540** (info exposure via source). Cloud-key→RCE → Critical (≈9.x).
 - DOM XSS: **CWE-79**; prototype pollution: **CWE-1321**; broken authz via hidden endpoint: **CWE-639/CWE-862**.
 - Source map exposure: **CWE-540 / CWE-200**.
 

@@ -542,7 +542,7 @@ Confirm on **production** with a benign marker; differentiate from CSTI/reflecti
 | **Unverified `{{7*7}}`=49** | **— (not a finding)** | Differentiate first. |
 
 **CVSS / CWE:**
-- SSTI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (~9.8). **CWE-1336** (Server-Side Template Injection) / **CWE-94** (Code Injection).
+- SSTI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (≈9.8). **CWE-1336** (Server-Side Template Injection) / **CWE-94** (Code Injection).
 - File-read/secret only: `C:H/I:N` → High. **CWE-1336** + CWE-200.
 - Anchor to **CWE-1336** (or CWE-94); note the engine.
 
@@ -651,7 +651,7 @@ Before **James Kettle** (PortSwigger) presented **"Server-Side Template Injectio
 *Source:* [Black Hat USA 2015 — Kettle, Server-Side Template Injection](https://infocondb.org/con/black-hat/black-hat-usa-2015/server-side-template-injection-rce-for-the-modern-web-app) · [PortSwigger Research — SSTI](https://portswigger.net/research/server-side-template-injection)
 
 **② Apache Struts / Equifax — OGNL in a header → RCE → 147M records (2017, CVE-2017-5638). The most consequential EL injection ever.**
-Apache **Struts 2**'s Jakarta Multipart parser evaluated the HTTP **`Content-Type` header as an OGNL expression** when it was malformed — so a crafted `Content-Type:` containing an OGNL payload gave **unauthenticated RCE** (CVE-2017-5638, March 2017). Equifax failed to patch a public-facing app, and in 2017 attackers used exactly this bug to breach **~147 million** people's records — one of the largest, most consequential breaches in history. OGNL is the Java Expression Language this guide covers in **§8.4**; SSTI/EL injection is not academic — it is *the* Struts-Equifax bug.
+Apache **Struts 2**'s Jakarta Multipart parser evaluated the HTTP **`Content-Type` header as an OGNL expression** when it was malformed — so a crafted `Content-Type:` containing an OGNL payload gave **unauthenticated RCE** (CVE-2017-5638, March 2017). Equifax failed to patch a public-facing app, and in 2017 attackers used exactly this bug to breach **≈147 million** people's records — one of the largest, most consequential breaches in history. OGNL is the Java Expression Language this guide covers in **§8.4**; SSTI/EL injection is not academic — it is *the* Struts-Equifax bug.
 → *Technique:* §8.4 (OGNL/EL injection), and §3's lesson that **headers are injection surface**. *Lesson:* an EL that evaluates any attacker input is pre-auth RCE; patch windows are measured in hours.
 *Source:* [Black Duck — CVE-2017-5638 explained](https://www.blackduck.com/blog/cve-2017-5638-apache-struts-vulnerability-explained.html) · [Avatao — Deep dive: Equifax & the Struts vulnerability](https://avatao.com/blog-deep-dive-into-the-equifax-breach-and-the-apache-struts-vulnerability/)
 

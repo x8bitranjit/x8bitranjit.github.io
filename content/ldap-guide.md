@@ -656,8 +656,8 @@ Prove on **production** with **your own test account** and a **bounded** read. R
 | **Reflected `*` / a 500, no logic change** | **— (not a finding)** | Prove altered logic first. |
 
 **CVSS / CWE:**
-- Auth bypass → admin: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N` → ~9.1 (Critical) — or higher with `A`. **CWE-90** (LDAP Injection).
-- Directory disclosure: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` → ~7.5 (High).
+- Auth bypass → admin: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N` → ≈9.1 (Critical) — or higher with `A`. **CWE-90** (LDAP Injection).
+- Directory disclosure: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` → ≈7.5 (High).
 - Anchor to **CWE-90** (Improper Neutralization of Special Elements used in an LDAP Query); parent **CWE-74** (Injection); add **CWE-287** (auth bypass) / **CWE-285** (improper authorization) for those outcomes.
 
 ---

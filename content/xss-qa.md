@@ -532,7 +532,7 @@ vulnerable input is sufficient; don't perform real admin actions.
 
 ### Q85. What is a self-propagating XSS worm (and why mention it)?
 A stored XSS that, on execution, **re-posts itself** to the viewer's own profile/content → spreads user-to-user (the
-**Samy worm**, MySpace 2005, hit ~1M users in 20 hours). You'd *never* deploy one in bug bounty — but it illustrates
+**Samy worm**, MySpace 2005, hit ≈1M users in 20 hours). You'd *never* deploy one in bug bounty — but it illustrates
 the **mass-impact** of stored XSS and why it's rated so highly. Demonstrate the *capability* (it can write to your own
 profile), not an actual worm.
 

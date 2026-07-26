@@ -569,8 +569,8 @@ Widen the blast radius honestly: one deception primitive on a high-traffic authe
 | **Reflected/unkeyed input, no cached impact** | **Low / Informational** | — | Only a lead until the cache re-serves it |
 
 **CVSS anchors:**
-- Poisoning→mass-XSS: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` (scope-changed, unauth) → **10.0 Critical** (this exact vector caps out; scoring the integrity impact more conservatively as `I:L` lands ~9.6 — either way, Critical).
-- Deception→token theft: `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` (scope-changed — the cache serves another user's data; victim visits the URL) → **~9.3 Critical** with a token, **High** for PII/CSRF-only.
+- Poisoning→mass-XSS: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` (scope-changed, unauth) → **10.0 Critical** (this exact vector caps out; scoring the integrity impact more conservatively as `I:L` lands ≈9.6 — either way, Critical).
+- Deception→token theft: `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` (scope-changed — the cache serves another user's data; victim visits the URL) → **≈9.3 Critical** with a token, **High** for PII/CSRF-only.
 - CPDoS: `…/C:N/I:N/A:H` → **High/Critical availability**.
 
 ---

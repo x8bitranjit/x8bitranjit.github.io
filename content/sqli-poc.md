@@ -8,7 +8,7 @@ read a **bounded** sample, never mass-dump, and never run table-wide `UPDATE`/`D
 | Script | What it does |
 |---|---|
 | [`sqli_fuzz.py`](#/sqli/poc/sqli_fuzz) | Probe a `FUZZ` point across the technique families: **error-based** (+ DBMS fingerprint), **boolean** (true/false diff), **time** (`SLEEP` vs `SLEEP(0)`), **UNION** (column-count via `ORDER BY`), and **auth-bypass** (with `--true`). Boolean hits are stability-re-checked to keep false positives low. |
-| [`sqli_blind.py`](#/sqli/poc/sqli_blind) | **Blind extractor** — read a scalar sub-query char-by-char via a **boolean** (response-diff) or **time** (delay) oracle. Binary-searches each char (~7 requests/char). Per-DBMS substring/sleep helpers. |
+| [`sqli_blind.py`](#/sqli/poc/sqli_blind) | **Blind extractor** — read a scalar sub-query char-by-char via a **boolean** (response-diff) or **time** (delay) oracle. Binary-searches each char (≈7 requests/char). Per-DBMS substring/sleep helpers. |
 | [`sqlmap_cheat.md`](#/sqli/poc/sqlmap_cheat) | The **sqlmap** power cheat-sheet — confirm / fingerprint / characterize for the report, **PoC-safe** (no `--risk 3`, no blanket `--dump`, no `--os-shell` on bounties). |
 
 ## Typical flow

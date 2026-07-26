@@ -378,7 +378,7 @@ Deserialization confirmed (blind, no gadget yet) but reachable        High      
 Deserialization → SSRF (URLDNS/gadget)                                High–Medium          CWE-502(+918)
 Deserialization → DoS (expansion) only                               Medium               CWE-502(+400)
 ```
-Base for RCE ≈ `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (~9.8 unauth). Lower `PR` matters (unauth ViewState/cookie = worst). Lead with the **command you ran / the callback you received**.
+Base for RCE ≈ `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (≈9.8 unauth). Lower `PR` matters (unauth ViewState/cookie = worst). Lead with the **command you ran / the callback you received**.
 
 ## 14. Reporting (see `DESERIALIZATION_REPORT_TEMPLATE.md`)
 Include: the **sink** (endpoint + where the blob lives), the **language/format** (with the signature), the **original vs

@@ -409,7 +409,7 @@ One-account "I changed the id and got data," **public** objects, endpoints that 
 Sensitivity × scale × read/write × victim-reach. BFLA→admin→RCE and write→ATO are Critical; mass-PII is Critical/High; single sensitive read is Medium/High; low-sensitivity read is Low. CWE-639 (+285/863/566/915/862). `PR:L` (auth) or `PR:N` (unauth).
 
 ### Q105. What CVSS vector for a mass-read PII IDOR?
-e.g. `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N` (~8.x) — scope-changed because you reach other principals' data; high confidentiality; integrity none for pure read.
+e.g. `CVSS:3.1/AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N` (≈8.x) — scope-changed because you reach other principals' data; high confidentiality; integrity none for pure read.
 
 ### Q106. How do I write a title that gets triaged fast?
 `IDOR/BOLA on <method> <endpoint> (<reference>) → <impact>` and lead with the highest proven impact + scale. Never "IDOR found."
@@ -422,10 +422,10 @@ One strong, well-escalated IDOR (with the chain) beats ten "id-swap returns data
 # REAL-WORLD CASE PATTERNS & REFERENCES
 
 ### Q108. First American Financial (2019) — what happened?
-**~885 million** sensitive financial documents exposed via a **sequential document id** in the URL — change the number, read anyone's documents. The archetypal mass read-IDOR.
+**≈885 million** sensitive financial documents exposed via a **sequential document id** in the URL — change the number, read anyone's documents. The archetypal mass read-IDOR.
 
 ### Q109. T-Mobile / Optus / Peloton / USPS — the API-BOLA wave?
-T-Mobile (2023): a BOLA on an API exposed ~37M records. Optus (2022): unauthenticated API enumeration of customer PII. Peloton (2021): API returned account data for any user. USPS Informed Visibility (2018): API exposed ~60M users. Same root cause every time: **a reference with no object-level check, at scale.**
+T-Mobile (2023): a BOLA on an API exposed ≈37M records. Optus (2022): unauthenticated API enumeration of customer PII. Peloton (2021): API returned account data for any user. USPS Informed Visibility (2018): API exposed ≈60M users. Same root cause every time: **a reference with no object-level check, at scale.**
 
 ### Q110. Parler (2021) — what's the lesson?
 **Sequential post ids** + no auth allowed bulk scraping of public+private content. Predictable references + missing checks = mass data acquisition.

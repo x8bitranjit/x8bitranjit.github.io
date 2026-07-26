@@ -383,7 +383,7 @@ $ python3 poc/filter_chain_rce.py --cmd id
 [+] chain: php://filter/convert.iconv.UTF8.CSISO2022KR|convert.base64-encode|... (≈14 KB) ...|resource=php://temp
 ```
 
-**Step 4 — include the chain → RCE, benign marker only.** The chain is ~14 KB, so I put it in the **query string** (not a header — default Apache caps headers at 8 KB, which would truncate it):
+**Step 4 — include the chain → RCE, benign marker only.** The chain is ≈14 KB, so I put it in the **query string** (not a header — default Apache caps headers at 8 KB, which would truncate it):
 ```http
 GET /?page=php://filter/convert.iconv.UTF8...(≈14KB chain)...resource=php://temp&c=id HTTP/1.1
 Host: target.example
@@ -531,7 +531,7 @@ The path you supply isn't included immediately — it's **stored** (a profile fi
 
 > Re-verified against primary sources (linked in the references appendix) — the named research and CVEs behind the techniques above.
 
-- **PHP filter-chain RCE — the technique that made "read-only LFI" obsolete (Synacktiv, 2022; building on Gynvael Coldwind).** Synacktiv's *"PHP filters chain: What is it and how to use it"* and the accompanying **`php_filter_chain_generator`** turned a decades-old curiosity into a universal weapon: if you **fully control the parameter passed to `include`/`require`**, you can synthesize arbitrary PHP — e.g. `<?php system($_GET['c']);?>` — by chaining `iconv`/base64 conversion filters, **with no file write, no upload, no log, and `allow_url_include=Off`** (§12/§12.1). The known constraint is payload size (~14 KB), which the default Apache 8 KB **header** limit truncates — so the chain goes in the query/body, not a header. There's also an **error-based oracle** variant (`php_filter_chains_oracle_exploit`) that leaks file contents when the sink is a *read* (`file_get_contents`/`file`/`copy`) rather than an include. Lesson: on any PHP include sink, the filter chain is the modern first-choice RCE; on a read sink, the oracle still exfiltrates files.
+- **PHP filter-chain RCE — the technique that made "read-only LFI" obsolete (Synacktiv, 2022; building on Gynvael Coldwind).** Synacktiv's *"PHP filters chain: What is it and how to use it"* and the accompanying **`php_filter_chain_generator`** turned a decades-old curiosity into a universal weapon: if you **fully control the parameter passed to `include`/`require`**, you can synthesize arbitrary PHP — e.g. `<?php system($_GET['c']);?>` — by chaining `iconv`/base64 conversion filters, **with no file write, no upload, no log, and `allow_url_include=Off`** (§12/§12.1). The known constraint is payload size (≈14 KB), which the default Apache 8 KB **header** limit truncates — so the chain goes in the query/body, not a header. There's also an **error-based oracle** variant (`php_filter_chains_oracle_exploit`) that leaks file contents when the sink is a *read* (`file_get_contents`/`file`/`copy`) rather than an include. Lesson: on any PHP include sink, the filter chain is the modern first-choice RCE; on a read sink, the oracle still exfiltrates files.
 
 - **CVE-2021-41773 & CVE-2021-42013 — Apache path traversal → RCE, exploited in the wild as a 0-day (Oct 2021).** Apache HTTP Server **2.4.49** shipped a path-traversal flaw (**41773**) letting `..%2e/`-style requests map URLs outside the `Alias`-configured roots → arbitrary file disclosure; when **`mod_cgi` was enabled**, the same primitive invoked `/bin/sh` → **RCE as the Apache user**. The 2.4.50 fix was **incomplete** (double-encoding bypass) → **CVE-2021-42013**; fully fixed in 2.4.51. Apache confirmed in-the-wild exploitation, and public PoCs appeared within hours. This is the §16.3 lesson made concrete: **the traversal bug is sometimes in the *server*, not the app** — and encoded-traversal (`%2e%2e`, double-encoding) is exactly the §7 bypass family. A tester should always try server-level traversal, not just app parameters.
 
@@ -597,7 +597,7 @@ Confirm on **production**. Validate disclosed creds **read-only**. For RCE, run 
 | **Blind/limited read** | **Low–Medium** | — | Up if turned into a real read/RCE. |
 
 **CVSS / CWE:**
-- LFI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (~9.8). **CWE-98** (PHP file inclusion) / **CWE-94** (code exec).
+- LFI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (≈9.8). **CWE-98** (PHP file inclusion) / **CWE-94** (code exec).
 - Secret/source disclosure: `C:H/I:N/A:N` → High. **CWE-22** (path traversal) / **CWE-73** (external control of filename) / **CWE-200/CWE-538**.
 - Anchor to **CWE-98** (inclusion→RCE) or **CWE-22** (traversal/read); add CWE-94 when you achieve code exec.
 

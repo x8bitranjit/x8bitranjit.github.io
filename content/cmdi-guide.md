@@ -272,7 +272,7 @@ Argument-only (no breakout possible):     pivot to OPTION injection (§9) — yo
 
 No output → make the server **wait**, and measure it.
 
-> *In plain words:* if you can't *see* the output, make the server **pause on command** and watch the clock. `sleep 10` does nothing but wait 10 seconds; if your request comes back ~10s slower than a normal one — repeatably — then your command executed (nothing else would add exactly that delay on demand). It's a yes/no oracle: "did the command run? → did the response get slow?" Always repeat it 2–3× so you don't mistake random network lag for a hit.
+> *In plain words:* if you can't *see* the output, make the server **pause on command** and watch the clock. `sleep 10` does nothing but wait 10 seconds; if your request comes back ≈10s slower than a normal one — repeatably — then your command executed (nothing else would add exactly that delay on demand). It's a yes/no oracle: "did the command run? → did the response get slow?" Always repeat it 2–3× so you don't mistake random network lag for a hit.
 
 ```
 Linux:    127.0.0.1;sleep 10        `sleep 10`    $(sleep 10)    || sleep 10    & sleep 10
@@ -282,7 +282,7 @@ Confirm:  baseline (no payload) vs payload — a consistent ~10s delta = executi
 Tune:     use a distinctive delay (e.g. 7s) and compare; binary-search booleans with conditional sleeps:
           ;if [ $(whoami|cut -c1) = r ]; then sleep 10; fi    → exfil data 1 char at a time via timing.
 ```
-> **If this → then that:** `;sleep 10` reliably adds ~10s (vs a fast baseline, repeated) → **confirmed blind command injection**. You can now **exfiltrate** via conditional sleeps (slow) or, much faster, via OOB (§8/§12). Always re-test to exclude network jitter — a single slow response isn't proof.
+> **If this → then that:** `;sleep 10` reliably adds ≈10s (vs a fast baseline, repeated) → **confirmed blind command injection**. You can now **exfiltrate** via conditional sleeps (slow) or, much faster, via OOB (§8/§12). Always re-test to exclude network jitter — a single slow response isn't proof.
 
 ## 7.1 Boolean / response-difference blind (when time AND OOB are unavailable)
 Sometimes you can't sleep reliably (no `sleep`/`ping`, or unstable latency) and OOB egress is fully blocked — but the **response still changes** depending on whether your injected command **succeeded or errored**. Infer execution from that differential, like boolean-based SQLi:
@@ -613,7 +613,7 @@ Confirm on **production** with a benign marker; re-test time-based 2–3× to ex
 | **Reflected metachar, no execution** | **— (not a finding)** | Prove execution first. |
 
 **CVSS / CWE:**
-- Command injection → RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (~9.8). **CWE-78** (OS Command Injection).
+- Command injection → RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (≈9.8). **CWE-78** (OS Command Injection).
 - Argument injection: **CWE-88** (Argument Injection) + the outcome (CWE-78 if RCE).
 - Anchor to **CWE-78** (or CWE-88 for option injection); add **CWE-94** where relevant.
 

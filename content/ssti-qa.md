@@ -510,7 +510,7 @@ read-only cred validation for any cloud creds; a repeated delay / server-sourced
 or persist.
 
 ### Q83. What's the severity & CWE?
-SSTI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (~9.8). **CWE-1336** (SSTI) / **CWE-94** (code injection). OGNL/EL
+SSTI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (≈9.8). **CWE-1336** (SSTI) / **CWE-94** (code injection). OGNL/EL
 → same. File-read/secret only → High (CWE-1336 + CWE-200).
 
 ### Q84. How do I escalate a "weak" SSTI finding?
@@ -713,7 +713,7 @@ Which delimiter works narrows it: `{{...}}` → Jinja2/Twig/Nunjucks/Handlebars;
 **Jinja2**: `{{cycler.__init__.__globals__.os.popen('id').read()}}` (climb to `os`). **Twig**: `{{['id']|filter('system')}}`. **Freemarker**: `<#assign x="freemarker.template.utility.Execute"?new()>${x("id")}`. **SpEL/OGNL**: `${T(java.lang.Runtime).getRuntime().exec("id")}` (the Struts/Confluence class). **ERB**: `<%= \`id\` %>`. **Smarty**: `{system('id')}`. All exploit the same idea: the template exposes host-language objects.
 
 ### Q114. What is OGNL/EL injection and why does it matter so much?
-OGNL (Struts), SpEL (Spring), and Java EL are **expression languages** — the Java cousins of template injection. When a framework evaluates attacker-controlled input as an EL expression, you get RCE via `T(java.lang.Runtime)`. It matters because it caused **the two biggest cases**: Struts CVE-2017-5638 (OGNL in a `Content-Type` header → the **Equifax** breach, ~147M records) and Confluence CVE-2022-26134 (unauth OGNL in the URI → mass 0-day RCE). Same mechanic as `{{7*7}}`, catastrophic scale.
+OGNL (Struts), SpEL (Spring), and Java EL are **expression languages** — the Java cousins of template injection. When a framework evaluates attacker-controlled input as an EL expression, you get RCE via `T(java.lang.Runtime)`. It matters because it caused **the two biggest cases**: Struts CVE-2017-5638 (OGNL in a `Content-Type` header → the **Equifax** breach, ≈147M records) and Confluence CVE-2022-26134 (unauth OGNL in the URI → mass 0-day RCE). Same mechanic as `{{7*7}}`, catastrophic scale.
 
 ### Q115. The textbook Jinja2 payload is blocked (`_`, `.`, `[]` filtered). Now what?
 Walk the **filter-bypass ladder** (§11.1): use `|attr()` instead of `.` (`{{()|attr('__class__')}}`), **hex/unicode-escape** blocked characters (`\x5f` for `_`), use the **`request` object** as a gadget source (`{{request.application.__globals__}}`), and `{% %}` statement tags for keyword filters. A blocked payload isn't a dead end — it's a sandbox/WAF you route around. This ladder is what separates `49` from a shell.

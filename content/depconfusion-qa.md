@@ -320,7 +320,7 @@ Everything lockfile-pinned with hashes and `npm ci`, or a full-path Go module (f
 
 **92. CVSS anchor for CI/CD RCE?**
 `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` ≈ 9–10.
-*Plain version:* that string is a severity recipe. Reading it: attackable over the internet (**AV:N**), easy/reliable (**AC:L**), no account needed (**PR:N**), no victim click (**UI:N**), your code crosses out of the public store into their *trusted* build (**S:C** — this "Scope: Changed" flag is what makes it Critical), and once inside it can read/alter/break everything (**C/I/A:H**). All maxed → this vector computes to a **perfect 10.0** (or ~9.x if you rate it **AC:H** because success depends on their build config — still Critical).
+*Plain version:* that string is a severity recipe. Reading it: attackable over the internet (**AV:N**), easy/reliable (**AC:L**), no account needed (**PR:N**), no victim click (**UI:N**), your code crosses out of the public store into their *trusted* build (**S:C** — this "Scope: Changed" flag is what makes it Critical), and once inside it can read/alter/break everything (**C/I/A:H**). All maxed → this vector computes to a **perfect 10.0** (or ≈9.x if you rate it **AC:H** because success depends on their build config — still Critical).
 
 **93. How do you de-duplicate?**
 One resolution root cause (e.g. an unreserved scope) = one report; list the confusable names and prove one with a callback.
@@ -362,7 +362,7 @@ Claimable (public 404)? Benign callback from the target's build with your token?
 
 **102. Why is it Critical — what's actually at risk when your package runs?**
 Because it runs in **CI/CD**, the highest-trust environment the org has: cloud IAM roles, `NPM_TOKEN`/registry creds, code-signing keys, deploy access, and the full private source. One install hook = read those secrets, tamper the build, or ship a poisoned artifact to the org's customers (supply-chain propagation).
-*The severity point:* "It's `S:C` (scope-changed) in CVSS — my public package crosses a trust boundary into their private build — which is exactly what pushes it to ~9–10. Birsan turned this into RCE at Apple, Microsoft, PayPal, Netflix, Tesla and 30+ others for $130k+."
+*The severity point:* "It's `S:C` (scope-changed) in CVSS — my public package crosses a trust boundary into their private build — which is exactly what pushes it to ≈9–10. Birsan turned this into RCE at Apple, Microsoft, PayPal, Netflix, Tesla and 30+ others for $130k+."
 
 **103. Walk me through the three preconditions out loud.**
 "Three things must all hold: **(1)** a package name the org uses **privately** (a nickname I can learn from leaked manifests/bundles); **(2)** that name is **unclaimed** on the **public** registry, so I can register it; and **(3)** the org's tooling is willing to **look at the public registry** and **prefer the higher version**. Miss any one and it doesn't fire — which is why my recon proves (1), a read-only 404 proves (2), and their resolver config (or a callback) proves (3)."

@@ -118,7 +118,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 **Q45. How do you dump the whole store?** Loop POS 1..length × charset for record 1 (`//user[1]`), then `//user[2]`, `//user[3]`, … using `count(//user)` to know how many — exfiltrating every field of every record.
 > *Plain version:* a game of 20-questions that reads the whole cabinet. Ask "is letter 1 of user #1's password an 'a'? a 'b'? …", nail each character, move to the next letter, then the next folder — because the whole database is one document with no per-folder locks, yes/no answers alone reconstruct **every** credential. Slow by hand, so `poc/xpath_blind.py` does it (binary search cuts the questions ~in half).
 
-**Q46. Why binary-search codepoints?** `string-to-codepoints(substring(...,i,1))[1]>M` halves the search space per request (~7 requests/char for ASCII) vs up to N with linear charset iteration.
+**Q46. Why binary-search codepoints?** `string-to-codepoints(substring(...,i,1))[1]>M` halves the search space per request (≈7 requests/char for ASCII) vs up to N with linear charset iteration.
 
 **Q47. How do you discover element names blind?** `substring(name(//user[1]/*[K]),POS,1)='c'` reconstructs each child element's name, revealing the schema when you don't know field names.
 
@@ -265,7 +265,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q105. Walk me through the auth-bypass, including the AND-password gotcha.** If the query is `//user[name='$u' and password='$p']`, a bare `name='' or '1'='1'` isn't unconditionally true because of the trailing `and password`. So you use a payload whose OR sits **outside** the whole predicate — `' or '1'='1' or ''='` — making it true regardless of password, or inject `' or name='admin' or ''='` to land as admin specifically.
 
-**Q106. Once you have a boolean oracle, how do you dump the store?** **Booleanize** with `count()` (how many nodes), `string-length()` (value length), and `substring(value,pos,1)` compared/`>`-bisected to binary-search each character's codepoint (~7 requests/char). Walk every node and attribute. Because there's no ACL, this recovers **all** usernames and password hashes/tokens — the "XPath crawling + Booleanization" of Klein's paper.
+**Q106. Once you have a boolean oracle, how do you dump the store?** **Booleanize** with `count()` (how many nodes), `string-length()` (value length), and `substring(value,pos,1)` compared/`>`-bisected to binary-search each character's codepoint (≈7 requests/char). Walk every node and attribute. Because there's no ACL, this recovers **all** usernames and password hashes/tokens — the "XPath crawling + Booleanization" of Klein's paper.
 
 **Q107. How does the XPath *version* change your ceiling?** XPath **1.0** caps at auth-bypass + full blind dump. XPath **2.0/3.0** adds `doc()`/`document()` → **SSRF/OOB** (hit cloud metadata) and `unparsed-text()` → **arbitrary file read**. A **native XML DB** (BaseX/eXist/MarkLogic/Sedna) adds **XQuery** with extension modules → **RCE**. So fingerprinting the version/engine first (does `doc()` fire an OOB hit?) decides the whole attack.
 
@@ -291,7 +291,7 @@ Study companion + field reference. Advanced guide — pair with OWASP/PortSwigge
 
 **Q115. You have auth bypass. The program wants "more than a login bypass" — what else can one field give you?** The whole credential store — because XML has no access control. Using the same boolean oracle I Booleanize: `count(//user)` for the node count, `string-length(//user[1]/password)` for each length, then `substring(...,pos,1)` bisected to extract every character of every user's hash/token. For the report I extract **my own** record + a few chars of one hash (redacted) to prove the primitive, then stop — that demonstrates full-store disclosure without dumping prod.
 
-**Q116. Blind extraction is confirmed but slow (one char at a time). How do you speed it up and stay safe?** **Binary-search the codepoint** with `>`/`<` comparisons (or `string-to-codepoints()` on XPath 2.0) — ~log₂ per character (~7 requests) instead of 26+. I also throttle the loop (jitter, low concurrency) so I don't hammer prod, extract only enough to prove it, and redact. Speed comes from the algorithm, not from flooding the target.
+**Q116. Blind extraction is confirmed but slow (one char at a time). How do you speed it up and stay safe?** **Binary-search the codepoint** with `>`/`<` comparisons (or `string-to-codepoints()` on XPath 2.0) — ~log₂ per character (≈7 requests) instead of 26+. I also throttle the loop (jitter, low concurrency) so I don't hammer prod, extract only enough to prove it, and redact. Speed comes from the algorithm, not from flooding the target.
 
 **Q117. Your `doc('http://your-oob/x')` payload fires a DNS/HTTP hit on your collaborator. What does that unlock?** It confirms **XPath 2.0+**, which means `doc()`/`document()` fetch URLs server-side = **SSRF**. I point it at internal services and cloud metadata (`doc('http://169.254.169.254/latest/meta-data/...')`) to reach IAM credentials, and I try `unparsed-text('/etc/passwd')` for **file read**. The version fingerprint just raised my ceiling from "dump the XML" to "SSRF + local file read." (Hand the SSRF to the SSRF kit's discipline.)
 

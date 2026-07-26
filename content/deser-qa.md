@@ -390,7 +390,7 @@ A .NET deserialization RCE in Telerik UI for ASP.NET AJAX's `RadAsyncUpload` —
 key and it deserializes to RCE. A recurring real-world .NET deserialization bug worth checking on ASP.NET targets.
 
 ### Q61. How do I deliver a benign .NET proof?
-Set the gadget command to `cmd /c nslookup token.YOUR-OOB` (OOB DNS) or `cmd /c ping -n 11 127.0.0.1` (a ~10s delay). A
+Set the gadget command to `cmd /c nslookup token.YOUR-OOB` (OOB DNS) or `cmd /c ping -n 11 127.0.0.1` (a ≈10s delay). A
 DNS hit / timing delta proves execution without touching data. Then optionally `whoami` for the report and stop.
 
 ### Q62. .NET severity?
@@ -606,7 +606,7 @@ Deserialization → DoS only                                   Medium
 
 ### Q97. What CVSS/CWE do I use?
 **CWE-502** is the anchor (+ CWE-287 for auth bypass, CWE-918 for SSRF chain). RCE vector ≈
-`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (~9.8 unauth) — drop `PR:N` to `PR:L` if authenticated; note if a leaked key was
+`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (≈9.8 unauth) — drop `PR:N` to `PR:L` if authenticated; note if a leaked key was
 needed. Lead with the **command executed / callback received**.
 
 ### Q98. What's the correct remediation?
@@ -638,7 +638,7 @@ phar, object-tamper auth bypass — collapses.
 
 ### Q101. Explain insecure deserialization to a junior in one minute — and why it's Critical.
 *Plain:* "Serializing is flat-packing an object into bytes with an assembly card; deserializing is a worker who builds whatever the card says, no questions asked. Normally the card says 'attach leg A to panel B.' The attack is that **I write the card**, and I can add a step that says '…and run this command.' Rebuilding the object *is* what runs my code."
-*Why Critical:* it's **RCE on the server** — one crafted cookie/ViewState/upload → command execution with the app's privileges (`CWE-502`, ~9.8 when unauth). "I don't report 'the app deserializes input'; I report 'I achieved RCE via a gadget in the session cookie.'"
+*Why Critical:* it's **RCE on the server** — one crafted cookie/ViewState/upload → command execution with the app's privileges (`CWE-502`, ≈9.8 when unauth). "I don't report 'the app deserializes input'; I report 'I achieved RCE via a gadget in the session cookie.'"
 
 ### Q102. What is a "gadget chain," and why can't Java/.NET just "inject code" directly?
 You can't paste new bytecode into a running JVM/CLR — but the target already has **thousands of library classes loaded**, some with behaviour in their deserialization lifecycle methods (`readObject`). A **gadget chain** wires a handful of those existing classes together so that "reconstruct this object" flows, step by step, into a dangerous sink (`Runtime.exec`). "It's property-oriented programming — I don't supply the code, I supply a **data structure** that steers *their* code to execution. ysoserial is a vending machine of these chains."

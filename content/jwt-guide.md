@@ -940,7 +940,7 @@ Set a severity you can **defend** with a CVSS vector. "Alone" = the finding itse
 | **Info-leak claims / HS256 note / alg:none-in-spec** | **Info** | — | Never lead with these. |
 
 **CVSS pointers (v3.1):**
-- Forge-any-user auth bypass: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` → Critical (~9.x). `S:C` (scope change) is defensible — one component's token grants identity across the system.
+- Forge-any-user auth bypass: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` → Critical (≈9.x). `S:C` (scope change) is defensible — one component's token grants identity across the system.
 - `sub`-swap IDOR (needs a low-priv account): `PR:L`, `C:H/I:L` → High.
 - Anchor to a CWE: **CWE-347** (Improper Verification of Cryptographic Signature) for forge/none/confusion; **CWE-345** (Insufficient Verification of Data Authenticity) for trust issues; **CWE-287/CWE-863** for auth/authz bypass; **CWE-639** for `sub`-IDOR; **CWE-918** for `jku` SSRF.
 

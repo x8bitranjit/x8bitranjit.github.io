@@ -356,7 +356,7 @@ Every WebSocket finding has a "now do Y."
 
 | Scenario | Typical severity | CVSS 3.1 (example) |
 |---|---|---|
-| **Message injection → RCE / full DB dump** | **Critical** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` (~9.x) |
+| **Message injection → RCE / full DB dump** | **Critical** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` (≈9.x) |
 | **CSWSH → ATO / full private-data theft** | **High/Critical** | `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` = **9.3 Critical** when it reaches ATO (I:H); data-theft-**only** (I:L) ≈ **8.2 High**. `UI:R` = victim opens the page; `S:C` = it crosses into the victim's account/authority |
 | **Stored XSS via chat message → session theft** | **High** | `AV:N/AC:L/PR:L/UI:R/S:C/C:H/I:L/A:N` |
 | **IDOR / BFLA over WS (cross-user read/action)** | **High/Medium** | per data sensitivity (IDOR kit §21) |

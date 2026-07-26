@@ -233,7 +233,7 @@ With write/repo scope: push a malicious pipeline/Action/commit → **code execut
 1. Find `AKIA…` + secret in a bundle (or `/proc/self/environ` via another bug). 2. `aws sts get-caller-identity` → confirms live + shows the principal. **Stop there for the report.** 3. (Only if needed and authorized) enumerate the role's own permissions read-only. Never list/read customer S3 data, never modify resources — `get-caller-identity` is sufficient proof of Critical. Demonstrate any code-exec only on your own test account/tenant.
 
 ### Q44. Severity & CWE for JS-leaked secrets?
-Live privileged secret in client code: **CWE-798** (Hardcoded Credentials) / **CWE-540** (source-code/info exposure) / **CWE-200**. Cloud-key→RCE or CI-token→supply-chain → **Critical (~9.x)**. Server key (sk_live/admin) live → High–Critical by scope. Public client key / unvalidated match → **Info**. Triagers rate on **demonstrated, live, privileged** access.
+Live privileged secret in client code: **CWE-798** (Hardcoded Credentials) / **CWE-540** (source-code/info exposure) / **CWE-200**. Cloud-key→RCE or CI-token→supply-chain → **Critical (≈9.x)**. Server key (sk_live/admin) live → High–Critical by scope. Public client key / unvalidated match → **Info**. Triagers rate on **demonstrated, live, privileged** access.
 
 ### Q45. Safe-PoC discipline for secrets?
 Validate with the minimal read-only call; **redact** the value in the report (show prefix + length + the validation response, mask the rest); prove code-exec only on your own tenant/repo; for old/Wayback keys, **confirm they still work on production** before reporting; don't mass-harvest. A `get-caller-identity` line + a redacted key is a complete Critical.

@@ -573,7 +573,7 @@ Subdomain takeover was **pioneered by Frans Rosén and popularized by Detectify 
 *Source:* [HackerOne — A Guide to Subdomain Takeovers 2.0](https://www.hackerone.com/blog/guide-subdomain-takeovers-20) · [Detectify Labs — subdomain takeover research](https://labs.detectify.com/)
 
 **② `can-i-take-over-xyz` — the fingerprint-≠-claimable discipline (EdOverflow, community).**
-The canonical database **`can-i-take-over-xyz`** (Ed Overflow et al.) catalogs services, their takeover **fingerprints**, and — crucially — **whether each is actually claimable** (~76 services tracked; Nuclei ships ~72 takeover templates from it). Some 404 fingerprints (e.g., certain CloudFront/Statuspage states) are **NOT claimable** — reporting them is a false positive (§16). This is the guide's §7 rule made concrete: *a fingerprint is a lead; claimability is the finding.*
+The canonical database **`can-i-take-over-xyz`** (Ed Overflow et al.) catalogs services, their takeover **fingerprints**, and — crucially — **whether each is actually claimable** (≈76 services tracked; Nuclei ships ≈72 takeover templates from it). Some 404 fingerprints (e.g., certain CloudFront/Statuspage states) are **NOT claimable** — reporting them is a false positive (§16). This is the guide's §7 rule made concrete: *a fingerprint is a lead; claimability is the finding.*
 → *Technique:* §6 (fingerprint) → §7 (claimability check). *Lesson:* always cross-check claimability before you report; a matching 404 signature is not a takeover.
 *Source:* [EdOverflow — can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz) · [OWASP — Subdomain Takeover Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Subdomain_Takeover_Prevention_Cheat_Sheet.html)
 

@@ -69,7 +69,7 @@ Study companion + field reference for NoSQL injection. Advanced guide — pair w
 
 **Q24. What's a boolean oracle here?** Any observable that differs between a true and false query: login success/failure, result count, response length, status code, presence of an element.
 
-**Q25. How do you detect time-based NoSQLi?** Where `$where`/JS is reachable: `{"$where":"sleep(3000)"}` or a predicate gated `sleep`. A repeatable ~3s delay = blind oracle. Keep it bounded; never infinite-loop prod.
+**Q25. How do you detect time-based NoSQLi?** Where `$where`/JS is reachable: `{"$where":"sleep(3000)"}` or a predicate gated `sleep`. A repeatable ≈3s delay = blind oracle. Keep it bounded; never infinite-loop prod.
 
 **Q26. Why test both JSON and bracket forms?** Endpoints often validate one format but not the other; the parser may build the operator object only in one. Coverage requires both.
 

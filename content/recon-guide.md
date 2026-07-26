@@ -159,7 +159,7 @@ wget -qO /opt/resolvers.txt https://raw.githubusercontent.com/trickest/resolvers
 ```
 > **Windows:** run recon in **WSL2 (Ubuntu/Kali)**. Native Windows works for the Python/Go binaries but the shell glue (`anew`, pipes, `gf`) is built for *nix. Use WSL and access this `Recon/` folder via its WSL mount path (`/mnt/<drive>/…/Web/Recon`) — wherever you've placed the `Web/` kit on this machine.
 
-**API keys are a force multiplier.** Add free/cheap keys to `subfinder`/`amass`/`gau` configs: Censys, Shodan, SecurityTrails, VirusTotal, GitHub, Chaos (ProjectDiscovery, free for bounty). Without keys you find ~60% of subdomains; with keys, ~95%. This alone is a "what others miss" edge.
+**API keys are a force multiplier.** Add free/cheap keys to `subfinder`/`amass`/`gau` configs: Censys, Shodan, SecurityTrails, VirusTotal, GitHub, Chaos (ProjectDiscovery, free for bounty). Without keys you find ≈60% of subdomains; with keys, ≈95%. This alone is a "what others miss" edge.
 
 ---
 
@@ -945,7 +945,7 @@ The WAF hides the origin's IP — but the origin still serves the *same favicon*
 *Source:* [Shodan — Deep Dive: http.favicon](https://blog.shodan.io/deep-dive-http-favicon/)
 
 **④ Subdomain takeover → clean, high-severity, low-competition (§17).**
-Pioneered by **Frans Rosén** and popularized by **Detectify** (2014), the dangling-CNAME takeover has bitten **Sony, Slack, Snapchat, and Uber**, among many others: a subdomain still `CNAME`s to a third-party service (GitHub Pages, Heroku, S3, Fastly…) that was *deleted* — so you register that resource, serve your content, and now own `sub.target.com`. Severity is the **trust the hostname carries**: if a parent-domain-scoped cookie or an OAuth `redirect_uri`/CSP `script-src` trusts `*.target.com`, a "just a takeover" escalates to session theft / ATO / script-exec on the main app. Confirm claimability against **`can-i-take-over-xyz`** (EdOverflow, ~76 services) before you report — a fingerprint is not a takeover.
+Pioneered by **Frans Rosén** and popularized by **Detectify** (2014), the dangling-CNAME takeover has bitten **Sony, Slack, Snapchat, and Uber**, among many others: a subdomain still `CNAME`s to a third-party service (GitHub Pages, Heroku, S3, Fastly…) that was *deleted* — so you register that resource, serve your content, and now own `sub.target.com`. Severity is the **trust the hostname carries**: if a parent-domain-scoped cookie or an OAuth `redirect_uri`/CSP `script-src` trusts `*.target.com`, a "just a takeover" escalates to session theft / ATO / script-exec on the main app. Confirm claimability against **`can-i-take-over-xyz`** (EdOverflow, ≈76 services) before you report — a fingerprint is not a takeover.
 → *Recon phase:* PHASE 4 High-Value (§17). *Cash-out:* [Subdomain Takeover](../SubdomainTakeover/) → cookie/OAuth trust → [Account Takeover](../AccountTakeover/).
 *Source:* [EdOverflow — can-i-take-over-xyz](https://github.com/EdOverflow/can-i-take-over-xyz) · [HackerOne — A Guide to Subdomain Takeovers 2.0](https://www.hackerone.com/blog/guide-subdomain-takeovers-20)
 

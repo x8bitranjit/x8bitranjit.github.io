@@ -487,9 +487,9 @@ Any "fetch live data from a source" feature (often with a hidden/default URL you
 1. Find SSRF (a `?url=`/proxy/WAF-misroute).
 2. Hit `http://169.254.169.254/latest/meta-data/iam/security-credentials/<role>` → temp IAM creds.
 3. `aws sts get-caller-identity` (prove); then the role's permissions dictate impact (S3 read, etc.).
-4. Report: SSRF + creds proof + the role's effective permissions = **Critical**. (Capital One: ~100M records via this exact path; AWS then shipped IMDSv2.)
+4. Report: SSRF + creds proof + the role's effective permissions = **Critical**. (Capital One: ≈100M records via this exact path; AWS then shipped IMDSv2.)
 
-*In plain words — this is the whole reason SSRF is famous, told as a story:* in 2019 an attacker found an SSRF in Capital One's setup, pointed it at the metadata address `169.254.169.254`, and read back the server's temporary AWS keys. Those keys had permission to read the bank's storage buckets, so the attacker downloaded **~100 million customer records**. Every step is exactly the four above: *find the fetch → aim it at the credential vault → grab the keys → use them.* The lesson for you: this is the **default play** whenever you confirm SSRF on AWS — try metadata first, and if you get keys, prove they're real with the single harmless command `aws sts get-caller-identity` (which just says "yes, these keys are valid and here's who they belong to") and **stop there** — that alone is a complete Critical; you never need to actually download real data. (AWS invented IMDSv2, Q23, specifically to make this harder.)
+*In plain words — this is the whole reason SSRF is famous, told as a story:* in 2019 an attacker found an SSRF in Capital One's setup, pointed it at the metadata address `169.254.169.254`, and read back the server's temporary AWS keys. Those keys had permission to read the bank's storage buckets, so the attacker downloaded **≈100 million customer records**. Every step is exactly the four above: *find the fetch → aim it at the credential vault → grab the keys → use them.* The lesson for you: this is the **default play** whenever you confirm SSRF on AWS — try metadata first, and if you get keys, prove they're real with the single harmless command `aws sts get-caller-identity` (which just says "yes, these keys are valid and here's who they belong to") and **stop there** — that alone is a complete Critical; you never need to actually download real data. (AWS invented IMDSv2, Q23, specifically to make this harder.)
 
 ### Q76. SSRF → internal RCE chain.
 1. SSRF confirmed; port-scan localhost/internal (Q83) → find Redis `:6379` (or PHP-FPM, Jenkins).
@@ -707,7 +707,7 @@ CRLF header inject: http://169.254.169.254/...%0d%0aMetadata-Flavor:%20Google
 - AWS docs on **IMDSv2** (why it exists = SSRF defense).
 
 ### Q102. Things to know by name.
-- **Capital One breach (2019)** — SSRF → IMDS → ~100M records; the case that mainstreamed SSRF.
+- **Capital One breach (2019)** — SSRF → IMDS → ≈100M records; the case that mainstreamed SSRF.
 - **AWS IMDSv2** — session-token defense introduced because of SSRF.
 - **Orange Tsai's URL-parser confusion** payloads.
 - **Gopherus** — gopher-to-RCE tooling.

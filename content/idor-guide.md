@@ -255,7 +255,7 @@ POST /api/auth/forgot-password HTTP/1.1  →  202 Accepted  ("reset link sent")
 ```
 Follow the link, set a new password, log in as **B**. → **Account takeover.** We went read-IDOR → write-IDOR → ATO through one missing ownership check.
 
-**STEP 5 — STOP and report (§19, §23, §25).** Everything used **our own** A and B accounts and benign markers; we **reverted** B's email afterward and never touched a real user. Report title: *"BOLA on `/api/orders/{id}` (mass-PII, ~48k enumerable) + write-IDOR on `PUT /api/users/{id}` → account takeover."* Lead with the **two-account proof** (A's token, B's object, B's data/change) and the highest impact (ATO + mass-PII scale). That transcript — A's credentials returning and changing B's data — **is** the finding; "I changed an id and saw data" with one account is not.
+**STEP 5 — STOP and report (§19, §23, §25).** Everything used **our own** A and B accounts and benign markers; we **reverted** B's email afterward and never touched a real user. Report title: *"BOLA on `/api/orders/{id}` (mass-PII, ≈48k enumerable) + write-IDOR on `PUT /api/users/{id}` → account takeover."* Lead with the **two-account proof** (A's token, B's object, B's data/change) and the highest impact (ATO + mass-PII scale). That transcript — A's credentials returning and changing B's data — **is** the finding; "I changed an id and saw data" with one account is not.
 
 > **Read the pattern, not just the bytes:** every paid IDOR is this shape — *two-account oracle → confirm A reaches B → size it from metadata (don't scrape) → find the write verb → drive to ATO/admin/cross-tenant → prove with your own accounts, revert, stop.* Swap the orders endpoint for a GraphQL `node(id:)` (§15), a nested child id (§8.10), or a tenant key (§16) and it's the same arc.
 
@@ -592,11 +592,11 @@ Every confirmed IDOR has a "now do Y." Don't submit the first read.
 
 | Scenario | Typical severity | CVSS 3.1 vector (example) |
 |---|---|---|
-| **BFLA → admin / self-promote / impersonate → RCE or full control** | **Critical** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` (~9.x) |
-| **Write IDOR → ATO** (change victim email/pw/MFA) | **Critical/High** | `AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N` (~8.x) |
-| **Mass-read of PII** (enumerable, whole user base) | **Critical/High** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N` (~7.5–8.5) |
+| **BFLA → admin / self-promote / impersonate → RCE or full control** | **Critical** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:H/A:H` (≈9.x) |
+| **Write IDOR → ATO** (change victim email/pw/MFA) | **Critical/High** | `AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:N` (≈8.x) |
+| **Mass-read of PII** (enumerable, whole user base) | **Critical/High** | `AV:N/AC:L/PR:L/UI:N/S:C/C:H/I:N/A:N` (≈7.5–8.5) |
 | **Cross-tenant** read/write (SaaS isolation break) | **Critical/High** | scope-changed, raise C/I |
-| **Single read of sensitive PII** (one record) | **Medium/High** | `AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N` (~6.5) |
+| **Single read of sensitive PII** (one record) | **Medium/High** | `AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:N/A:N` (≈6.5) |
 | **Single write of low-sensitivity field** | **Medium** | `…/C:N/I:L/A:N` |
 | **Read of low-sensitivity, own-adjacent data** | **Low** | minimal C |
 | **403/404 enumeration oracle only** (no data) | **Low/Info** | info-leak framing |
@@ -719,6 +719,6 @@ Then: cross-tenant? (§16)  ·  function-level admin? (§10/§13)  ·  blind/sec
 **CWE**
 - **CWE-639** (Authorization Bypass Through User-Controlled Key): https://cwe.mitre.org/data/definitions/639.html · CWE-285 (Improper Authorization) · CWE-863 (Incorrect Authorization) · CWE-566 (Authz Bypass via SQL PK) · CWE-862 (Missing Authorization — BFLA) · CWE-915 (Mass Assignment).
 
-**Real cases / patterns** (read the writeups): First American Financial (2019, **885M** docs via sequential id), **T-Mobile API** (2023, BOLA, ~37M), **Optus** (2022, unauth API enumeration), **Peloton API** (2021, BOLA), **USPS Informed Visibility** (2018, ~60M), **Parler** (2021, sequential post ids), **Uber** (2019, account takeover via leaked UUID + IDOR), **GitLab** (multiple BOLA/access-control CVEs), **Bumble/Tinder** (geo-location IDOR), Facebook **Business/Page-role** IDORs. Pattern every time: *find reference → no ownership check → enumerate / write → mass PII / ATO / cross-tenant.*
+**Real cases / patterns** (read the writeups): First American Financial (2019, **885M** docs via sequential id), **T-Mobile API** (2023, BOLA, ≈37M), **Optus** (2022, unauth API enumeration), **Peloton API** (2021, BOLA), **USPS Informed Visibility** (2018, ≈60M), **Parler** (2021, sequential post ids), **Uber** (2019, account takeover via leaked UUID + IDOR), **GitLab** (multiple BOLA/access-control CVEs), **Bumble/Tinder** (geo-location IDOR), Facebook **Business/Page-role** IDORs. Pattern every time: *find reference → no ownership check → enumerate / write → mass PII / ATO / cross-tenant.*
 
 > **Authorized testing only.** Two test accounts you own, benign markers, small proof sets, revert writes, respect scope and rate limits. Report **impact** (whose data, how many, read vs write, ATO/RCE), not "I changed an id."

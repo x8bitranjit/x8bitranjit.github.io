@@ -75,7 +75,7 @@ second-order:    store the payload in a name/host/path field → it fires when a
 
 ## 2. Time-based blind — Guide §7
 
-*What & when:* use when nothing is echoed back. Order the server to nap (`sleep 10`); a reliably ~10s-slower response = execution. Always repeat 2–3× against a no-payload baseline so you don't mistake network lag for a hit.
+*What & when:* use when nothing is echoed back. Order the server to nap (`sleep 10`); a reliably ≈10s-slower response = execution. Always repeat 2–3× against a no-payload baseline so you don't mistake network lag for a hit.
 
 ```
 ;sleep 10            `sleep 10`        $(sleep 10)        || sleep 10        & sleep 10

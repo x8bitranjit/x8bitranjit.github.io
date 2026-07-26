@@ -580,7 +580,7 @@ Prefer **HTTP/2 end-to-end** (don't downgrade to HTTP/1.1 at the edge). If you m
 
 > Each is a situation → what you do next. They mirror how real hunting and interviews probe judgement.
 
-### Q116. Scenario: Your CL.TE timing probe hangs ~10s repeatably, but your differential follow-up never receives the smuggled path's response. What's happening and what do you try?
+### Q116. Scenario: Your CL.TE timing probe hangs ≈10s repeatably, but your differential follow-up never receives the smuggled path's response. What's happening and what do you try?
 The timing delay says the *back-end* honored `Transfer-Encoding` and waited — a real signal — but the differential failing means your **prefix isn't landing on the next request you see**. Usual causes and moves: (1) **Connection pooling / load-balancing** — your follow-up hit a *different* back-end socket than the one you poisoned; pin both requests to **one connection** (Turbo Intruder single-connection / Burp "send in sequence on one connection") and retry. (2) **Your lengths are off by a byte** — recount `Content-Length` / chunk-size vs literal `\r\n`; the leftover must be exactly a valid request line. (3) It's actually **TE.CL not CL.TE** — flip to the mirror template. (4) The front-end **buffers** the whole request before forwarding, so the prefix only attaches to a *later* request — send several benign follow-ups. Re-confirm deterministically before claiming anything.
 
 ### Q117. Scenario: Your unique-path differential attaches, but only about **1 in 5** attempts. Do you report it, and how?

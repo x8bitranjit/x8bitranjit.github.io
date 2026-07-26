@@ -135,7 +135,7 @@ GROUP/AGG to one cell:
 
 ## 4. Error-based extraction (errors shown) — Guide §6
 
-> **What & when:** use when the app **shows database error messages**. You feed the engine a value it's forced to choke on (convert a password to a number, break an XML function) and it prints your stolen data *inside* the error while complaining. Pick the block matching the engine §0 fingerprinted. Note the MySQL `extractvalue`/`updatexml` route returns only ~32 characters per shot, so long values need chunking (`SUBSTRING`).
+> **What & when:** use when the app **shows database error messages**. You feed the engine a value it's forced to choke on (convert a password to a number, break an XML function) and it prints your stolen data *inside* the error while complaining. Pick the block matching the engine §0 fingerprinted. Note the MySQL `extractvalue`/`updatexml` route returns only ≈32 characters per shot, so long values need chunking (`SUBSTRING`).
 
 ```
 MySQL (extractvalue/updatexml — ~32 chars per shot):
@@ -155,7 +155,7 @@ Oracle (ORA error carrying value):
 
 ## 5. Boolean-based blind — Guide §7
 
-> **What & when:** use when there's **no data and no error, but true vs false changes the page** (a marker string, a length delta). First lock in your reliable true/false pair, then read values as a stream of yes/no questions — binary-search each character's ASCII code (`>` comparisons) to spend ~7 requests/char instead of ~95. Get the length first so you know when to stop. It's request-heavy, so let `sqli_blind.py` grind it. Prove with a short benign value (`database()`), not the whole `users` table.
+> **What & when:** use when there's **no data and no error, but true vs false changes the page** (a marker string, a length delta). First lock in your reliable true/false pair, then read values as a stream of yes/no questions — binary-search each character's ASCII code (`>` comparisons) to spend ≈7 requests/char instead of ≈95. Get the length first so you know when to stop. It's request-heavy, so let `sqli_blind.py` grind it. Prove with a short benign value (`database()`), not the whole `users` table.
 
 ```
 ORACLE (the true/false pair):

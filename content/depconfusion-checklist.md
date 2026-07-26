@@ -44,7 +44,7 @@ name, and never a payload/secret dump.
 - [ ] **Described** (not exfiltrated) the reachable secrets / downstream propagation
 
 ## Phase 6 — Validate → report (§13–§17)
-*Why this matters:* the final quality gate before you hit submit. It forces you to prove the finding is real (claimable + a token-correlated callback), rule out the tempting-but-invalid look-alikes, score it correctly (CWE-829, ~9–10 for CI RCE), and package it responsibly. De-duping to one **root cause** keeps a hundred confusable names from becoming a hundred noisy reports.
+*Why this matters:* the final quality gate before you hit submit. It forces you to prove the finding is real (claimable + a token-correlated callback), rule out the tempting-but-invalid look-alikes, score it correctly (CWE-829, ≈9–10 for CI RCE), and package it responsibly. De-duping to one **root cause** keeps a hundred confusable names from becoming a hundred noisy reports.
 - [ ] Proof = **claimable (public 404) + benign callback from the target's build**, token-correlated
 - [ ] Ruled out the FP list (§13): name already public, no callback, own-machine callback, lockfile-pinned, secret-dump over-reach
 - [ ] Set **CVSS (9–10 CI RCE) + CWE-829** (+ 427/494) (§14)

@@ -357,7 +357,7 @@ Content-Length: 4\r\n
 A\r\n
 X                       ← incomplete chunk: a TE back-end waits for more chunks
 ```
-- **Observed:** baseline `GET /` returns in ~40 ms; this probe **hangs ~10 s then times out**, repeatably (5/5 tries). → The **front-end honored `Content-Length: 4`** (forwarded 4 bytes and considered us done) while the **back-end honored `Transfer-Encoding`** and sat waiting for the next chunk that never came. That delay = a **CL.TE** signal. No prefix was left on the shared socket, so no real user was touched.
+- **Observed:** baseline `GET /` returns in ≈40 ms; this probe **hangs ≈10 s then times out**, repeatably (5/5 tries). → The **front-end honored `Content-Length: 4`** (forwarded 4 bytes and considered us done) while the **back-end honored `Transfer-Encoding`** and sat waiting for the next chunk that never came. That delay = a **CL.TE** signal. No prefix was left on the shared socket, so no real user was touched.
 
 **STEP 1 — deterministic confirmation on OUR OWN connection (§8).** Smuggle a prefix that requests a **unique** path with a distinctive response, then send our *own* benign follow-up on the same connection.
 ```http
