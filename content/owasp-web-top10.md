@@ -81,7 +81,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Cross-tenant: tenant-scoped objects/RAG/storage reachable across tenants.
 ```
 
-**Real-world / examples.** BOLA in APIs (the #1 API risk too); Facebook/Instagram-style IDOR mass account access; mass-assignment privilege escalation; JWT `role` tampering; admin panels reachable by forced browsing.
+**Real-world / examples.** **First American Financial (May 2019)** — a title-insurance app served documents at sequential, **unauthenticated** URLs; incrementing the document number in the link returned any other customer's file → **~885 million** records (SSNs, bank statements, wire receipts, driver's-license images) exposed with no login required. The textbook A01/IDOR at breach scale. Others: BOLA in APIs (the #1 API risk too); mass-assignment privilege escalation; JWT `role` tampering; admin panels reachable by forced browsing.
 
 **Prevention.** Deny-by-default; enforce access control **server-side** on every request, per-object and per-function (never trust client-supplied identity/role); use unguessable references or ownership checks (not just obscurity); centralize authz; log access-control failures (A09); test authz systematically (two-account diffs).
 
@@ -109,7 +109,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Improper crypto in the app: ECB, static IVs, hardcoded keys, custom crypto (usually found via source/JS/mobile).
 ```
 
-**Real-world / examples.** Session tokens over HTTP; JWT with a weak/guessable secret; unsalted MD5 password dumps cracked instantly; predictable password-reset tokens → ATO; API keys in JS bundles.
+**Real-world / examples.** **Adobe (2013)** — **153 million** account passwords were **encrypted (3DES in ECB mode) instead of hashed**, using the *same key* for everyone, with users' plaintext password *hints* stored right alongside; ECB's identical-input→identical-output revealed which accounts shared a password and the hints finished the job (~1.9M used "123456"). The canonical "encrypted ≠ safely stored" failure — encryption is reversible, password storage must be a slow one-way hash. Others: session tokens over HTTP; JWT with a weak/guessable secret; unsalted MD5 dumps cracked instantly; predictable password-reset tokens → ATO; API keys in JS bundles.
 
 **Prevention.** TLS everywhere + HSTS; strong algorithms (AES-GCM, SHA-256+), proper KDFs (Argon2/bcrypt/scrypt/PBKDF2) for passwords; strong random for all security tokens; proper key management (rotation, hardware-backed, no hardcoding); classify + minimize sensitive data; don't return secrets in responses; validate certs.
 
@@ -139,7 +139,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ XXE (XML injection): → ../Web/XXE/ (also A05 — see below).
 ```
 
-**Real-world / examples.** SQLi mass breaches (endless); Log4Shell-adjacent injection; SSTI-to-RCE in template engines; command injection in image/PDF processors; stored XSS session theft; NoSQLi auth bypass (`{"$ne":null}`).
+**Real-world / examples.** **TalkTalk (Oct 2015)** — a plain **SQL injection** against unpatched legacy webpages (inherited from its Tiscali acquisition) exposed **156,959 customers** (15,656 with bank-account details); the ICO issued a then-record **£400,000** fine precisely because the *same* SQLi had been exploited months earlier and left unfixed, and a 15-year-old was among those arrested. Others: Log4Shell-adjacent injection; SSTI-to-RCE in template engines; command injection in image/PDF processors; stored XSS session theft; NoSQLi auth bypass (`{"$ne":null}`).
 
 **Prevention.** Parameterized queries / prepared statements (SQL); safe APIs / avoid interpreters; input validation (allow-list) + context-aware output encoding (XSS); sandbox/disable dangerous template features (SSTI); avoid shell (use exec-array APIs); ORM/ODM safely; escape for the exact interpreter; least-privilege DB/service accounts.
 
@@ -165,7 +165,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Insufficient anti-automation: bulk abuse, scraping, credential stuffing surfaces.
 ```
 
-**Real-world / examples.** Race-condition limit overruns (gift-card/balance/redeem-once); price manipulation in carts; workflow bypass skipping payment; unlimited OTP attempts → 2FA bypass; coupon stacking.
+**Real-world / examples.** **Experian partner-API (2021, Bill Demirkapi)** — a lender's site queried an Experian API that returned anyone's **credit score** given just a name + mailing address, and it *accepted all-zeros for the date-of-birth* field; the **flow itself was designed with no authentication, no rate limiting, and no abuse resistance** for a highly sensitive lookup — an insecure *design*, not a single coding bug (no amount of input-sanitising fixes "this endpoint shouldn't exist unauthenticated"). Others: race-condition limit overruns (gift-card/balance/redeem-once); price manipulation in carts; workflow bypass skipping payment; unlimited OTP attempts → 2FA bypass; coupon stacking.
 
 **Prevention.** Threat-model early; establish secure design patterns + a control library; enforce business rules server-side and re-validate at each step; design in rate limiting / anti-automation / atomicity (defeat races); write abuse cases + test them; segment trust boundaries.
 
@@ -194,7 +194,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ File-upload misconfig: unrestricted upload → webshell. → ../Web/FileUpload/
 ```
 
-**Real-world / examples.** XXE file-read/SSRF in XML APIs; open S3 buckets; exposed `.git`/`.env` → source+secrets; default admin creds; debug mode leaking secrets; permissive CORS enabling account data theft; cache-poisoning mass-XSS.
+**Real-world / examples.** **Microsoft Power Apps (2021)** — the OData list API was **public by default** whenever a portal was left misconfigured, so **~38 million** records (including SSNs and COVID-19 contact-tracing PII) across 47+ organisations were anonymously retrievable. Microsoft first classified it "by design," then shipped a *secure* default (table permissions on) — the archetypal insecure-default misconfiguration where the platform's safe setting was off. Others: XXE file-read/SSRF in XML APIs; open S3 buckets; exposed `.git`/`.env` → source+secrets; default admin creds; debug mode leaking secrets; permissive CORS enabling account data theft.
 
 **Prevention.** Harden by default (no defaults, no debug in prod, minimal features/ports); disable XXE (disallow DOCTYPE/external entities); security headers (CSP, HSTS, X-Content-Type-Options, etc.); strict CORS + Host allow-list; lock down cloud storage; remove exposed VCS/config/backups; automated config review + drift detection.
 
@@ -222,7 +222,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Outdated components with CVEs: verify exploitability in-context (not just version-in-a-list).
 ```
 
-**Real-world / examples.** Log4Shell (Log4j RCE, mass-exploited); Struts/Spring4Shell RCE; deserialization RCE via known gadgets; vulnerable jQuery/AngularJS → XSS; typosquatted npm/PyPI packages.
+**Real-world / examples.** **Equifax (2017)** — an **unpatched Apache Struts** RCE (**CVE-2017-5638**, triggered by a malicious `Content-Type` header; the patch shipped the *same day* the CVE was disclosed) on the online-dispute portal was exploited just **3 days after the fix was available**; attackers dwelled ~2.5 months and exfiltrated **147.9 million** people's data. The definitive "known-vulnerable component, catalogued and left unpatched" case. Others: Log4Shell (Log4j RCE, mass-exploited); Spring4Shell RCE; deserialization RCE via known gadgets; vulnerable jQuery/AngularJS → XSS; typosquatted npm/PyPI packages.
 
 **Prevention.** Inventory components (SBOM); patch/update continuously; monitor vulnerability feeds; remove unused dependencies; pin + verify (integrity); use SCA tooling in CI; subscribe to advisories for your stack.
 
@@ -250,7 +250,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Credential stuffing / brute exposure: rate limiting, lockout, MFA presence.
 ```
 
-**Real-world / examples.** Password-reset poisoning → ATO; unlimited-OTP 2FA bypass; OAuth `redirect_uri` token theft; JWT `alg:none` impersonation; pre-account-takeover via unverified-email SSO linking; session fixation.
+**Real-world / examples.** **Colonial Pipeline (2021)** — the DarkSide group got in through a **single legacy VPN account that had no MFA**, using a password that had been reused and exposed in a prior-breach dump; that one authentication gap let ransomware shut down the largest refined-fuel pipeline in the U.S. and trigger a state of emergency. MFA on that one account would likely have stopped it. Others: password-reset poisoning → ATO; unlimited-OTP 2FA bypass; OAuth `redirect_uri` token theft; JWT `alg:none` impersonation; pre-account-takeover via unverified-email SSO linking; session fixation.
 
 **Prevention.** Strong auth (MFA, no default/weak passwords, breached-password checks); rate limiting + lockout on all auth/OTP/reset endpoints; secure session management (rotate on login, invalidate on logout, short-lived, HttpOnly/Secure/SameSite); host-independent reset links + strong reset tokens; exact-match OAuth `redirect_uri` + `state` + PKCE; verify email before SSO linking.
 
@@ -277,7 +277,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Unsigned/unverified data trusted for security decisions.
 ```
 
-**Real-world / examples.** ysoserial Java deserialization RCE; .NET ViewState RCE via leaked machineKey; PHP phar/POP-chain RCE; SolarWinds-style CI/CD supply-chain compromise; dependency-confusion RCE in CI.
+**Real-world / examples.** **SolarWinds / SUNBURST (2020)** — attackers (attributed to Russia's SVR / APT29) compromised the **Orion build pipeline** with the SUNSPOT injector and shipped a **validly code-signed** trojanised update to **18,000+** organisations; because the malicious build was signed by SolarWinds itself, every downstream integrity check passed. A broken software-integrity chain (unverified/compromised CI/CD) turned a trusted auto-update into mass backdoor delivery. Others: ysoserial Java deserialization RCE; .NET ViewState RCE via leaked machineKey; PHP phar/POP-chain RCE; dependency-confusion RCE in CI.
 
 **Prevention.** Avoid deserializing untrusted data (or use safe formats + type allow-lists + integrity checks); sign + verify updates/plugins/artifacts (digital signatures); verify dependencies (integrity/provenance, pinning); secure the CI/CD pipeline (least privilege, signed builds, no injectable steps); don't trust unsigned data for security decisions.
 
@@ -303,7 +303,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
 □ Monitoring bypass / anti-forensics (red-team): operate below alerting thresholds.
 ```
 
-**Real-world / examples.** Breaches undetected for months (the common post-mortem); Log4Shell = a *logging* path to RCE; log-forging via CRLF; credentials/PII in application logs later exposed.
+**Real-world / examples.** **Target (2013)** — the FireEye monitoring system **did** detect the card-stealing malware and fired alerts (even naming the attackers' exfil/staging servers), but the security team **ignored** them and the automatic-eradication feature had been switched off; **40 million** payment cards were stolen anyway and the CEO and CIO both resigned. Detection without response is operationally the same as no detection — the essence of A09. Others: breaches undetected for months (the common post-mortem); Log4Shell = a *logging* path to RCE; log-forging via CRLF; credentials/PII in application logs later exposed.
 
 **Prevention.** Log security-relevant events (auth, authz, input failures, high-value actions) with enough context + integrity; centralize + monitor + alert; protect logs (no injection — encode logged input; no sensitive data in logs); define + test incident response; retain logs appropriately.
 
@@ -332,7 +332,7 @@ This repo's 32 Web kits are the hands-on layer under these categories — the ma
    (../AI/LLM/ LLM06), OAuth request_uri/JWKS (../Web/OAuth/).
 ```
 
-**Real-world / examples.** Capital One breach (SSRF → metadata → S3 dump); SSRF-to-metadata IAM credential theft across cloud bug bounties; gopher-SSRF to Redis RCE; SSRF via image/PDF/URL-import features; redirect-based allow-list bypass.
+**Real-world / examples.** **Capital One (2019)** — Paige Thompson exploited an **SSRF** on a misconfigured WAF (ModSecurity) to reach the **EC2 metadata service** (IMDSv1), stole the instance's **over-privileged IAM role** credentials, and used them to list and dump **~106 million** applicants' data from S3 (SSNs, bank accounts). This breach is the direct reason AWS built **IMDSv2** (session-token-bound metadata). Others: SSRF-to-metadata IAM credential theft across cloud bug bounties; gopher-SSRF to Redis RCE; SSRF via image/PDF/URL-import features; redirect-based allow-list bypass.
 
 **Prevention.** Don't fetch client-supplied URLs where avoidable; if you must, allow-list schemes/hosts/ports and **re-validate after redirects** (don't follow to non-allow-listed hosts); block internal ranges + metadata IPs at the network layer (egress filtering, IMDSv2); resolve+pin DNS to defeat rebinding; disable unused URL schemes (gopher/file/dict); isolate the fetcher.
 

