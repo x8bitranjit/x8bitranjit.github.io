@@ -33,6 +33,8 @@
 - **Cheat sheets** (Q105–Q108)
 - **Real-world attacks & references** (Q109–Q110)
 - **Defense — preventing XSS** (Q111–Q114)
+- **Level 6 — Interview drill (rapid-fire concepts)** (Q115–Q126)
+- **Level 7 — Scenario drill (you're on a target, what now?)** (Q127–Q134)
 
 ---
 
@@ -43,6 +45,7 @@ A flaw where an application includes **attacker-controlled data in a page withou
 encoding/sanitization**, so the data is interpreted as **HTML/JavaScript** and **executes in the victim's browser** in
 the **target's origin**. Running script in the origin means you can read/modify the page, steal the session/tokens,
 and act as the victim → **account takeover**.
+> *Plain version:* the victim's **browser is an actor performing the page like a script** — some parts are stage directions it acts on (code), most are just words to read aloud (data). XSS = sneaking a stage direction into a plain-words slot so the actor performs *your* line — inside the victim's show, wearing the victim's costume (their logged-in identity). That's why it ends in account takeover.
 
 ### Q2. What are the types of XSS?
 - **Reflected** — payload in the request is echoed into the immediate response (needs a delivered link).
@@ -62,6 +65,7 @@ and act as the victim → **account takeover**.
 Reporting **`alert(1)`** as the finding. `alert(document.domain)` is a **trigger that proves execution** — the
 *finding* is the **impact**: stolen session/token → ATO, CSRF-token theft → forced state change, admin-context
 execution → privilege escalation. Lead with the impact, not the popup.
+> *Plain version:* `alert(1)` only proves the actor *performed* your line — it's the "hello, it works" wave, not the crime. The report (and the payout) is about what you made the line *do next*: steal the login wristband, change the victim's email, act as an admin. A popup is the start of the finding, never the finding.
 
 ### Q5. Why does XSS pay — what can script in the origin actually do?
 Read `document.cookie` (if not HttpOnly), read tokens from `localStorage`/the DOM, make **authenticated same-origin
@@ -76,6 +80,8 @@ break out of the **exact context** and get the browser to parse your bytes as co
 `alert(document.domain)` (or an OOB beacon for blind).
 
 ### Q7. What is the source → sink → context model?
+> *Plain version:* the three-part story of every XSS — your input **enters** somewhere (source), **travels** to a spot where the page puts it on stage (sink), and **lands** in a particular place (context: plain text? inside a quote? already inside JavaScript?). The context is the lock; your payload is the key cut to fit it. Same input, different spot = harmless in one, a performed direction in another.
+
 - **Source** — where attacker data enters (URL/param, `location.*`, `document.referrer`, `window.name`, `postMessage`, storage, a stored field).
 - **Sink** — where data becomes execution (`innerHTML`, `document.write`, `eval`, `setAttribute('href',…)`, server reflection into HTML/JS, …).
 - **Context** — *exactly where* in the output your data lands (HTML body / attribute / JS string / URL / CSS / comment / template). **The context decides the payload.**
@@ -283,6 +289,8 @@ sanitizer blocked your payload, go to Level 4; otherwise escalate to impact (Lev
 # LEVEL 3 — DOM XSS, mXSS, PROTOTYPE POLLUTION & POSTMESSAGE
 
 ### Q45. How do I exploit DOM XSS?
+> *Plain version:* here the *website's own JavaScript* hands your line to the actor — the server never sees it. The page reads something you control (classically the URL's `#` fragment, which browsers never send to the server) and carelessly writes it into the page. Because the server never touches it, WAFs and CSP often don't even apply. Your job: trace which source flows into which dangerous sink.
+
 Trace a controllable **source** to a script-executing **sink**. Classic:
 ```
 https://t/page#<img src=x onerror=alert(document.domain)>      (location.hash → innerHTML)
@@ -401,6 +409,8 @@ framework; missing `base-uri`/`object-src`; a **reused/reflected nonce**; `'stri
 element; and finally **dangling-markup exfil** when scripts are truly blocked.
 
 ### Q64. What is a CSP script gadget?
+> *Plain version:* CSP is the theater's "only perform lines from approved authors" rule — but if an *approved* author (a trusted library already on the page, like AngularJS) is naive, you can write your line in *their* handwriting. You inject harmless-looking markup that the trusted library picks up and runs for you, so the actor performs it under the library's approval — sailing right past nonces and `strict-dynamic` because a *trusted* script is the one executing your code.
+
 Harmless-looking markup that an **already-allow-listed** JS library auto-executes (Google's "CSP Is Dead"): e.g.
 AngularJS `ng-csp`/`ng-bind-html`, RequireJS `data-require`, Knockout/Aurelia/Vue auto-binding attributes. The gadget
 reads your injected DOM and executes it — defeating nonce/`strict-dynamic` because the *trusted* library runs your code.
@@ -490,6 +500,7 @@ Then replay the cookie to log in as the victim → ATO. (Demonstrate with your *
 **Yes.** HttpOnly stops you *reading* `document.cookie`, but your script runs **as the user** in the origin — make
 **authenticated same-origin requests** to do whatever the user can: steal the **CSRF token** and change email/password,
 read account data, perform admin actions. HttpOnly does **not** prevent XSS→ATO.
+> *Plain version:* HttpOnly just hides the login wristband from JavaScript — but you don't need to *hold* the wristband to *act* as the victim. Your line is already performing inside their show, so just make it do things: fire the "change my email" request from their own session. The site can't tell it isn't them. HttpOnly stops cookie-*reading*, not cookie-*acting*.
 
 ### Q81. How do I do XSS → account takeover via CSRF-token theft?
 ```js
@@ -779,4 +790,78 @@ the control that matters."*
 [ ] CHAIN: + CORS (cross-origin read) · + prototype-pollution→RCE(server) · stored XSS → mass ATO
 [ ] Report the IMPACT (not alert(1)) ; CWE-79 (+352/384) ; own accounts ; PoC page down ; stored/reflected/DOM noted
 ```
+
+---
+
+# LEVEL 6 — INTERVIEW DRILL (rapid-fire concepts)
+
+> Tight, correct answers to the questions an interviewer or a fellow hunter fires at you. Say the *why*, name the *context*, and always end on *impact*.
+
+### Q115. In one sentence, what is XSS and why does it matter?
+XSS is getting the **victim's browser to execute attacker-controlled script in the target's origin** — so the script inherits the victim's session and can do anything the user can (read the DOM, steal tokens, force state-changing requests). It matters because "run JS in your origin" is one step from **account takeover**, not a cosmetic bug.
+
+### Q116. Reflected vs stored vs DOM — the real distinction?
+It's *where the untrusted data lives and who renders it*. **Reflected** = payload echoed back in the *immediate* response (needs a delivered link, 1 victim per click). **Stored** = payload persisted server-side and served to *others later* (0-click, hits whoever views it — the worm/admin territory). **DOM** = the injection→execution happens **entirely client-side** (`source`→`sink` in JS), often the server never sees the payload at all (e.g. `#fragment`). Stored is usually the most severe; DOM is the most scanner-invisible.
+
+### Q117. Why is naming the *context* the single most important step?
+Because the correct payload is 100% determined by context — `<svg onload>` executes in **HTML body** but is inert text inside a `<script>` string or an attribute value. Get the context right and the breakout is trivial; guess randomly and you'll declare "not vulnerable" on a live bug. Contexts: HTML body, quoted/unquoted attribute, event-handler attribute, JS string, URL (`href`/`src`), CSS, and DOM sink.
+
+### Q118. `HttpOnly` is set on the session cookie — is the XSS now low-impact?
+No. `HttpOnly` only stops `document.cookie` from *reading* the cookie; it does **nothing** to stop the script — which runs *inside the session* — from reading the page's **CSRF token** and firing state-changing requests (email change → password reset → **ATO**), or stealing a JWT from `localStorage`. HttpOnly-proof ATO via CSRF-token theft is the standard escalation (guide §26, Appendix D).
+
+### Q119. What is DOM-based XSS and why do server-side WAFs miss it?
+The taint flows from a client **source** (`location.hash`/`.search`, `document.referrer`, `window.name`, `postMessage`) into a dangerous **sink** (`innerHTML`, `document.write`, `eval`, `setAttribute` on `src/href`, jQuery `$()`) without a round-trip. A WAF/`#fragment` payload is **never sent to the server** (the fragment stays client-side), so server defenses and server-side scanners can't see it. You hunt it by tracing source→sink (DOM Invader), not by watching HTTP.
+
+### Q120. What is mutation XSS (mXSS) and why does it defeat sanitizers?
+mXSS abuses the fact that the browser's HTML parser **re-writes** markup on insertion: a string a sanitizer judged safe *mutates* into live script after `innerHTML` re-parses it (namespace flips HTML↔MathML/SVG, implied tag closing, attribute reinterpretation). It's why "it passes DOMPurify" isn't proof — match the **exact version** against the bypass history (CVE-2020-26870 etc.), since a serialize→parse round-trip doesn't guarantee the same DOM tree.
+
+### Q121. A strict CSP is deployed. Is XSS dead?
+No — CSP is *defense-in-depth*, not a fix, and most CSPs are bypassable. Common bypasses: a whitelisted **JSONP** endpoint, a **script gadget** in an allowed framework, `'unsafe-inline'`/`'unsafe-eval'` still present, a `<base>` injection redirecting relative script src, **nonce reuse/leak**, or `object-src`/`base-uri` left open. Evaluate with CSP Evaluator; a strict, nonce-based, gadget-free CSP genuinely limits *impact* but rarely eliminates the bug.
+
+### Q122. `<>` are HTML-encoded everywhere — can you still have XSS?
+Often yes. If the reflection is in an **event-handler attribute** or **JS string**, you may need no `<>` at all (`" onmouseover=…`, `";alert()//`). If the app uses **AngularJS** and your input lands in an `ng-app` region, **CSTI** `{{constructor.constructor('alert(1)')()}}` executes with `<>` fully encoded. And **URL context** (`javascript:`) needs no angle brackets. Encoding one metacharacter set ≠ safe.
+
+### Q123. What separates a $150 "reflected alert" report from a $5k one?
+The **escalation and the demonstrated impact**. Same injection, but one report shows `alert(1)`; the other shows a **working ATO on two test accounts** (token theft → email change → reset → login-as-victim) with the OOB proof and CWE-79+352, titled by impact. Bounties pay for what's *behind* the door, not the door.
+
+### Q124. Best single payload to *confirm* execution, and why not `alert(1)`?
+`alert(document.domain)` (or a **collaborator/OOB beacon**). It proves *which origin* executed — killing the "it ran in a sandbox / a different origin / your own tab" false-positive that `alert(1)` invites. For blind/stored, a phone-home beacon (XSS-Hunter) is the confirmation because you never see the render.
+
+### Q125. How do Trusted Types change DOM XSS, and how do you still win?
+`require-trusted-types-for 'script'` makes dangerous DOM sinks **throw** unless passed a policy-vetted value, killing most classic DOM XSS at the sink. You still win by: finding an **under-sanitizing `default` policy** or reusable named policy (the #1 real-world TT bypass), confirming it's *enforced* (not report-only) on the *reflecting* response, or pivoting to **non-TT sinks** (`location = javascript:`).
+
+### Q126. Why can XSS be *worse* than a stolen password?
+Because it executes **inside a live, authenticated, MFA-satisfied session** — it doesn't need the password or the second factor, it rides the session that already passed them. Stored XSS in an admin/support view is **0-click** against a privileged user, and a self-propagating payload becomes a **worm** (Samy, TweetDeck) that hits everyone who merely *views* content.
+
+---
+
+# LEVEL 7 — SCENARIO DRILL (you're on a target — what now?)
+
+> Realistic "you see X, do Y" situations. Each answer is the decision + the next concrete move.
+
+### Q127. Your marker reflects inside `<script>var u="MARKER";</script>` and `"` comes back raw. Move?
+JS-string context. Close the string, run, comment the tail so it still parses: `";alert(document.domain)//`. Confirm origin, then escalate — read the page CSRF token and force an email change (guide Appendix D). If `"` were `&quot;`, pivot to a `</script>`-tag breakout or a different sink.
+
+### Q128. Input reflects in HTML body but `<script>`, `onerror`, and `javascript:` are filtered. Move?
+Reach for filter-independent vectors: `<svg onload=…>`, `<img src=x onload=…>` alternatives, or lesser-known handlers, and try **case/encoding/split** (WAF §18). If tags survive but *all* handlers are blocked, look for **DOM-clobbering** (allowed `<a id=…>`/`<form>`) to poison a script the page already runs. If truly only inert HTML lands, check for **dangling-markup** data exfil or markdown/`href` `javascript:` sinks.
+
+### Q129. It's a SPA; the value goes into `element.innerHTML` from `location.hash`. Move?
+Classic **DOM XSS** — trace source (`location.hash`) → sink (`innerHTML`). Because it's a `#fragment`, the payload never hits the server (WAF-invisible). Try `#<img src=x onerror=alert(document.domain)>`. Confirm in the live DOM (View Source won't show it), use DOM Invader to auto-trace. Steal the SPA's `localStorage` JWT → API calls as the victim.
+
+### Q130. You planted a payload in a support-ticket subject; nothing fires on your own ticket view. Move?
+Don't conclude "safe" — the submit view often encodes while the **agent/admin CRM renders raw** (second-order, guide §42-B / TweetDeck). Plant a **blind** beacon (XSS-Hunter) that phones home with `document.domain`, cookies-metadata, and a DOM screenshot. Wait for the **admin context** to render it; that beacon from `admin.internal/…` is your Critical.
+
+### Q131. XSS confirmed, but the session cookie is HttpOnly and there's no localStorage token. Move?
+Use the **session, not the cookie**. Script runs as the victim → `fetch('/account')` to read the **CSRF token** → POST an email change to your inbox → trigger password reset → log in as victim. HttpOnly protects cookie *confidentiality*, not the *actions the session can perform* (guide §26, Appendix D). Report as **ATO / Critical**.
+
+### Q132. A strict `script-src 'self' 'nonce-…'` CSP blocks your inline payload. Move?
+Enumerate CSP bypasses before giving up: any **whitelisted JSONP** (`/api/jsonp?callback=alert`) or **script gadget** in an allowed origin, a `<base href>` injection to hijack relative script loads, **nonce reuse/predictability**, or `'strict-dynamic'` mis-config letting an injected `<script src>` run. Paste the header into **CSP Evaluator**. If it's genuinely nonce-based, gadget-free, `object-src 'none'`, `base-uri 'none'` — document the reflection as **lower severity** (mitigated) and note where the same param is unprotected.
+
+### Q133. Your DOM payload throws a *TrustedHTML assignment* error. Move?
+Trusted Types is **enforced** (not absent). (a) Look for an under-sanitizing `default`/named **policy** you can route through (the top real-world TT bypass); (b) confirm it's *enforcing* (not `report-only`) on the reflecting response; (c) pivot to a **non-TT sink** like `location = 'javascript:…'` or an mXSS through the policy. A reachable pass-through `createHTML` policy = TT gives zero protection → report the DOM XSS as if TT weren't there.
+
+### Q134. You have stored XSS that every logged-in user renders. How do you show maximum (safe) impact?
+This is **worm/mass-ATO** territory — but stay safe. On **your own two accounts**, demonstrate the payload (a) firing 0-click when account B views the content, and (b) performing one privileged action (token theft → email change) *within B's session*. Describe the self-propagation potential (cite Samy/TweetDeck, §42) **without actually self-spreading** on the live target. Beacon to your **own** OOB, tear the PoC down, restore data. Title: "Stored XSS in \<feature\> → 0-click account takeover (worm-capable)." Critical.
+
+---
 *End of guide.*

