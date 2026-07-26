@@ -1,5 +1,7 @@
 # JSON Web Token (JWT) Attacks — Zero to Expert (Q&A, Bug-Bounty / Red-Team Edition)
 
+**Author:** x8bitranjit
+
 > A complete, in-depth study + field reference for **attacking JSON Web Tokens** — from "what is a JWT" to forging
 > tokens for any user, algorithm confusion, key-header injection, OIDC `id_token` attacks, JWE, parser confusion, DoS,
 > and the account-takeover chains they unlock. Q&A format, progressive difficulty. Covers the structure, the trust
@@ -31,6 +33,8 @@
 - **Cheat sheets** (Q101–Q104)
 - **Real-world & references** (Q105–Q106)
 - **Defense — using JWT securely** (Q107–Q109)
+- **Level 6 — Interview questions** (Q110–Q121)
+- **Level 7 — Scenario-based questions** (Q122–Q129)
 
 ---
 
@@ -534,6 +538,78 @@ PortSwigger Academy → **JWT attacks** labs (all of them); `jwt_tool` wiki; **A
 
 ### Q109. One-paragraph summary you can quote.
 *"A JWT is only as trustworthy as the verification step — so pin exactly one expected algorithm server-side and reject everything else (this kills `alg:none` and RS256→HS256 confusion), verify against a fixed server-controlled key set and never against a key the token supplies via `jku`/`jwk`/`x5c`/`kid`, keep the signing secret strong and off the client, and strictly validate `exp`/`aud`/`iss` (plus `nonce`/`at_hash`/`azp` for OIDC). Revoke tokens on logout and password change, key accounts on the `(iss, sub)` pair, store tokens in HttpOnly cookies rather than URLs or localStorage, and cap JWE cost. A single unpinned algorithm or a token-chosen key turns 'verify my signature' into 'forge any user' — pre-authentication account takeover for the whole application."*
+
+---
+
+# LEVEL 6 — INTERVIEW QUESTIONS
+
+> *The questions a senior interviewer or triage lead actually asks. Say the crisp version out loud; each layers plain → mechanism → practical.*
+
+### Q110. Explain a JWT — and why it can be dangerous — to a non-cryptographer in three sentences.
+A JWT is a signed wristband the server hands you at login: it says who you are (`sub`), what you're allowed to do (`role`), and when it expires (`exp`), all in plain readable text with a cryptographic stamp on the end. The server trusts the wristband instead of looking you up every time — so **if you can change what the band says and still make the stamp check pass, you become anyone.** Every JWT attack is one of two things: forging an acceptable stamp, or getting the server to skip checking it.
+
+### Q111. What's the very first thing you test on a JWT, and why isn't it a fancy crypto attack?
+Whether the signature is **verified at all** (the baseline, §5). Before `alg:none` or algorithm confusion, I tamper one claim, keep the original signature, and send it — if the server accepts it *and behavior changes* (I see admin functions / another user's data), the app isn't verifying the signature and I'm done, no forging needed. It's the highest-value, lowest-effort test, and skipping straight to hashcat wastes hours on apps that never checked the stamp in the first place.
+
+### Q112. Walk me through RS256→HS256 confusion as if I don't know it.
+RS256 uses a **key pair**: a private key stamps, a public key only verifies — the public key is *meant* to be public, so normally you can't forge. The bug is a verifier that takes the **algorithm from the token** instead of pinning it: you rewrite the header to `HS256` (a symmetric method where the same key stamps *and* verifies), and the server — reaching for "the key for this token" — hands its **RSA public key** to the HMAC function as the secret. Since that public key is public, you compute the same HMAC and forge any token. One header edit converts a verify-only key into a stamp-and-verify key.
+
+### Q113. Why is "the token was accepted" not automatically a finding?
+Because acceptance ≠ authorization effect. An endpoint might not use the token for that action, might echo it back without acting on it, or might **re-derive** identity/role from the database and ignore your tampered claim entirely (§29.5). The finding is a **behavior change** — a forged `role:admin` that actually returns admin data, a swapped `sub` that returns another user's account. If nothing observable changes, it's a false positive, and reporting "accepted but ignored" as privilege escalation gets you closed.
+
+### Q114. A team says "we use RS256, so algorithm confusion doesn't apply to us." Rebut it.
+RS256 is exactly the *precondition* for the confusion attack, not a defense — the attack downgrades RS256 to HS256 and reuses your public key. The real defense is **pinning the algorithm server-side** and rejecting anything else (RFC 8725); "we use RS256" only helps if the verifier *enforces* RS256 and refuses HS256 tokens. I'd test it in five minutes: pull the JWKS, HMAC-sign a token with the public-key PEM, and see if `/api/me` returns 200.
+
+### Q115. When is a tampered `role:admin` genuinely exploitable vs. a waste of time?
+It's exploitable only when the **resource server authorizes on the token's claim** — it reads `role` from the JWT and grants access accordingly. It's a waste of time when the server treats the token purely as an identity assertion and looks up the *real* role from the DB by `sub`. So I confirm the model first: forge `role:admin` (via whatever signature bug exists) and hit an admin endpoint — behavior change means it authorizes on the claim; no change means it re-derives, and I pivot to `sub` swapping (identity-based IDOR/ATO) instead.
+
+### Q116. Why are password-reset and magic-login links a high-value JWT target?
+Because they're often JWTs, they're frequently signed with a *weaker* secret than the session token (developers treat them as "internal"), and their impact is **mass account takeover** — forge a reset token for any `sub` and you own every account. They also travel in URLs, so they leak into logs, `Referer` headers, and browser history. The lesson is operational: **decode every email/reset/verify link** — a `eyJ...` in a URL is a forge target, and it's usually the softest one in the app.
+
+### Q117. Compare `kid` injection and `jku` injection — what do they have in common and how do they differ?
+Both make the **token choose its own verification key**, which is the cardinal JWT sin. `kid` (key id) points the server at a key it already has — abuse it with path traversal (`../../dev/null` → sign with the empty key), SQLi (return an attacker-known key), or LFI/RCE. `jku` (JWKS URL) points the server at a **remote** key set — you host your own JWKS and sign with your matching private key, and because the server fetches your URL you often get **SSRF for free** (two findings). `kid` abuses local key selection; `jku` abuses remote key fetching.
+
+### Q118. What's CVE-2022-21449 "Psychic Signatures," and why does the JVM version matter for a JWT test?
+It's a 2022 flaw in Java 15–18's ECDSA verifier that forgot to reject `r=0, s=0` signatures — the verification equation collapses to `0 == 0`, so **any ES256/384/512 signature is accepted**. For a JWT tester it means an "asymmetric, properly signed" ES256 token is forgeable purely because of the *runtime*, not the app: tamper the payload, set the signature to the all-zero value, done. It's why I fingerprint the backend — the same ES256 token is bulletproof on one JVM and trivially forgeable on another.
+
+### Q119. How do you demonstrate JWT account takeover without crossing an ethical/scope line?
+Two of my **own** accounts and offline forging. I forge a token that swaps my `sub` to my *second* test account's id and show `/api/me` returns that account — proving "as A I became B" without ever touching a real user. HMAC secrets are cracked **offline** on a single captured token (no password-spraying the server), keys are recovered from tokens I already hold, and I stop at one benign proof with the token/key redacted. I never forge into a real user's identity or read real tenant data.
+
+### Q120. What's your remediation advice, in priority order?
+**Pin exactly one algorithm** server-side and reject the rest (kills `alg:none` and RS→HS confusion) — that's the single highest-value fix. Then: verify only against a **fixed, server-controlled key set** and never a token-supplied key (`jku`/`jwk`/`x5c`/`kid`); use a **long random HMAC secret** kept off the client; **strictly validate `exp`/`aud`/`iss`** (plus `nonce`/`azp`/`at_hash` for OIDC) and key accounts on `(iss, sub)`; **revoke** on logout/password-change; and store tokens in HttpOnly cookies, not URLs or localStorage. Codified in RFC 8725 (JWT BCP).
+
+### Q121. Rapid-fire curveballs: (a) the JWKS is public — is that a vuln? (b) `alg:none` is accepted but the endpoint returns the same data — report it? (c) you cracked the HS256 secret but every claim is re-derived server-side — what now?
+(a) **No** — a public JWKS is by design; it's only a problem if the verifier lets the token pick HS256 (then the public key becomes a forge secret). (b) **No** — accepted-but-no-behavior-change is a false positive; find an endpoint that authorizes on the token. (c) Pivot from role to **identity**: re-sign with a swapped `sub` (IDOR/ATO) or a forged **reset** token — a cracked secret still mints any user even when roles come from the DB.
+
+---
+
+# LEVEL 7 — SCENARIO-BASED QUESTIONS
+
+> *You're handed a situation — decide the next move and the severity. Worked, concrete answers.*
+
+### Q122. Scenario: you decode a session token and the header is `{"alg":"RS256","kid":"prod-2024"}`. What's your attack order?
+RS256 → **try algorithm confusion first** (Appendix B's "⭐ try first"): pull `/.well-known/jwks.json`, convert the JWK to PEM, and HMAC-sign a same-claims token with the public-key bytes (§8.4); a 200 on an authed endpoint confirms it → then forge `role:admin`/`sub`. In parallel, note the `kid` — try `kid` path traversal to `/dev/null` (empty-key forge) and SQLi. If confusion and `kid` both fail, recover the pubkey from two tokens (§9) in case JWKS was the only thing missing, and check for `jku`/`jwk` header acceptance.
+
+### Q123. Scenario: tampering a claim while keeping the signature returns `200` and you see another user's data. Is that the whole finding?
+Yes — and it's the biggest one. The server **isn't verifying the signature at all** (§5 baseline), so you don't need any crypto attack: you can set `sub`/`role` to anything. Prove it with two own accounts (tamper A's token to read B), confirm the behavior change, and report it as broken authentication / signature-not-verified (CWE-347), **Critical**. Don't over-engineer it into an algorithm-confusion writeup — the simplest true root cause is the report.
+
+### Q124. Scenario: the app is RS256, JWKS is published, but your HMAC-with-public-key forgery returns 401 on every key representation. Next moves?
+The verifier is probably pinning the algorithm (good for them). Pivot: (1) try **`alg:none`** and its filter-bypass casings (`None`/`NONE`/`nOnE`) in case only the *signature* path is pinned; (2) test **`jku`/`jwk`/`x5c`** header injection — host your own JWKS and sign with your private key; (3) check **`kid`** for traversal/SQLi; (4) if it's ES256 and the backend is Java 15–18, try the **psychic (0,0) signature** (CVE-2022-21449); (5) capture the reset-link JWT — it may use a weak HS256 secret even though the session token is RS256.
+
+### Q125. Scenario: a password-reset URL contains `...token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...`. Walk me through it.
+Decode it — it's an HS256 JWT `{"sub":...,"action":"reset"}`. Because it's HMAC, try to **crack the secret offline** (`hashcat -m 16500` against `jwt.secrets`/rockyou, and default secrets like `secret`/`changeme` first). If it cracks, forge a reset token for a **second account I own** and reset its password → proof of mass ATO (any `sub`), **Critical**. If it doesn't crack, still test `alg:none` on the reset endpoint and check whether the token is bound to the requesting user at all. Reset links are the softest, highest-impact JWT target.
+
+### Q126. Scenario: `role:admin` forged via a working `alg:none` is accepted, but the admin page looks identical to a normal user's. What do you conclude?
+Acceptance without a behavior change = the server **re-derives authorization from the DB** and ignores the token's `role` (§29.5) — so `role` tampering is a dead end here, and reporting it as privilege escalation would be a false positive. Pivot to **identity**: since `alg:none` lets me set any claim, swap `sub` to another user's id and hit `/api/me`/an object endpoint — if that returns their data, it's IDOR/ATO (identity-based), which *is* the real, reportable impact.
+
+### Q127. Scenario: the token verifies fine, but you notice the gateway and the backend microservice seem to read it differently. What class is this and how do you test it?
+**Parser confusion** (§34-level): craft a token with **duplicate claims or duplicate `alg` headers** so the gateway authorizes on one interpretation and the backend acts on the other (e.g. two `role` entries — the gateway reads the first "user," the backend reads the last "admin"). Test by sending duplicated `role`/`alg`/`sub` and watching for a request that's "valid" to the edge but privileged inside. It pays most in gateway + microservice architectures and is easy to miss because the token *is* validly signed.
+
+### Q128. Scenario: you find `jku` is honored but the server requires the JWKS URL's host to equal the issuer domain. Dead end?
+Not yet — `jku` allow-lists that check the host fall to an **open redirect on that host**. Find `https://issuer-domain/anything?url=` (or a path-traversal/parameter-confusion redirect) that bounces to your attacker JWKS; the fetch passes the host check but lands on your keys, so tokens signed with your private key verify (§11.2). Bonus: the same server-side fetch of your URL is **SSRF** — point it at an internal host/Collaborator for a second finding. `jku` honored = Critical (forge) **+** High (SSRF).
+
+### Q129. Scenario: the program says "self-XSS only, not eligible." You find a DOM XSS that can read the JWT from localStorage. Does the JWT angle change the severity?
+Yes — it reframes the bug from "self-XSS" to **token theft → account takeover**. If the app stores the JWT in `localStorage` (readable by JS, unlike an HttpOnly cookie), the XSS exfiltrates a valid session token to an attacker-controlled endpoint; replaying it is full ATO of any victim who triggers the payload. Report the **chain** (XSS → JWT exfil → ATO), not the raw XSS, and note the storage anti-pattern (tokens belong in HttpOnly cookies). The JWT-in-localStorage decision is what turns a low-rated XSS into a High/Critical.
 
 ---
 

