@@ -31,6 +31,8 @@
 - **§M9 — Insecure Data Storage** (Q79–Q87)
 - **§M10 — Insufficient Cryptography** (Q88–Q94)
 - **§XC — Cross-category chaining & reporting** (Q95–Q101)
+- **§RW — Verified real-world case studies (per category)** (Q102–Q111)
+- **§SD — Scenario drill (you have the APK/IPA, what now?)** (Q112–Q121)
 
 > Each `§Mx` block runs in the same order: **Core → How to test → Red-team / escalation → Interview → Prevention.**
 
@@ -532,5 +534,77 @@ Pull + decompile (jadx) → grep secrets (M1) + read the manifest for exported c
 
 ### Q101. The one meta-lesson of the Mobile Top 10?
 > *Plain version:* one sentence for the whole list — **the phone can't be trusted and can't keep secrets, so do the real security on the server and store nothing sensitive in plain sight.** And remember: the client is a map to the server, where your best bugs hide.
+
+---
+
+# §RW — VERIFIED REAL-WORLD CASE STUDIES (per category)
+
+> One documented, named case per Mobile category — with *root cause → mechanism → lesson*. Mobile's recurring twist: the APK/IPA is a **readable, redistributable artifact**, so "secret in the app" = public secret and "client-side check" = no check. (Fuller deep-dives for several are in the reference doc's Appendix.)
+
+### Q102. M1 (Improper Credential Usage) — the documented case?
+**Hardcoded AWS credentials at scale (Symantec 2022 / CloudSEK).** *Root cause:* long-lived secrets baked into a readable binary. *Mechanism:* of 1,859 apps analyzed, **77% carried valid AWS tokens** and **47%** of those unlocked (often millions of) private **S3** files; other studies found thousands of apps leaking Twitter/Google keys — all extractable by unzipping the APK and running `strings`. *Lesson:* an app ships to attackers, so it can hold **no** durable secret; mint short-lived, least-privilege tokens server-side after auth, and rotate anything ever shipped in a binary.
+
+### Q103. M2 (Inadequate Supply Chain Security) — the defining case?
+**SourMint / Mintegral SDK (2020, Snyk).** *Root cause:* a malicious third-party SDK trusted like first-party code. *Mechanism:* embedded in **≈1,200 iOS apps**, it committed ad-attribution fraud and logged URL requests (potential PII) to a third-party server, hidden from App Store review for **over a year**. *Lesson:* every SDK runs with your app's identity, permissions, and user trust — inventory dependencies, pin/verify versions, and watch egress; an ad/analytics SDK is part of your attack surface.
+
+### Q104. M3 (Insecure Auth/Authz) — where does this actually cash out?
+**The API behind the app — T-Mobile (2023, ≈37M) and Optus (2022, ≈9.8M).** *Root cause:* the server didn't enforce authorization; the app just revealed the endpoint. *Mechanism:* both breaches ran against the mobile/back-end **API** (BOLA / no-auth endpoints, enumerable IDs). *Mobile-native shape:* apps that enforce "admin"/limits **client-side** are bypassed by calling the API directly (Frida/proxy), and biometric prompts that only gate the UI leave the data reachable on a rooted device. *Lesson:* authenticate and authorize **server-side**; the client is advisory.
+
+### Q105. M4 (Insufficient Input/Output Validation) — the classic RCE?
+**`addJavascriptInterface` WebView RCE (CVE-2012-6636).** *Root cause:* a JS→Java bridge exposed to untrusted web content. *Mechanism:* on Android < 4.2 (and via misuse since), page content in a bridged WebView could reflect into **arbitrary Java** (`Runtime.exec`), so a MITM or malicious ad achieved RCE. *Lesson:* never load untrusted/HTTP content into a WebView with a JS interface; validate deep-link/IPC/provider inputs the same way you'd validate a web request.
+
+### Q106. M5 (Insecure Communication) — the FTC case?
+**Fandango & Credit Karma (2014, FTC).** *Root cause:* the apps **disabled TLS certificate validation** (trust-all-certs). *Mechanism:* any MITM on shared Wi-Fi decrypted "HTTPS" — Fandango leaked card data + credentials; Credit Karma leaked SSNs, credit scores, DOB. *Lesson:* HTTPS is only as strong as validation — never override the default `TrustManager`/delegate, and pin certificates for high-value apps. (Result: 20 years of FTC-mandated assessments.)
+
+### Q107. M6 (Inadequate Privacy Controls) — the case everyone cites?
+**Grindr (2018, SINTEF).** *Root cause:* sensitive data shared with third parties by design. *Mechanism:* the app sent **3.6M users' HIV status + last-tested date** (joined to GPS, phone ID, email) to analytics vendors, and precise location + sexuality/ethnicity to ad networks, some **unencrypted**. *Lesson:* privacy is a security property — minimize collection, scope consent, and don't ship the most-sensitive-imaginable data to "partners."
+
+### Q108. M7 (Insufficient Binary Protections) — the scale case?
+**Agent Smith (2019, Check Point).** *Root cause:* no integrity verification of installed apps. *Mechanism:* malware on **≈25 million** devices replaced popular apps (WhatsApp, Opera) with weaponized builds that still functioned normally, so the swap went unnoticed (ad fraud, trivially extensible to credential theft). *Lesson:* without tamper-detection/signing checks/anti-repackaging, your app can be cloned, weaponized, and redistributed — binary protection answers "is this really my unmodified app?"
+
+### Q109. M8 (Security Misconfiguration) — a concrete case?
+**ES File Explorer (CVE-2019-6447, 2019).** *Root cause:* a component exposed far beyond its scope. *Mechanism:* the app ran an **open HTTP server on port 59777** reachable by any local app/network with no auth, exposing file read + app launch. *Lesson:* the Android archetype — audit every **exported** Activity/Service/Receiver/**ContentProvider**, `android:debuggable`, and `allowBackup`; an exported component with no permission is an anonymous API into your app.
+
+### Q110. M9 (Insecure Data Storage) — the canonical case?
+**Starbucks iOS app (2014).** *Root cause:* credentials written to disk in clear text. *Mechanism:* v2.6.1 stored username/email/address/geolocation/**password** unencrypted in a Crashlytics log + `.plist`; anyone with the unlocked, jailbroken, or **backed-up** device read plaintext creds — no exploit needed. *Lesson:* the device is hostile (backups, forensics, other apps on a rooted phone) — use the platform key store, never plaintext, and keep secrets out of crash/analytics caches and logs.
+
+### Q111. M10 (Insufficient Cryptography) — the recurring failure?
+**The hardcoded-key pattern (collapses into M1/M9).** *Root cause:* "encryption" whose key ships in the readable APK. *Mechanism:* apps AES-encrypt local data with a key found in `strings`/smali, or use MD5/SHA-1, **ECB** (the same identical-block leak that made the **Adobe 2013** dump crackable), or `Random` instead of `SecureRandom`. *Lesson:* keys live in Android **Keystore** / iOS **Keychain/Secure Enclave**, never the binary; use modern AEAD (AES-GCM) and CSPRNGs — and remember a key you shipped is a key the attacker has.
+
+---
+
+# §SD — SCENARIO DRILL (you have the APK/IPA — what now?)
+
+> "You see X → do Y," mapped to the Mobile buckets. Each answer is the decision + the concrete next move (ADB/objection/Frida/proxy on a device *you own*).
+
+### Q112. First 15 minutes with an unknown APK — what's the routine?
+Pull + decompile (`apktool`, `jadx`). Grep the source/resources for **secrets** (API keys, tokens, URLs, `strings`) → M1. Read `AndroidManifest.xml` for **exported** components, `android:debuggable`, `allowBackup`, `usesCleartextTraffic`, and the **network-security-config** → M8/M5. List third-party **SDKs** → M2. Map every **backend endpoint** you find — that's your route to the server-side bugs (usually the highest severity).
+
+### Q113. `strings`/smali reveals an AWS key / API token in the APK. Move?
+**M1.** Confirm it's live and scope it (least-privilege check) — but bound it: prove access to *your own* test bucket/data, don't touch third-party data. A hardcoded long-lived cloud key is High–Critical (the Symantec/CloudSEK shape). Report "secret extractable from the shipped binary → \<reachable resource\>," and recommend server-minted short-lived tokens.
+
+### Q114. The manifest shows an exported Activity/Service/Provider with no permission. Move?
+**M8.** Launch the exported Activity via ADB (`am start -n pkg/.Screen`) to reach a **post-auth screen without logging in**; send crafted Intents to exported Services/Receivers; **query the ContentProvider** (`content query --uri content://…`) for private data, and test **provider SQLi** (a `'` in the selection) and `openFile()` path traversal. Prove one concrete data read/action, on a device you own.
+
+### Q115. Traffic won't show in your proxy / the app refuses to connect through Burp. Move?
+**M5.** It's likely cert **pinning** (or a trust-all config that ignores the system CA). Use **objection**/**Frida** (`android sslpinning disable`) or patch the network-security-config on a device you own; if the app still won't proxy, hook the TLS methods. Once you can see traffic, look for cleartext PII, tokens, and — critically — the **API authorization** bugs behind the app (M3 → API1/BOLA).
+
+### Q116. You're proxying and see the app enforce "isPremium"/"isAdmin" in the response, but the API returns the raw object. Move?
+**M3 (client-side authorization).** Ignore the UI gate — replay the API call directly (drop/alter the flag, request another user's object ID). If the server honors it → BOLA/BFLA/privilege escalation (carry it to the **API Top 10 / IDOR kit**, where it's higher severity). The app "hiding" the button is not a control.
+
+### Q117. A WebView loads remote content and the app exposes a JS interface. Move?
+**M4.** Check what the bridge exposes and whether the content can be attacker-influenced (HTTP load, open redirect, deep-link into the WebView). If a JS bridge + untrusted content meet, aim for the `addJavascriptInterface` class → code exec (CVE-2012-6636 lineage). Also test deep-link params for injection into sensitive actions.
+
+### Q118. After using the app, you inspect on-device storage. What do you check, and where?
+**M9.** On a device you own (rooted/`run-as`/emulator), read `shared_prefs/*.xml`, the app's SQLite DBs, `files/`, `cache/`, WebView cache, and **logcat** for **session tokens, credentials, PII** in clear text (the Starbucks shape). Also pull an **`adb backup`** (`allowBackup`) and inspect it. A cleartext session token → ATO from a stolen/backed-up device.
+
+### Q119. The app "encrypts" its local data. How do you check if that's real (M10)?
+Find the crypto in smali/jadx: is the **key hardcoded** (in `strings`/resources/constants)? What mode (**ECB**?), algorithm (**MD5/SHA-1/DES/RC4**?), and RNG (`Random` vs `SecureRandom`)? If the key ships in the app, "encrypted" = decodable — extract the key and decrypt to prove it. Recommend Keystore/Keychain + AES-GCM.
+
+### Q120. You suspect a bundled SDK is doing more than advertised. Move?
+**M2.** Identify SDKs (package names, `jadx`), check versions against known-bad/CVEs, and **watch their network egress** in the proxy — is an analytics/ad SDK exfiltrating identifiers, location, or clipboard? (The SourMint shape.) Report the specific SDK + the specific data it sends; recommend removal/version-pin and egress monitoring.
+
+### Q121. It's a fintech/enterprise app with root detection and obfuscation. What's the M7 story?
+**M7.** Test whether the protections actually hold: bypass root/jailbreak detection (objection/Frida hooks), and assess repackaging resistance — can you patch a check, re-sign, and run? Weak/no binary protection means the app can be cloned and weaponized (the Agent Smith risk) and that *all* client-side "security" is negotiable. Frame M7 as an **amplifier** — it lowers the cost of every other attack — and don't overstate a lone root-detection bypass without a downstream impact.
 
 **The attacker owns the client, so the client can't be trusted or keep secrets — enforce security server-side and store nothing sensitive in the clear.** Every device-side category is "assume it's recoverable"; the biggest wins are the **server-side bugs the client exposed** (M3/M4). Test the device *and* follow the client into the backend.

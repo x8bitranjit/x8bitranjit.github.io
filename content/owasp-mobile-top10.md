@@ -36,6 +36,7 @@
 - [M10 — Insufficient Cryptography](#m10--insufficient-cryptography)
 - [Tooling](#tooling)
 - [Severity calibration & reporting](#severity-calibration--reporting)
+- [Appendix — Verified Real-World Case Studies (deep dives)](#appendix--verified-real-world-case-studies-deep-dives)
 - [References](#references)
 
 ---
@@ -82,7 +83,7 @@
 □ Key scope: is a leaked key least-privilege + revocable, or a god-key?
 ```
 
-**Real-world / examples.** Hardcoded AWS/Google/Firebase keys in apps (mass-scanned by researchers); Twitter/API keys in binaries; open Firebase databases reachable via keys pulled from the APK; third-party SDK secrets abused for billing.
+**Real-world / examples.** **Hardcoded AWS credentials at scale (Symantec 2022 / CloudSEK BeVigil).** A Symantec survey of 1,859 apps found **77% contained valid AWS access tokens** and **47%** of those gave full access to (often millions of) private **S3** files; CloudSEK separately found 40+ apps (100M+ downloads) with hardcoded AWS keys and **3,207 apps** leaking Twitter API keys. The APK/IPA is a *readable* artifact — any secret baked in is a public secret. Others: open Firebase DBs reachable via keys pulled from the APK; third-party SDK secrets abused for billing; OAuth client secrets in the binary.
 
 **Prevention.** Don't embed secrets in the client — the client can't keep secrets; fetch scoped, short-lived tokens from the backend at runtime; use platform key stores (Android Keystore / iOS Keychain) for anything that must be on-device; scope + rotate + monitor API keys; never log credentials; use certificate-bound / attested tokens where possible.
 
@@ -109,7 +110,7 @@
 □ Build integrity: is the APK/IPA properly signed? repackaging protection (ties to M7)? build provenance?
 ```
 
-**Real-world / examples.** Malicious analytics/ad SDKs harvesting data (documented repeatedly); the Joker/malware-SDK families; outdated WebView/OpenSSL CVEs in shipped apps; SDKs with silent data exfiltration.
+**Real-world / examples.** **SourMint / Mintegral SDK (2020, Snyk).** A popular Chinese ad SDK shipped inside **≈1,200 iOS apps** (including ≈70 of the top-500 free apps) secretly committed **ad-attribution fraud** and logged **URL requests (potential PII)** to a third-party server — undetected in the App Store for **over a year** (SDK v5.51 → 6.3.7.0). A trusted third-party SDK *is* your app's code and permissions. Others: the Joker/malware-SDK families; outdated WebView/OpenSSL CVEs in shipped apps; SDKs with silent data exfiltration; a compromised build/CI pipeline shipping a backdoored release (the mobile echo of SolarWinds).
 
 **Prevention.** Vet + inventory + pin all third-party SDKs/libraries (SBOM); keep dependencies updated (patch known CVEs); minimize SDK permissions and monitor their network behavior; sign builds + protect the pipeline; prefer reputable, maintained SDKs; remove unused dependencies.
 
@@ -139,7 +140,7 @@
 □ Session management: fixation, no server-side invalidation on logout, long-lived tokens.
 ```
 
-**Real-world / examples.** Mobile apps enforcing "admin" client-side → direct-API privilege escalation; BOLA in mobile banking/social APIs (mass account access); JWT `alg:none`/weak-secret in mobile tokens; biometric prompts that only hide UI while data stays accessible.
+**Real-world / examples.** *(The highest-impact "mobile" auth bugs are usually server-side — the app is just the client that reveals the endpoint.)* **T-Mobile (2023)** and **Optus (2022)** were breached through the **API behind the app** — BOLA / no-auth endpoints exposing ≈37M and ≈9.8M customers (see the API Top 10). Mobile-native shapes: apps enforcing "admin"/limits **client-side** → bypassed by calling the API directly; JWT `alg:none`/weak-secret in mobile tokens; **biometric prompts that only gate the UI** while the protected data/secret stays accessible to a rooted or hooked (Frida) process.
 
 **Prevention.** **Enforce all authentication + authorization server-side** — never trust the client for identity/role/permission; per-object authorization checks (defeat BOLA); strong, short-lived, rotated tokens bound to the session; secure token storage (Keystore/Keychain) + transport (TLS+pinning); server-side session invalidation; treat biometric/local auth as a UX gate that must be backed by server-side + keystore-bound protection.
 
@@ -169,7 +170,7 @@
 □ Server-forwarded input: does the app pass unvalidated input to the backend → server-side injection there?
 ```
 
-**Real-world / examples.** `addJavascriptInterface` RCE (pre-4.2 and misuse since); WebView XSS in hybrid apps; deep-link parameter injection driving account actions; local SQLi in messaging apps; path traversal via content providers.
+**Real-world / examples.** **`addJavascriptInterface` WebView RCE (CVE-2012-6636).** Any app that exposed a Java object to a WebView on **Android < 4.2** let attacker/MITM-injected page content call **arbitrary Java** (reflection → `Runtime.exec`) — a mass-affecting RCE class with a Metasploit module, and still exploitable via misuse (loading untrusted/HTTP content into a bridged WebView). Others: WebView XSS in hybrid apps; deep-link parameter injection driving account actions; local SQLi in messaging apps; **path traversal via a content provider's `openFile()`** (the Android provider bug class).
 
 **Prevention.** Validate + sanitize all input from untrusted sources (network, IPC, deep links, files); encode output for its sink; in WebViews: disable JS if not needed, avoid `addJavascriptInterface` (or restrict to `@JavascriptInterface` + trusted content only), disable file access, load only trusted content; parameterize local SQL; canonicalize + confine file paths; memory-safe native code / bounds-checking.
 
@@ -200,7 +201,7 @@
 □ Sensitive data in transit: what PII/creds/tokens ride the wire, and are they protected?
 ```
 
-**Real-world / examples.** Apps with disabled cert validation (mass-scanned); banking/health apps without pinning; response-tampering to unlock premium; cleartext analytics leaking PII; the endless supply of "trust-all-certs" TrustManagers.
+**Real-world / examples.** **Fandango & Credit Karma (FTC, 2014).** Both apps **disabled the default SSL certificate validation** (a "trust-all-certs" override), so a man-in-the-middle on any shared Wi-Fi could read what users believed was encrypted — Fandango leaked credit-card numbers/CVV/expiry + credentials; Credit Karma leaked **SSNs, credit scores, DOB, addresses**. The FTC settlement forced 20 years of independent security assessments. Others: banking/health apps shipping without cert pinning (mass-scanned); response-tampering to unlock premium; cleartext analytics leaking PII; the endless supply of custom "trust-all" `TrustManager`s.
 
 **Prevention.** TLS everywhere (no cleartext); proper cert + hostname validation (never trust-all); **certificate/public-key pinning** (and make it non-trivial to bypass — though assume a determined attacker can); Android `network_security_config` (no user CAs, no cleartext); don't send sensitive data to third parties insecurely; re-validate security-critical decisions server-side (don't trust a tamperable response).
 
@@ -229,7 +230,7 @@
 □ Consent + retention: is there consent for collection? is data retained/deleted appropriately?
 ```
 
-**Real-world / examples.** Apps leaking location/contacts to ad SDKs; PII in logcat readable by other apps; sensitive data in Android auto-backup; health/finance apps over-collecting; clipboard-sniffing exposure.
+**Real-world / examples.** **Grindr (2018, SINTEF).** The app sent **3.6 million users' HIV status and last-tested date** — linked to GPS, phone ID, and email — to third-party analytics firms (Apptimize, Localytics), and shared precise location plus sexuality/ethnicity with ad companies, **sometimes unencrypted**. The most-sensitive-imaginable data handed to third parties by design; it drew EU privacy complaints and a later GDPR fine. Others: apps leaking location/contacts to ad SDKs; PII in logcat readable by other apps; sensitive data in Android auto-backup; over-broad permissions; clipboard-sniffing exposure.
 
 **Prevention.** Data minimization (collect only what's needed); explicit consent for PII + third-party sharing; keep PII out of logs/clipboard/screenshots (`FLAG_SECURE`, `android:allowBackup=false`); don't broadcast PII via IPC / don't export providers with PII; least-permission; encrypt PII at rest (ties M9); retention + deletion controls; vet SDK data flows (ties M2).
 
@@ -256,7 +257,7 @@
 □ Runtime integrity: does the app verify its own signature/integrity at runtime?
 ```
 
-**Real-world / examples.** Trojanized repackaged apps in third-party stores; game/finance cheating via patched binaries; trivially bypassed root detection; unobfuscated fintech apps exposing full logic.
+**Real-world / examples.** **Agent Smith (2019, Check Point).** Malware on **≈25 million** Android devices **repackaged and silently replaced** installed apps (WhatsApp, Opera) with weaponized versions — abusing the update mechanism and the **absence of integrity verification**; the hijacked apps still worked, hiding the swap (initially for ad fraud, trivially extensible to credential theft). This is what "no binary protection" enables at scale. Others: trojanized/cracked APKs in third-party stores; game/finance cheating via patched binaries; trivially bypassed root/jailbreak detection; unobfuscated fintech apps exposing full logic and endpoints.
 
 **Prevention.** Apply defense-in-depth: code obfuscation (R8/ProGuard/commercial), anti-tampering + runtime integrity/signature checks, root/jailbreak/debugger/emulator/hook detection (with tamper-resistant implementation), RASP for high-risk apps; **but never rely on client protections for security** — the real controls are server-side (M3) and not shipping secrets (M1). Binary hardening raises the attacker's cost; it doesn't replace server-side enforcement.
 
@@ -287,7 +288,7 @@
 □ Deep links: exported deep-link handlers → param injection / unauth actions (ties M4).
 ```
 
-**Real-world / examples.** Exported content providers leaking private data / provider SQLi (a classic Android bug class); exported Activities bypassing login; debuggable production apps; `allowBackup` data extraction; broadcast-receiver action injection.
+**Real-world / examples.** **ES File Explorer (CVE-2019-6447, 2019).** The app ran an **open HTTP server on port 59777** reachable by any app on the device (and often the local network) with no authentication, exposing file listing/read and app-launch — a component/service exposed far beyond its intended scope. The Android archetype is broader: **exported ContentProviders** leaking private data or allowing **provider SQL injection** (unsanitized selection clause) and `openFile()` path traversal, **exported Activities** bypassing login, **debuggable** production builds, and `allowBackup=true` data extraction. Others: broadcast-receiver action injection; world-readable files.
 
 **Prevention.** Export only what must be exported; guard exported components with signature/custom permissions; never ship debuggable release builds; `android:allowBackup=false` for sensitive apps; least-privilege content providers (or don't export); validate deep-link/intent input (M4); strict `network_security_config`; secure file permissions; review the manifest as a security artifact.
 
@@ -317,7 +318,7 @@
 □ Data-at-rest after logout: is sensitive data wiped on logout, or does it persist?
 ```
 
-**Real-world / examples.** Session tokens in cleartext shared_prefs → ATO from a stolen/backed-up device; banking apps storing PANs unencrypted; credentials in SQLite; sensitive data in WebView cache / logcat; "encrypted" storage with a hardcoded key.
+**Real-world / examples.** **Starbucks iOS app (2014).** v2.6.1 stored the user's **username, email, address, geolocation, and password in clear text** (in a Crashlytics `session.clslog` file + `mystarbucks.plist`) — anyone with the unlocked, jailbroken, or backed-up device read plaintext credentials. The canonical "the app stored the secret in plaintext on disk." Others: session tokens in cleartext `shared_prefs` → ATO from a stolen/backed-up device; banking apps storing PANs unencrypted; credentials in SQLite; sensitive data in WebView cache / logcat; "encrypted" storage with a **hardcoded key** (see M10).
 
 **Prevention.** Don't store sensitive data unless necessary; use platform secure storage (Android Keystore-backed encryption / EncryptedSharedPreferences; iOS Keychain with appropriate accessibility) with hardware-backed keys (never hardcoded); keep sensitive data out of external/shared storage, logs, caches, and backups (`allowBackup=false`, `FLAG_SECURE`); wipe on logout; encrypt at rest with keys the attacker can't recover.
 
@@ -346,7 +347,7 @@
 □ Break it: recover the key/weakness → decrypt stored data / forge a signature/token (that's the impact).
 ```
 
-**Real-world / examples.** Apps "encrypting" storage with a hardcoded AES key (trivially decrypted); MD5/SHA1 password hashing; ECB-mode leakage; DES/RC4 in legacy apps; predictable token generation; custom broken crypto.
+**Real-world / examples.** *(The dominant mobile crypto failure is the **hardcoded key**, which collapses M10 into M1/M9: "encryption" whose key ships inside the readable APK is decodable by anyone who unzips it.)* Concrete, recurring shapes: apps AES-"encrypting" local data with a key found in `strings`/smali; **MD5/SHA-1** password or token hashing; **ECB mode** (its identical-block leakage is exactly what made the **Adobe 2013** dump crackable — the same mistake apps repeat locally); **DES/RC4** in legacy SDKs; predictable IVs/token generation (`Random` not `SecureRandom`); and home-rolled "custom crypto." The fix is platform key stores (Android **Keystore** / iOS **Keychain/Secure Enclave**) + modern AEAD (AES-GCM), never a key in the binary.
 
 **Prevention.** Use strong, standard algorithms (AES-GCM, SHA-256+, proper KDFs like Argon2/PBKDF2/scrypt); never hardcode keys — derive/store in hardware-backed Keystore/Keychain; strong random (SecureRandom); unique IVs/nonces; authenticated encryption (GCM); proper key management + rotation; never roll your own crypto; keep crypto libraries updated.
 
@@ -394,6 +395,30 @@ objection -g <pkg> explore  # then: android sslpinning disable ; android keystor
 | **Decompiled string / config with no reachability** | **Low/Info** | Not a finding without impact — find what it unlocks. |
 
 **Reporting rules:** name the **impact + reachability**, not the artifact ("session token stored in cleartext shared_prefs → recovered from a device backup → account takeover," not "the app stores data in shared_prefs"). Prove device-side findings on a device **you own** (rooted/emulator) and server-side findings with **your own accounts** + benign markers. Half your best findings are **server-side bugs the client exposed** — carry them into the Web/API kits and report them there (usually higher severity). Map to the Mobile ID **plus** the underlying CWE/Web-kit where relevant.
+
+---
+
+# Appendix — Verified Real-World Case Studies (deep dives)
+
+> The per-category one-liners above are the quick citations; these are the full root-cause→mechanism→lesson write-ups. Mobile has a recurring twist: the APK/IPA is a **readable, redistributable artifact**, so "secret in the app" = "public secret," and "client-side check" = "no check." All facts from public research/advisories (see References).
+
+**SourMint / Mintegral SDK (M2 Inadequate Supply Chain Security, 2020 — Snyk).**
+*Root cause:* a **malicious third-party SDK** trusted like first-party code. *Mechanism:* the Mintegral ad SDK, embedded in **≈1,200 iOS apps** (incl. ≈70 of the top-500 free apps), silently intercepted **link-click activity** to commit ad-attribution fraud and logged **URL requests (potential PII)** to a Mintegral server; it hid from Apple's review for **over a year** (v5.51→6.3.7.0). *Lesson:* every SDK runs with your app's identity, permissions, and user trust — inventory dependencies, pin/verify versions, monitor egress, and treat an ad/analytics SDK as part of your attack surface (the mobile face of A03/A08).
+
+**Grindr (M6 Inadequate Privacy Controls, 2018 — SINTEF).**
+*Root cause:* sensitive data shared with third parties **by design**. *Mechanism:* the app transmitted **3.6M users' HIV status + last-tested date**, joined to GPS, phone ID and email, to analytics vendors (Apptimize, Localytics), and shared precise location + sexuality/ethnicity with ad networks — **some of it unencrypted**. *Lesson:* privacy is a security property; data minimization and explicit, scoped consent matter as much as encryption, and "we sent it to a partner to improve the app" is still disclosure. (Also overlaps M5 — the unencrypted transmission.)
+
+**Fandango & Credit Karma (M5 Insecure Communication, 2014 — FTC).**
+*Root cause:* **disabled TLS certificate validation** (a "trust-all-certs" override left in production). *Mechanism:* the apps accepted any certificate, so a man-in-the-middle on shared Wi-Fi silently decrypted "HTTPS" traffic — Fandango exposed card number/CVV/expiry + credentials; Credit Karma exposed **SSNs, credit scores, DOB, addresses**. *Lesson:* HTTPS is only as good as validation; never override the default `TrustManager`/delegate, and add certificate pinning for high-value apps. The FTC treated it as a deceptive practice → 20 years of mandated assessments.
+
+**Starbucks iOS app (M9 Insecure Data Storage, 2014).**
+*Root cause:* credentials written to disk in **clear text**. *Mechanism:* v2.6.1 stored username, email, address, geolocation, and **password** unencrypted in a Crashlytics `session.clslog` file plus a `.plist`; anyone with the unlocked, jailbroken, or **backed-up** device recovered plaintext creds — no exploit required. *Lesson:* the device is a hostile environment (backups, forensic tools, other apps on a rooted phone); store secrets in the platform key store, never plaintext, and keep them out of crash/analytics caches and logs.
+
+**Agent Smith (M7 Insufficient Binary Protections, 2019 — Check Point).**
+*Root cause:* no **integrity verification** of installed apps + an abusable update path. *Mechanism:* malware on **≈25 million** devices copied popular apps (WhatsApp, Opera), injected malicious code, and **replaced the originals** with weaponized builds that still functioned normally — so users never noticed (ad fraud initially, trivially extensible to credential theft/eavesdropping). *Lesson:* without tamper-detection, signing checks, and anti-repackaging, your app can be cloned, weaponized, and redistributed; binary protection is what makes "is this really my app running unmodified?" answerable.
+
+**Hardcoded AWS credentials at scale (M1 Improper Credential Usage, 2022 — Symantec / CloudSEK).**
+*Root cause:* long-lived secrets **baked into a readable binary**. *Mechanism:* of 1,859 apps analyzed, **77% carried valid AWS tokens** and **47%** of those unlocked (often millions of) private **S3** files; other studies found thousands of apps leaking Twitter/Google API keys — all extractable by simply unzipping the APK/IPA and running `strings`. *Lesson:* an app ships to attackers, so it can hold **no** durable secret; use short-lived, per-user tokens minted server-side after auth, scope every credential to least privilege, and rotate anything ever shipped in a binary.
 
 ---
 
