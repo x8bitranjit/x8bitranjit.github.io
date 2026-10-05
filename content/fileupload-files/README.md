@@ -1,6 +1,6 @@
 # poc_files — Benign Attack PoCs — organized by attack class
 
-Companion to **x8bittest.github.io** and the checklists in the parent folder. Every file is **benign by default** and built for **authorized** security testing only: payloads are self-referential markers (`alert()`, `id`, echo of the machine name) or point at non-resolvable placeholders — no exfiltration, no third-party targets, nothing fires until *you* edit it.
+Companion to **x8bitranjit.github.io** and the checklists in the parent folder. Every file is **benign by default** and built for **authorized** security testing only: payloads are self-referential markers (`alert()`, `id`, echo of the machine name) or point at non-resolvable placeholders — no exfiltration, no third-party targets, nothing fires until *you* edit it.
 
 **Safe PoC** -> x8bitranjit — every file in this folder is a benign, inert-as-shipped proof of concept.
 
@@ -113,12 +113,12 @@ poc_files/
 │   ├── xsleaks_timing_poc.html         timing-oracle harness (medians+separation)
 │   └── oauth_callback_poc.html         redirect_uri collector (code/token capture)
 ├── 12_api_attacks/                  ← API-layer attack batteries
-    ├── graphql_batch_bypass.http        alias/array batching + BOLA + mass-assign
-    ├── jwt_tamper_battery.txt           jwt_tool command matrix
-    ├── lfi_php_wrappers_poc.http        php://filter chain -> data:// -> pearcmd
-    ├── host_header_poison_poc.http      reset poisoning / cache / routing SSRF
-    ├── sqlmap_request_template.txt      clean single request (sqlmap -r / ghauri)
-    └── README_KEEP                      folder note
+│   ├── graphql_batch_bypass.http        alias/array batching + BOLA + mass-assign
+│   ├── jwt_tamper_battery.txt           jwt_tool command matrix
+│   ├── lfi_php_wrappers_poc.http        php://filter chain -> data:// -> pearcmd
+│   ├── host_header_poison_poc.http      reset poisoning / cache / routing SSRF
+│   ├── sqlmap_request_template.txt      clean single request (sqlmap -r / ghauri)
+│   └── README_KEEP                      folder note
 └── 13_windows_defender/             ← authorized-engagement security-stack pack
     ├── README.md                        scope + what is deliberately NOT here
     ├── defender_surface_map.txt         7 protection layers + MITRE mapping
@@ -208,7 +208,7 @@ All other images/GIFs/PDFs ship **zero-edit** (benign payloads already baked in)
 
 ### Step 5 — XXE pairs (edit BOTH files consistently)
 1. `02_ssrf/xxe_oob_beacon.xml` + `xxe_oob_beacon.dtd` — the XML fetches the DTD; the DTD beacons back.
-2. Replace the placeholder in **both** files (2 occurrences each) with your listener.
+2. Replace the placeholder in **both** files (2 occurrences in the .xml, 3 in the .dtd) with your listener.
 3. Serve the `.dtd` from the SAME listener host the XML points at, under the exact path the XML fetches: `http://<listener>/xxe_oob_beacon.dtd` (interactsh serves DNS/HTTP but not arbitrary files — host the DTD on your VPS or use Burp Collaborator's HTTP + a manual server).
 4. Deliver the XML through the target's XML importer → two-stage callback: DTD fetch, then the content beacon.
 
@@ -290,7 +290,7 @@ Each artifact defeats a different defense layer; run them as a sequence:
 |---|---|---|---|
 | `cmdi_windows_poc.http` | cmd.exe battery: `&`/`\|`/`\|\|`, caret evasion, `%COMSPEC:~-7,3%`, `FOR /F`, PowerShell | target + parameter | `whoami`/`Windows_NT` or OOB |
 | `windows_wmic_xsl_rce_poc.http` | **WMIC `/format:` remote-XSL execution** — signed LOLBin fetches AND runs your XSL; also via argument-injection `format=` params and after file-write | target + parameter; OOB host | OOB callback + (authorized) marker echo |
-| `windows_wmic_format_poc.xsl` | the benign XSL (echo marker) — serve it at your listener | nothing | fetched AND executed (benign echo runs) when wmic fires |
+| `windows_wmic_format_poc.xsl` | the benign XSL (echo marker) — serve it at your listener as `/windows_wmic_format_poc.xsl`, the exact path the .http battery requests | nothing | fetched AND executed (benign echo runs) when wmic fires |
 | `windows_scf_ntlm_leak_poc.scf` | Explorer NTLMv2 leak on folder view (shipped benign → localhost) | localhost → Responder host | Responder auth event |
 | `windows_startup_folder_poc.txt` | arbitrary-write → user Startup folder `.bat` cash-out | the .bat content (benign echo to %TEMP%) | marker file at next logon |
 
@@ -353,7 +353,7 @@ Pair with the config-upload files in `01_upload/` (htaccess/user.ini/web.config 
 
 ### `10_image_attacks/` — PNG/JPG-carried attacks (XSS / RCE / XXE / DoS)
 
-Every image now shows a **visible banner card** when you open it — so nobody mistakes a silent image for a broken PoC. The banner tells you the payload class and points back here. Attack chunks are preserved exactly.
+7 of the 9 images show a **visible banner card** when you open it — so nobody mistakes a silent image for a broken PoC. The two exceptions are `gif_comment_xss_poc.gif` (1×1 px — banner text lives in its comment extension) and `png_dimension_bomb_poc.png` (287 B minimal bomb — banner text in metadata only); neither can render a card, and both are covered in the table below. Attack chunks are preserved exactly.
 
 #### The one that DOES pop on open
 - `svg_xss_open_on_view.svg` (in `06_document_client/`) — open it in Chrome/Firefox → alert fires. That is the only image in the lab designed to execute on open (SVGs opened as *documents* run scripts; bitmaps never do).
@@ -369,7 +369,7 @@ Every image now shows a **visible banner card** when you open it — so nobody m
 | `png_xmp_xxe_poc.png` | XMP (iTXt) metadata carrying an external entity (XXE) | banner card, no popup | Fires in consumers that XML-parse XMP (Adobe XMPCore, DAM pipelines): upload → any feature that reads/converts metadata deeply → OOB callback. Honest note: exiftool-based pipelines print it as text — no XXE claim there |
 | `jpg_com_php_poc.jpg` | PHP hidden in the COM segment (different slot than after-EOI) | banner card, no popup | Needs an execution context: config-file tricks (`01_upload/` htaccess/user.ini make the directory parse), phar/include flows, or stacked with an LFI. The benign marker echoes where it executes |
 | `jpg_exif_beacon_poc.jpg` | hand-built EXIF (valid TIFF IFD) with a beacon in ImageDescription | banner card, no popup | Fires where EXIF description renders raw (previews, AI-tagging dashboards) or gets re-embedded into derivatives: upload → view metadata pane → OOB callback. Edit the placeholder to your listener first |
-| `gif_comment_xss_poc.gif` | XSS in the GIF comment extension | banner card, no popup | Same metadata-rendering class for GIF-consuming galleries/forums |
+| `gif_comment_xss_poc.gif` | XSS in the GIF comment extension | tiny 1×1 GIF — no visible banner; text in comment extension | Same metadata-rendering class for GIF-consuming galleries/forums |
 | `png_dimension_bomb_poc.png` | 99999×99999 declared in <1KB (decompression bomb) | your viewer handles it (modern cap) — that IS the test | Old/unpatched decoders attempt ~10GB on decode: point an old ImageMagick/thumbnail service at it (SCOPE GATED — prove the missing cap, never sustain) |
 | `image_filename_xss_poc.txt` | filename-as-payload battery (XSS/traversal/php-name/wildcard/CRLF) | text | Use the names as-is in upload forms that reflect the stored name: gallery listing → reflected XSS; batch-export → traversal; cron-globbed dir → tar/wildcard exec |
 
@@ -400,8 +400,12 @@ Host on YOUR origin, run against your own two accounts first (two-account discip
 | `jwt_tamper_battery.txt` | jwt_tool command matrix: alg:none, RS256→HS256 confusion, kid injection, jku/x5u → attacker-hosted JWKS | `$TOKEN` → captured token; serve `jwks.json` at your OOB host for the jku/x5u rows | forged token accepted |
 | `lfi_php_wrappers_poc.http` | php://filter chains → data:// → expect:// → pearcmd → log poisoning | `target.example.invalid` + `page` param | decoded source / marker execution / session content |
 | `host_header_poison_poc.http` | password-reset poisoning, web cache poisoning, routing SSRF (incl. userinfo-bypass Host forms) | `target.example.invalid` (+ collector) | poisoned link/cache serves collector content |
-| `sqlmap_request_template.txt` | clean single request for `sqlmap -r` / ghauri | target + path/param | tool confirms injection |
+| `sqlmap_request_template.txt` | clean single request for `sqlmap -r` / ghauri — deliberately comment-free: `-r` parses everything after the first blank line as the request body | target + path/param (the trailing `*` custom-marks the injection point) | tool confirms injection |
 | `README_KEEP` | folder note (edit-discipline reminder) | — | — |
+
+### `13_windows_defender/` — security-stack testing (self-documented folder)
+
+This folder is governed by its own `README.md` (scope, surface map, and what is deliberately NOT here — read that first before any Defender-adjacent work). No per-file table here on purpose: the folder self-documents, and its engagement rules differ from the rest of this kit.
 
 ## 5. OS detection first (which RCE battery to run)
 
@@ -429,5 +433,7 @@ Linux-silent **never** means safe — run **both** `03_rce_linux/cmdi_linux_poc.
 | `08_modern_bypass/*` | Burp Repeater, nghttp, csp-evaluator | `WAFBypass_CHECKLIST.csv` FILTER-130..136 |
 | `05_shells/*` | pwncat-cs / socat | `POST_EXPLOITATION_CHECKLIST.csv` PEXP-001 |
 | `04_rce_windows/windows_scf_ntlm_leak_poc.scf` | Responder | `RFI_CHECKLIST.csv` RFI-006 |
+
+> `Kit cross-ref` codes are IDs into the full kit's CSV batteries, which ship with the site kit — they are not in this folder. The parent folder itself carries 4 checklists (`DOCUMENT_ATTACKS_CHECKLIST.csv`, `SECOND_ORDER_CHECKLIST.csv`, `WEB_CRYPTO_CHECKLIST.csv`, `XS_LEAKS_CHECKLIST.csv`) plus `_SOURCE_MAP.csv`.
 
 — **x8bitranjit** · [in/x8bitranjit](https://in.linkedin.com/in/x8bitranjit)

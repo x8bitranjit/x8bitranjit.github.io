@@ -1,6 +1,6 @@
 demo,payload_cell,expected_behavior_in_excel_or_sheets
 "Benign formula demo (evaluates)","=1+1","cell evaluates to 2 - proves formulas from data are executed"
-"Benign hyperlink demo (safe target)","=HYPERLINK(""https://example.com/"",""benign link"")","cell becomes a clickable link to a harmless page"
+"Benign hyperlink demo (safe target)","=HYPERLINK(""https://example.invalid/"",""benign link"")","cell becomes a clickable link - placeholder host never resolves (inert)"
 "DDE demo string (kept inert on purpose)","'=1+1|cmd (leading apostrophe = text)","stays TEXT here - the real variant executes commands on open; see README"
 "Data-exfil shape (kept inert on purpose)","=WEBSERVICE example documented in README only","real variant fetches a URL with concatenated cell data; not executed in this file"
 "Tab/delimiter evasion note","=payload with leading tab/space variants evade naive = filters","shows why sanitizers must neutralize ALL formula triggers (=,+,-,@)"
