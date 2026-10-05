@@ -1,0 +1,51 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# BENIGN SECURITY-STACK INVENTORY PROBES (authorized hosts only)
+#
+# These use Defender's OWN cmdlets - pure inventory, zero evasion. Running
+# them is visible and exactly what an authorized assessor SHOULD do first:
+# the output decides every later step and becomes report evidence.
+# ============================================================================
+
+# --- 1. Engine / platform / tamper state --------------------------------------
+Get-MpComputerStatus | Select-Object AMServiceEnabled, AntispywareEnabled,
+  RealTimeProtectionEnabled, BehaviorMonitorEnabled, IoavProtectionEnabled,
+  NISEnabled, AntivirusSignatureLastUpdated, QuickScanEndTime,
+  IsTamperProtected, TamperProtectionSource
+
+#   read: stale signatures (>7d) or BehaviorMonitor off = finding ammo.
+
+# --- 2. CLM state (per session - run in the SAME context you will operate in) --
+$ExecutionContext.SessionState.LanguageMode     # FullLanguage vs ConstrainedLanguage
+$PSVersionTable.PSVersion                        # v2 presence = downgrade surface (check installed engines)
+
+# --- 3. AMSI provider registration --------------------------------------------
+Get-ChildItem "HKLM:\SOFTWARE\Microsoft\AMSI\Providers" -ErrorAction SilentlyContinue
+
+# --- 4. ASR rules - configured vs audit-only ----------------------------------
+$pref = Get-MpPreference
+$pref.AttackSurfaceReductionRules_Ids
+$pref.AttackSurfaceReductionRules_Actions        # 1=block 2=audit 0=disabled... align arrays
+$pref.EnableControlledFolderAccess               # 0/1/2
+
+# --- 5. Exclusions (THE classic over-privileged finding) ----------------------
+$pref.ExclusionPath; $pref.ExclusionProcess; $pref.ExclusionExtension
+#   read: C:\*, *.ps1, temp dirs, build tools excluded = the "legit bypass"
+#   that is really a misconfiguration - fully reportable, zero evasion needed.
+
+# --- 6. Protection history (what it has caught - noise vs real detections) ----
+Get-MpThreatDetection | Select-Object InitialDetectionTime, ThreatID, Resources | Select -First 20
+
+# --- 7. Logging coverage (the detection mirror baseline) ----------------------
+Get-WinEvent -LogName "Microsoft-Windows-PowerShell/Operational" -MaxEvents 5 -ErrorAction SilentlyContinue |
+  Select-Object Id, TimeCreated                 # 4104 flowing? (blue-team mirror)
+Get-WinEvent -FilterHashtable @{LogName="System"; Id=7045} -MaxEvents 5 -ErrorAction SilentlyContinue |
+  Select-Object TimeCreated, Message            # service-install history
+
+# --- 8. EDR/management layer (is Defender standalone or managed?) -------------
+Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction SilentlyContinue
+Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version   # Win10/11 + build
+
+# DISCIPLINE: screenshot/collect the outputs - they are the engagement's
+# "as-is security posture" section AND the detection-mirror baseline
+# (detection_mapping.txt). Nothing here changes anything.

@@ -1,0 +1,22 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# PDF/reader sandbox matrix - honest capability map (no bypass claims).
+# Companion to DOCUMENT_ATTACKS_CHECKLIST DOCA-002/006/016.
+# ============================================================================
+
+READER                    | PDF JavaScript (/OpenAction /AA) | Notes
+--------------------------|----------------------------------|-----------------------------
+Adobe Acrobat/Reader      | EXECUTES on open                 | your pdf_xss_poc_open_on_view.pdf target; JS in READER context (file://-like), NOT the app origin
+Chrome/Edge (PDFium)      | NO (script engine disabled)      | renders only; sandboxed renderer process
+Firefox (PDF.js)          | NO (pdf.js does not run PDF JS)  | but pdf.js ITSELF had parser/annotation XSS advisories -> check embedded version (DOCA-006)
+macOS Preview             | NO                               | no JS engine
+Browser iframe <embed>    | same as host browser viewer      | plugin-disabled era = built-in viewers only
+
+ESCAPE REALITY CHECK (report honestly):
+- PDF JS in Adobe = client-side execution in the READER - cannot read app
+  cookies (different origin model); impact = social-eng/chains, severity by
+  distribution context (B2B invoices opened in Adobe).
+- Browser sandboxes (PDFium/pdf.js worker) are NOT bypassable from web content - do NOT claim "browser PDF sandbox bypass" without a specific
+  published viewer-version vulnerability with version evidence (DOCA-016).
+- The bypassable boundary is the APP: inline serving (DOCA-003), pdf.js
+  viewer XSS (DOCA-006), server-side processing (DOCA-007/013).

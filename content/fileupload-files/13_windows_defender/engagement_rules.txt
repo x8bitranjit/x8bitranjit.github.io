@@ -1,0 +1,38 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# ENGAGEMENT RULES - when Windows/AV testing is in scope AT ALL + ledger rules
+# ============================================================================
+
+# 1) BUG BOUNTY: endpoint security testing is OUT OF SCOPE on virtually every
+#    platform. Bounty = the web app/API. Do not probe the client's agents,
+#    EDR, or AV from a bounty context - that is unauthorized systems testing.
+#    This folder exists for the engagements where it IS in scope:
+
+# 2) IN SCOPE ONLY WHEN:
+#    - explicit red-team ROE naming the security stack (AV/EDR testing clause)
+#    - lab VMs you own (build a vulnerable-by-config VM and audit yourself)
+#    - purple-team exercises where the client asks for coverage validation
+
+# 3) THE LAB-VM STANDARD TEST (your own machine, benign):
+#    - run benign_inventory_probes.txt -> screenshot the posture
+#    - run asr_exclusions_audit.txt -> find your own over-broad exclusions
+#    - execute the benign marker shells from 09_webshells_benign/ and watch
+#      what Defender records (detection_mapping.txt events) - this teaches
+#      the monitoring picture without any real threat.
+
+# 4) CLEANUP LEDGER (PEXP-015) - AV engagements especially:
+#    every file planted, every exclusion tested, every log line you caused ->
+#    recorded with removal command. Never leave test artifacts on client
+#    estates; never drop EICAR or real test-signatures outside lab VMs
+#    (they alarm SOC teams and burn the engagement's trust).
+
+# 5) SEVERITY HONESTY:
+#    "over-broad exclusion" findings = Medium/High depending on writability +
+#    reachability (pair with icacls proof). "ASR audit-only" = Medium.
+#    Do not inflate AV findings to Critical without a proven user-writable
+#    execution path chain - show the chain (asr_exclusions_audit AUDIT 3).
+
+# 6) THE ONE-LINE RULE:
+#    inventory and audit = always allowed on authorized hosts;
+#    impairment/evasion = only with ROE language + approved tooling;
+#    bug bounty = never.

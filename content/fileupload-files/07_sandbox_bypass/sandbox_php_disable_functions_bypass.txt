@@ -1,0 +1,40 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# PHP disable_functions / open_basedir bypass cheat-sheet (benign discipline).
+# Authorized testing only. When a webshell/marker executes but system() is
+# disabled, work down this ladder - each rung is a different C-level sink.
+# KIT CROSS-REF: 09_webshells_benign/ (marker shells), UPL-009/010.
+# ============================================================================
+
+# --- confirm the cage first -------------------------------------------------
+# probe: which functions actually survive?
+<?php echo "Safe PoC -> x8bitranjit"; var_dump(function_exists('proc_open'), function_exists('mail'), function_exists('putenv'), function_exists('imap_open')); ?>
+
+# --- rung 1: proc_open / pcntl_exec / expect (if any survives) --------------
+# --- rung 2: LD_PRELOAD via putenv + a loader-spawning function -------------
+#   putenv('LD_PRELOAD=/tmp/preload.so') + mail()/imap_mail()/mb_send_mail()
+#   -> /bin/sh startup runs your .so (classic Chankro technique; needs a
+#   writable upload path for the .so - pair with 01_upload polyglots)
+# --- rung 3: mail() additional_params (5th arg) ------------------------------
+#   sendmail -X writes a log you read back, or -C alternate config; also
+#   enables command injection through the MTA on legacy stacks
+# --- rung 4: Imagick/ImageMagick delegates ------------------------------------
+#   PHP Imagick -> delegate MVG (%pipe% / |) executes even with exec disabled
+#   (delegates run at the C layer, not via disabled PHP functions)
+# --- rung 5: FFI (PHP >= 7.4, if ffi.enable=true) ----------------------------
+#   $ffi = FFI::cdef('int system(const char*);','libc.so.6'); $ffi->system('id');
+# --- rung 6: iconv 1x1 / mb_convert_encoding filters --------------------------
+#   iconv:// charm: glibc iconv buffer abuse (glibc < 2.36 1x1 gadget)
+# --- rung 7: callback-accepting functions ------------------------------------
+#   array_map/usort/iterator_apply/preg_replace_callback with function-name
+#   strings to reach surviving functions; assert() on PHP<8 assert-as-eval
+# --- rung 8: Windows equivalents ---------------------------------------------
+#   COM objects: (new COM('WScript.Shell'))->Run(...) when php_com_dotnet loaded
+#   pcntl unavailable on Windows - COM is the ladder there
+# --- open_basedir bypass (separate cage) --------------------------------------
+#   glob:// stream wrapper lists outside basedir; symlink relative-path
+#   races; SplFileInfo->getRealPath() leaks; chdir() accumulation trick;
+#   ini_set('open_basedir','..') on some misconfigs (PHP<5.3 style paths)
+# --- discipline ---------------------------------------------------------------
+#   single benign command (id / echo Safe PoC), capture output in-band or
+#   via OOB placeholder, ledger every file uploaded (PEXP-015)

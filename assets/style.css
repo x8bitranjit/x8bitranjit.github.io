@@ -359,3 +359,14 @@ a:hover{color:var(--link-hover);text-decoration:underline}
 }
 .nb-again:hover{background:linear-gradient(180deg,#e3c463,#cdab46); color:#0c1426}
 .nb-again:active{transform:translateY(1px)}
+
+/* ---- Upload Files: PoC artifact lab (download bars + binary artifact view) ---- */
+.dl-bar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:14px 0 18px}
+.dl-btn{background:var(--panel);border:1px solid var(--border);border-radius:8px;color:var(--head);
+  padding:9px 14px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit}
+.dl-btn:hover:not(:disabled){border-color:var(--link);color:var(--link)}
+.dl-btn:active:not(:disabled){transform:translateY(1px)}
+.dl-btn:disabled{opacity:.7;cursor:default}
+.dl-note{color:var(--side-muted);font-size:12px}
+.bin-info{background:var(--panel);border:1px solid var(--border);border-left:3px solid var(--accent);
+  border-radius:8px;padding:10px 14px;font-size:13.5px;color:var(--side-text)}

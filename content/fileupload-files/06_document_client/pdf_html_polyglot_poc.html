@@ -1,0 +1,49 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /OpenAction << /Type /Action /S /NOP >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>
+endobj
+4 0 obj
+<< /Length 422 >>
+stream
+BT /F1 11 Tf 72 720 Td 14 TL
+(Safe PoC -> x8bitranjit.) Tj
+1 0 Td (Benign POLYGLOT PoC: valid PDF AND valid HTML in one file.) Tj
+1 0 Td (- Served/opened as .html in a browser: the script at the bottom fires.) Tj
+1 0 Td (- Opened in a PDF reader: you are looking at the PDF page; the) Tj
+1 0 Td (  trailing HTML after %%EOF is ignored by most readers.) Tj
+1 0 Td (Parser-differential demo - authorized testing only.) Tj
+ET
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000104 00000 n 
+0000000161 00000 n 
+0000000287 00000 n 
+0000000760 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+830
+%%EOF
+
+<!-- Safe PoC -> x8bitranjit. POLYGLOT: bytes above = valid PDF (header at offset 0); bytes below = valid HTML -->
+<!DOCTYPE html>
+<html><head><title>Safe PoC -> x8bitranjit - benign polyglot</title></head>
+<body><h1>Benign polyglot PoC (HTML side)</h1>
+<p style="font-size:12px;color:#666">Safe PoC -&gt; x8bitranjit</p>
+<p>The PDF source above renders as plain text here. The script below fires because the browser parses this file as HTML:</p>
+<script>alert('polyglot HTML side - benign PoC');</script>
+</body></html>

@@ -1,0 +1,11 @@
+{
+  "_comment": "Safe PoC -> x8bitranjit. Composer install-hook PoC - benign echo only.",
+  "_what": "PHP equivalent of the npm hook: plugin/marketplace uploads that run composer install execute post-install scripts as the build user.",
+  "name": "safepoc/pkg",
+  "description": "Safe PoC -> x8bitranjit",
+  "require": {},
+  "scripts": {
+    "post-install-cmd": ["echo Safe PoC -> x8bitranjit"],
+    "post-update-cmd": ["echo Safe PoC -> x8bitranjit"]
+  }
+}

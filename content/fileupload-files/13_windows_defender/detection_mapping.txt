@@ -1,0 +1,36 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# DETECTION MIRROR - every tradecraft class paired with what CATCHES it.
+# Red + blue in one file: this is what makes a report defensible (you show
+# the client both the gap AND the sensor that should have fired).
+# ============================================================================
+
+# TRADECRAFT CLASS                    | DETECTION (event/log)                          | WHERE
+# ------------------------------------|------------------------------------------------|------------------
+# LOLBin execution (T1218)            | 4688 process+cmdline, Sysmon EID 1,            | Sysmon/Security
+#                                     | ASR 1121 (block) / 1122 (audit)                |
+# Script content (AMSI hits)          | Defender Operational log 1116/1117,            | Defender events
+#                                     | AMSI detections surface here                   |
+# PowerShell blocks (CLM/AMSI)        | 4104 script blocks (deobfuscated text!),       | PowerShell/Operational
+#                                     | 4103 pipeline, EngineState errors              |
+# Downgrade to v2                     | 400/403 engine-start events showing v2,        | PowerShell/Operational
+#                                     | missing 4104s while 4688 shows powershell.exe  | + Security
+# Obfuscated delivery (T1027)         | BehaviorMonitor + cloud verdicts, AMSI on      | Defender + AMSI
+#                                     | deobfuscated script blocks (4104 = decoded)    |
+# Tamper attempts (T1562.001)         | Defender Operational 5001/5007 (config        | Defender events
+#                                     | changes), 4688 for the Set-MpPreference call   |
+# Service install (persistence)       | 7045, Sysmon 13 registry, 4697                 | System/Security
+# Exclusion abuse (the finding)       | NO event by default! (exclusions are silent)   | -> your AUDIT report
+#                                     | 5007 logs setting CHANGES only                 |
+# File drops in excluded paths        | nothing at runtime - MPE logs nothing for      | -> architecture fix
+#                                     | excluded paths; hunt historically via MDE      |
+#
+# REPORT TEMPLATE LINE (paste per finding):
+#   "<technique class> attempted <what> -> <detection source> captured/did NOT
+#    capture it -> <gap or control that worked> -> <remediation owner/action>."
+#
+# WHY THIS MIRROR MATTERS:
+#   A red-team deliverable that says "we evaded X" with no detection mapping
+#   is a brag. The same engagement WITH the mirror becomes the client's
+#   hardening backlog - that is the expert version, and it is why this lab
+#   ships the mirror instead of the bypass.

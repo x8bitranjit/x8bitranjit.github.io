@@ -1,0 +1,40 @@
+<!--
+  Safe PoC -> x8bitranjit.
+  Benign PoC lab - x8bitranjit style. Authorized security testing only.
+
+  WHAT THIS DEMONSTRATES: HTA (HTML Application) executes as a trusted local
+  application on open - full script engine with WScript/ActiveX objects,
+  NOT a browser sandbox.
+
+  WHERE IT FIRES: double-click/open on Windows (mshta.exe). Delivery matters:
+  if a platform (document center, attachment flow, support portal) allows
+  .hta through to staff, "opening the attachment" = code execution prompt-free
+  in most configurations.
+
+  THIS FILE IS BENIGN: it only shows a message box and text - no WScript
+  objects are created, nothing is executed, nothing leaves the machine.
+  The REAL payload shape (authorized targets only) is the same file
+  instantiating a shell object via ActiveX and calling its Run method -
+  which is why .hta in an allowlist is itself the finding.
+-->
+<html>
+<head>
+  <title>Benign HTA PoC</title>
+  <HTA:APPLICATION ID="poc" APPLICATIONNAME="BenignHTAPoC" BORDER="thin" SCROLL="no"/>
+  <script language="VBScript">
+    Sub OnLoad
+      ' Benign: MsgBox only - the ActiveX/WScript line is intentionally absent.
+      MsgBox "Benign HTA PoC - HTA opened as a local application (not sandboxed).", _
+             vbInformation, "Benign HTA PoC"
+    End Sub
+  </script>
+</head>
+<body onload="OnLoad" style="font-family:Arial">
+  <h2>Benign HTA PoC</h2>
+  <p>If you see the message box, this file ran as a local HTML Application.</p>
+  <p>A real payload would use WScript.Shell / ActiveX here - that is why
+     .hta must never be accepted on document platforms.</p>
+</body>
+  <p style="font-size:12px;color:#666">Safe PoC -&gt; x8bitranjit</p>
+
+</html>

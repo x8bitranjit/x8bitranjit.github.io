@@ -9,3 +9,14 @@
 *.jpg   binary
 *.jpeg  binary
 *.webp  binary
+
+# PoC artifact lab (content/fileupload-files/) — these are polyglots, CRC-covered
+# image chunks and archives: ANY line-ending conversion corrupts them. Mark binary
+# so they are stored and checked out byte-exact on every platform.
+content/fileupload-files/**/*.gif  binary
+content/fileupload-files/**/*.tar  binary
+content/fileupload-files/**/*.zip  binary
+content/fileupload-files/**/*.docx binary
+content/fileupload-files/**/*.pdf  binary
+# a real PDF deliberately named .html (PDF+HTML polyglot) — must not be seen as text
+content/fileupload-files/06_document_client/pdf_html_polyglot_poc.html binary

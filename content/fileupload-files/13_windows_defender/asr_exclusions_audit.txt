@@ -1,0 +1,52 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# ASR RULES & EXCLUSIONS AUDIT - the reportable-misconfiguration generator.
+#
+# THE KEY INSIGHT (what makes this expert, not folklore):
+#   On managed estates, "Defender bypass" work usually ends the boring way -
+#   the path was ALREADY open via a bad exclusion or an audit-only ASR rule.
+#   That is not evasion: it is a policy-misconfiguration FINDING with a CVSS
+#   and an owner. Zero bypass needed, fully reportable.
+# ============================================================================
+
+# --- AUDIT 1: exclusions that effectively disable the gate --------------------
+$pref = Get-MpPreference
+$pref.ExclusionPath     # C:\*, C:\Temp\*, \\\\*\\ shares, web roots, user-writable dirs
+$pref.ExclusionProcess  # wscript.exe, msbuild.exe, rundll32.exe, build/test runners
+$pref.ExclusionExtension# .ps1, .js, .vbs - "for the build server"
+
+# report format:
+#   Finding: Real-time protection excludes <path> which is <user-writable>
+#            (authenticated users can plant content there).
+#   Impact:  any threat dropped in that path executes unscanned.
+#   Fix:     scope exclusions to specific signed/controlled paths; remove
+#            wildcard process exclusions; re-enable ASR for covered behaviors.
+
+# --- AUDIT 2: ASR in audit-only or missing ------------------------------------
+$ids  = $pref.AttackSurfaceReductionRules_Ids
+$act  = $pref.AttackSurfaceReductionRules_Actions
+# pairs must be aligned; Action 2 = audit-only (events, no block) 6 = warn
+for ($i=0; $i -lt $ids.Count; $i++) { "{0} -> {1}" -f $ids[$i], $act[$i] }
+# also: rules configured but enableControlledFolderAccess=0, or ASR events
+# piling up in Event ID 1121/1122 (block/audit) = policy exists but toothless.
+
+# --- AUDIT 3: the writeable-exclusion chain (full PoC shape, benign) ----------
+# 1) excluded path found (Audit 1)
+# 2) is it user-writable? icacls <path>   (authenticated-modify = yes)
+# 3) benign marker test: echo "Safe PoC -> x8bitranjit" > <excluded>\probe.txt
+# 4) Defender does NOT scan it - demonstrate with a harmless non-signature
+#    file; NEVER drop real test-signatures on client machines (use lab VMs).
+# 5) report: exclusion + writability + execution-path reachability.
+
+# --- AUDIT 4: tamper protection + tenant management state ---------------------
+Get-MpComputerStatus | Select-Object IsTamperProtected, TamperProtectionSource
+# local Set-MpPreference writes fail with tamper ON = good (state it).
+# changes via Intune/GPO = managed estate - findings go to the policy owner.
+
+# --- AUDIT 5: logging gaps (detection-mirror findings) ------------------------
+# 4104 not flowing? module logging off? no Sysmon? These are DETECTION findings
+# that pair with any tradecraft section of your report (detection_mapping.txt).
+
+# DISCIPLINE: every finding here is a configuration fact + a benign marker -
+# no evasion artifacts, no signature test files on client estates (lab VMs only),
+# ledger any file created (PEXP-015).

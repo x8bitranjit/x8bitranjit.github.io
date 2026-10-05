@@ -1,0 +1,7 @@
+<!-- Benign external DTD for xml_xxe_poc.xml - x8bitranjit lab style.
+   Safe PoC -> x8bitranjit
+     Proves external-entity resolution WITHOUT reading any file or making
+     any network request: the entity is plain text.
+     On an authorized target, the real XXE replaces this ENTITY with
+     SYSTEM "file://..." / "http://..." variants (see xml_xxe_poc.xml comments). -->
+<!ENTITY readme "Benign XXE proof: this text was resolved from the EXTERNAL DTD file xml_xxe_poc.dtd. If you can read this in parser output, external entities are enabled.">

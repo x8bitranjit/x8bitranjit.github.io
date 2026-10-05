@@ -1,0 +1,23 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Traversal-write -> SSH cash-out (authorized engagements only).
+#
+# WHAT THIS DEMONSTRATES: an arbitrary file WRITE (PathTraversal PT-011 /
+# FileUpload landing-path) becomes persistent server access by writing
+# ~/.ssh/authorized_keys - the web-RCE-to-SSH upgrade.
+#
+# WRITE TARGET: /home/<user>/.ssh/authorized_keys  (or /root/.ssh/ if root)
+# PRECONDITIONS (check first): PubkeyAuthentication yes (default) +
+# directory perms 700/.ssh, 600/authorized_keys (write both if needed).
+#
+# LINE TO APPEND (REPLACE with YOUR public key, YOUR test account):
+#   ssh-rsa AAAA...REPLACE-WITH-YOUR-PUBKEY... poc@x8bitranjit
+#
+# EXPERT FORM - restricted key (safer proof, less blast radius):
+#   command="echo 'Safe PoC -> x8bitranjit'; id",no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-rsa AAAA...REPLACE...
+#   -> SSH login runs ONLY the benign command and closes. Full proof, zero
+#   shell risk, self-documenting artifact.
+#
+# DISCIPLINE: your own key, your own lab/test account, removal line recorded
+# in the ledger (PEXP-015). In bug bounty: an arbitrary-write is the finding -
+# this file documents the cash-out for authorized red-team scope only.

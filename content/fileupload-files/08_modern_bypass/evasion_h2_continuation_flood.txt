@@ -1,0 +1,35 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# HTTP/2 CONTINUATION-flood WAF bypass - technique file (benign placeholders).
+# Authorized testing only. (WAFBypass kit FILTER-131.)
+#
+# WHY IT WORKS: the WAF assembles/inspects HEADERS with a size cap; the
+# origin accepts far larger header blocks. Splitting the malicious header
+# across CONTINUATION frames (END_HEADERS only on the last) means the WAF
+# never assembles the full header block -> request forwarded uninspected.
+#
+# WHAT TO EDIT: target -> your authorized target; payload header value.
+# ============================================================================
+
+# --- nghttp quick test (spread X-Payload over ~32-64KB of CONTINUATION) ------
+#   python3 gen_cont.py | nghttp -v --no-deploy https://target.com/api
+#
+# --- minimal python skeleton (hyper-h2 or raw frames) -------------------------
+#   preface: PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n + settings frame
+#   HEADERS frame (no END_HEADERS, partial :method/:path block)
+#   CONTINUATION frames x N carrying 'X-O: aaaa...<payload>...' (pad to ~48KB)
+#   final CONTINUATION with END_HEADERS -> origin sees complete valid request
+#
+# --- measurement pair (the proof) ---------------------------------------------
+#   same payload direct        -> 403 (WAF rule id in body)
+#   same payload via CONTINUATION -> 200 at origin = bypass proven
+#
+# --- variants ------------------------------------------------------------------
+#   rapid HEADERS+RST loops (CVE-2023-44487 class) = DoS - SCOPE GATE: only
+#   with explicit DoS authorization; for bounty use the CONTINUATION bypass
+#   (single request, no flood).
+#
+# --- who is affected -----------------------------------------------------------
+#   H2 edges that decode but cap header assembly (nginx default 8KB, various
+#   WAFs 16-32KB) behind origins accepting 64-256KB. Vendor advisories: 2024
+#   CONTINUATION-flood wave (AWS/Cloudflare/F5/Fortino/Imperva et al.).

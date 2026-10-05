@@ -1,0 +1,51 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# WINDOWS DEFENDER PROTECTION-SURFACE MAP (authorized engagements)
+# What each layer inspects, what it does NOT, and the MITRE ATT&CK mapping.
+# ============================================================================
+#
+# LAYER 1 - AMSI (Antimalware Scan Interface)
+#   Inspects: script CONTENT at runtime - PowerShell (v5+), VBScript/JScript,
+#   VBA macros (via AMSI provider), .NET 4.8+ assembly loads.
+#   Does NOT inspect: compiled native binaries, .NET <4.8 assemblies,
+#   PowerShell v2 (no AMSI), content already on disk unopened.
+#   Red-team relevance: T1059.001 (PowerShell) content-based blocking.
+#
+# LAYER 2 - Constrained Language Mode (CLM)
+#   Triggered by: AppLocker/WDAC script policy (not by Defender itself).
+#   Restricts: .NET types, COM, Add-Type, most reflection.
+#   Relevance: limits post-exploitation tooling on policy-enforced hosts.
+#   Check: $ExecutionContext.SessionState.LanguageMode
+#
+# LAYER 3 - Script Block Logging / Module Logging / Transcripts
+#   Event IDs: 4104 (script blocks, deobfuscated), 4103 (module pipeline),
+#   transcripts (where configured), 4688 command-line (Sysmon adds more).
+#   NOT an execution gate - it is the recording layer (deterrence + forensics).
+#
+# LAYER 4 - ASR (Attack Surface Reduction) rules
+#   Blocks: Office child-process abuse, script/LOLBin abuse classes, credential
+#   theft behaviors. Enforced by Defender engine; audited via
+#   Get-MpPreference AttackSurfaceReductionRules_Ids/_Actions.
+#   Relevance: T1218 family behaviors blocked by policy, not signatures.
+#
+# LAYER 5 - Engine + signatures + cloud-delivered protection
+#   File/hash/behavior verdicts; cloud lookups (MAPS); sample submission.
+#   Relevance: T1105 (tool transfer) artifacts, T1027 (obfuscation) detection.
+#
+# LAYER 6 - Tamper Protection
+#   Blocks: registry/service/cmdlet changes to Defender settings
+#   (Set-MpPreference -DisableRealtimeMonitoring etc. fail unless authorized
+#   via Intune/tenant policy). T1562.001 attempts are logged and blocked.
+#
+# LAYER 7 - Controlled Folder Access + Network Protection + PUA
+#   Ransomware-style write protection, malicious-URL filtering, PUA block.
+#
+# THE HONEST BASELINE (state this in every report):
+#   Modern Defender with tamper protection + cloud protection is a REAL gate.
+#   Public "one-liner bypass" folklore is years stale. The engagement approach
+#   is inventory first (see benign_inventory_probes.txt), then policy-gap
+#   findings (see asr_exclusions_audit.txt), then tradecraft only as the ROE
+#   allows - with the detection mirror (detection_mapping.txt) attached.
+#
+# KIT CROSS-REF: 04_rce_windows/ (execution batteries), 05_shells/,
+#                POST_EXPLOITATION_CHECKLIST PEXP-013 (detection-aware ops).

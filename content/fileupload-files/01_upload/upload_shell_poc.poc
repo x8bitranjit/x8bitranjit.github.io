@@ -1,0 +1,10 @@
+<%--
+  Safe PoC -> x8bitranjit
+  Benign marker page - executes when web.config (this folder) maps .poc to
+  PageBuildProvider. Proof text only - no commands, no exfil.
+--%>
+<%@ Page Language="C#" ContentType="text/plain" %>
+<%
+  Response.Write("Safe PoC -> x8bitranjit\n");
+  Response.Write("asp.net " + System.Environment.Version + " | " + Environment.MachineName);
+%>

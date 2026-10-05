@@ -1,0 +1,23 @@
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Arbitrary WRITE -> Windows execution cash-out (authorized engagements only).
+#
+# WHAT THIS DEMONSTRATES: a traversal-write primitive becomes code execution
+# by dropping into startup paths - the Windows mirror of the authorized_keys
+# write-cash-out (03_rce_linux).
+#
+# DROP TARGETS (user-level first - no admin needed):
+#   shell:startup  = %APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\
+#   -> C:\Users\<user>\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\poc.bat
+#   (runs at next logon for THAT user; no UAC, no admin)
+#
+# BENIGN .BAT CONTENT (proof artifact, logged + removed):
+#   @echo Safe PoC -> x8bitranjit > "%TEMP%\x8bit_safepoc.txt"
+#
+# FASTER TRIGGER (no logon wait, same user context):
+#   scheduled task you can create? schtasks /create /tn "SafePoC" /sc onlogon /tr "%TEMP%\poc.bat" (needs SchTasks right)
+#   .scf/.lnk planted in a browsed share -> NTLM capture route (windows_scf_ntlm_leak_poc.scf)
+#
+# DISCIPLINE: your own test user, ledger the file+removal (PEXP-015). In
+# bounty: the arbitrary-write is the finding - this documents authorized
+# red-team cash-out only.

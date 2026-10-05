@@ -1,0 +1,24 @@
+[Desktop Entry]
+# ============================================================================
+# Safe PoC -> x8bitranjit
+# Linux .desktop execution-on-open PoC (the Linux sibling of windows .hta/.scf).
+#
+# WHAT THIS DEMONSTRATES: a .desktop file in a Downloads folder / desktop /
+# browsed archive "opens" as an application launcher - double-click executes
+# Exec= WITHOUT a script bit, bypassing 'downloaded file is not executable'
+# assumptions. GNOME/KDE prompt differently (document the prompt per desktop).
+#
+# WHERE IT FIRES: file managers (Nautilus/Dolphin) with launcher trust;
+# extracted archives preserving the exec bit; email-delivered launchers.
+#
+# SHIPPED COMMAND IS BENIGN: opens a terminal echoing the marker.
+# ALLOWLIST REALITY: many distros mark downloaded .desktop untrusted
+# (metadata::trusted=false) - document the exact distro behavior in your
+# report (screenshots), do not claim silent execution.
+# ============================================================================
+Type=Application
+Name=SafePoC
+Comment=Safe PoC -> x8bitranjit (benign launcher PoC)
+Exec=/bin/echo "Safe PoC -> x8bitranjit"
+Terminal=true
+NoDisplay=false
