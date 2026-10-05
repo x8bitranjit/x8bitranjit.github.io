@@ -112,7 +112,7 @@ poc_files/
 │   ├── cswsh_poc.html                  cross-site WebSocket hijacking page
 │   ├── xsleaks_timing_poc.html         timing-oracle harness (medians+separation)
 │   └── oauth_callback_poc.html         redirect_uri collector (code/token capture)
-└── 12_api_attacks/                  ← API-layer attack batteries
+├── 12_api_attacks/                  ← API-layer attack batteries
     ├── graphql_batch_bypass.http        alias/array batching + BOLA + mass-assign
     ├── jwt_tamper_battery.txt           jwt_tool command matrix
     ├── lfi_php_wrappers_poc.http        php://filter chain -> data:// -> pearcmd
@@ -172,7 +172,7 @@ ATTACKER.example.invalid
 2. Ctrl+H (find & replace), enable case-sensitive.
 3. Find: `YOUR-OOB-HOST.example.invalid` → Replace: your listener hostname → Replace All.
 4. Find: `ATTACKER.example.invalid` → Replace: `your-ip:port` form if the file wants host+port (revshells) → Replace All.
-5. Also replace `target.com` / `https://target.example.invalid` with your authorized target.
+5. Also replace `target.example.invalid` with your authorized target (URL line and `Host:` header).
 6. Save. Then verify: search the file for `example.invalid` — **zero matches = ready** (except this README).
 
 ### Step 2 — the binary files (placeholders live INSIDE image chunks)
@@ -195,7 +195,7 @@ All other images/GIFs/PDFs ship **zero-edit** (benign payloads already baked in)
 
 ### Step 3 — `.http` batteries (03/04/08/12 folders)
 1. Open in VS Code with the "REST Client" extension (or paste a single request into Burp Repeater).
-2. Replace every `target.com` with your authorized target (one per line, `Host:` header AND the URL line).
+2. Replace every `target.example.invalid` with your authorized target (one per line, `Host:` header AND the URL line).
 3. Replace the `YOUR-OOB-HOST.example.invalid` in the OOB rows.
 4. For multi-step files: send requests **top-to-bottom** — each is numbered and the first that "fires" decides the next step (comments in the file guide you).
 5. `12_api_attacks/sqlmap_request_template.txt` is a single clean request: edit target/param, then run `sqlmap -r sqlmap_request_template.txt --batch --level=3`.
@@ -209,7 +209,7 @@ All other images/GIFs/PDFs ship **zero-edit** (benign payloads already baked in)
 ### Step 5 — XXE pairs (edit BOTH files consistently)
 1. `02_ssrf/xxe_oob_beacon.xml` + `xxe_oob_beacon.dtd` — the XML fetches the DTD; the DTD beacons back.
 2. Replace the placeholder in **both** files (2 occurrences each) with your listener.
-3. Serve the `.dtd` from the SAME listener host the XML points at (interactsh serves DNS/HTTP but not arbitrary files — host the DTD on your VPS or use Burp Collaborator's HTTP + a manual server).
+3. Serve the `.dtd` from the SAME listener host the XML points at, under the exact path the XML fetches: `http://<listener>/xxe_oob_beacon.dtd` (interactsh serves DNS/HTTP but not arbitrary files — host the DTD on your VPS or use Burp Collaborator's HTTP + a manual server).
 4. Deliver the XML through the target's XML importer → two-stage callback: DTD fetch, then the content beacon.
 
 ### Step 6 — config uploads (`01_upload/`)
@@ -278,7 +278,7 @@ Each artifact defeats a different defense layer; run them as a sequence:
 
 | File | Demonstrates | What to edit | How to confirm |
 |---|---|---|---|
-| `cmdi_linux_poc.http` | separator/substitution/newline battery + IFS + quote evasion + time + OOB | `target.com` + parameter | `uid=` output / delay / OOB |
+| `cmdi_linux_poc.http` | separator/substitution/newline battery + IFS + quote evasion + time + OOB | `target.example.invalid` + parameter | `uid=` output / delay / OOB |
 | `shellshock_linux_poc.http` | CVE-2014-6271 header trailers on CGI | target + CGI path | marker/`id` or OOB |
 | `linux_wildcard_tar_poc.txt` | **filename-as-argument injection** — `touch -- '--checkpoint=1' '--checkpoint-action=exec=sh shell.sh'` in dirs a `tar *` job globs | the filenames themselves (script = benign echo) | marker in next job cycle |
 | `linux_git_hooks_poc.txt` | `.git/hooks/post-checkout` executes on platforms that clone user repos | commit the hook (benign echo) | build/preview log or OOB |
@@ -290,7 +290,7 @@ Each artifact defeats a different defense layer; run them as a sequence:
 |---|---|---|---|
 | `cmdi_windows_poc.http` | cmd.exe battery: `&`/`\|`/`\|\|`, caret evasion, `%COMSPEC:~-7,3%`, `FOR /F`, PowerShell | target + parameter | `whoami`/`Windows_NT` or OOB |
 | `windows_wmic_xsl_rce_poc.http` | **WMIC `/format:` remote-XSL execution** — signed LOLBin fetches AND runs your XSL; also via argument-injection `format=` params and after file-write | target + parameter; OOB host | OOB callback + (authorized) marker echo |
-| `windows_wmic_format_poc.xsl` | the benign XSL (echo marker) — serve it at your listener | nothing | fetched when wmic fires |
+| `windows_wmic_format_poc.xsl` | the benign XSL (echo marker) — serve it at your listener | nothing | fetched AND executed (benign echo runs) when wmic fires |
 | `windows_scf_ntlm_leak_poc.scf` | Explorer NTLMv2 leak on folder view (shipped benign → localhost) | localhost → Responder host | Responder auth event |
 | `windows_startup_folder_poc.txt` | arbitrary-write → user Startup folder `.bat` cash-out | the .bat content (benign echo to %TEMP%) | marker file at next logon |
 
@@ -331,7 +331,7 @@ Each artifact defeats a different defense layer; run them as a sequence:
 
 | File | Demonstrates | What to edit | How to confirm |
 |---|---|---|---|
-| `evasion_waf_json_dup_keys.http` | **JSON duplicate-key parser differential** — WAF validates first value, backend takes last; case-dup + unicode-escape key variants | `target.com` + endpoint | naive 403 vs dup-key 200 (same payload) |
+| `evasion_waf_json_dup_keys.http` | **JSON duplicate-key parser differential** — WAF validates first value, backend takes last; case-dup + unicode-escape key variants | `target.example.invalid` + endpoint | naive 403 vs dup-key 200 (same payload) |
 | `evasion_waf_content_encoding.http` | **gzip body bypass** — embeds a REAL gzip (base64) of the payload; WAF scans compressed bytes, app decompresses after | decode the embedded GZB64 + target | plain 403 vs gzip 200 |
 | `evasion_waf_unicode_normalization.http` | fullwidth `；`, zero-width joiners, homoglyphs, `..%c0%af`, ideographic separators, `\u003c` in JSON | target + parameter | blocked-token reassembly post-normalization |
 | `evasion_h2_continuation_flood.txt` | HTTP/2 CONTINUATION header-split — malicious header spread over frames past the WAF's assembly cap (technique + nghttp/python skeleton; DoS variant scope-gated) | target + payload header | direct 403 vs CONTINUATION 200 |
@@ -379,6 +379,29 @@ Every image now shows a **visible banner card** when you open it — so nobody m
 3. Enumerate consumers of the image: thumbnail/convert pipeline (ImageMagick rows), metadata listings (XSS rows), XMP/XML parsers (XXE row), galleries rendering comments (COM rows).
 4. Trigger the matching consumer and confirm with the described signal (embedded content / OOB callback / alert in app origin).
 5. Clean up planted files (ledger, PEXP-015).
+
+### `11_bounty_pages/` — attacker-hosted HTML pages (the deliverables)
+
+| File | Demonstrates | What to edit | How to confirm |
+|---|---|---|---|
+| `cors_exfil_poc.html` | credentialed cross-origin read → beacon (CORS misconfig rows) | `target.example.invalid` (victim API) + `attacker.example.invalid` (collector) | collector receives the resource payload |
+| `csrf_autosubmit_poc.html` | auto-submitting cross-site PoC form | victim endpoint + field names | state change on the logged-in test account |
+| `cswsh_poc.html` | cross-site WebSocket hijacking | victim `ws(s)://` endpoint + collector | collector receives WS data |
+| `xsleaks_timing_poc.html` | timing-oracle harness (medians + separation; credentialed no-cors fetch loop) | victim endpoint pair | separation signal above threshold |
+| `oauth_callback_poc.html` | `redirect_uri` collector — code/token capture | your redirect_uri + collector | captured code/token in collector log |
+
+Host on YOUR origin, run against your own two accounts first (two-account discipline), then the intended context per the kit row.
+
+### `12_api_attacks/` — API-layer attack batteries
+
+| File | Demonstrates | What to edit | How to confirm |
+|---|---|---|---|
+| `graphql_batch_bypass.http` | alias/array batching rate-limit bypass, alias enumeration + BOLA proofs, mass-assignment via input object | `target.example.invalid` + endpoint + real field names from introspection | batched response performs N ops / returns another user's object |
+| `jwt_tamper_battery.txt` | jwt_tool command matrix: alg:none, RS256→HS256 confusion, kid injection, jku/x5u → attacker-hosted JWKS | `$TOKEN` → captured token; serve `jwks.json` at your OOB host for the jku/x5u rows | forged token accepted |
+| `lfi_php_wrappers_poc.http` | php://filter chains → data:// → expect:// → pearcmd → log poisoning | `target.example.invalid` + `page` param | decoded source / marker execution / session content |
+| `host_header_poison_poc.http` | password-reset poisoning, web cache poisoning, routing SSRF (incl. userinfo-bypass Host forms) | `target.example.invalid` (+ collector) | poisoned link/cache serves collector content |
+| `sqlmap_request_template.txt` | clean single request for `sqlmap -r` / ghauri | target + path/param | tool confirms injection |
+| `README_KEEP` | folder note (edit-discipline reminder) | — | — |
 
 ## 5. OS detection first (which RCE battery to run)
 

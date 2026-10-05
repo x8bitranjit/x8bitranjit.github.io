@@ -12,7 +12,7 @@
 # ============================================================================
 
 # --- nghttp quick test (spread X-Payload over ~32-64KB of CONTINUATION) ------
-#   python3 gen_cont.py | nghttp -v --no-deploy https://target.com/api
+#   python3 gen_cont.py | nghttp -v --no-deploy https://target.example.invalid/api
 #
 # --- minimal python skeleton (hyper-h2 or raw frames) -------------------------
 #   preface: PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n + settings frame

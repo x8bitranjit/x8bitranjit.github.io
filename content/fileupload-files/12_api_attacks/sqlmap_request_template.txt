@@ -1,5 +1,5 @@
 GET /api/ping?host=127.0.0.1* HTTP/1.1
-Host: target.com
+Host: target.example.invalid
 User-Agent: Mozilla/5.0 (SQLMap-compatible)
 Accept: */*
 Connection: close
@@ -10,7 +10,7 @@ Connection: close
   separators - tools want ONE request). The trailing * marks the injection
   point (sqlmap custom-marking syntax).
 
-  WHAT TO EDIT: target.com + path/param. Then:
+  WHAT TO EDIT: target.example.invalid + path/param. Then:
     sqlmap -r sqlmap_request_template.txt --batch --level=3 --risk=2
     ghauri -r sqlmap_request_template.txt --confirm
   Discipline: --batch with bounded techniques; never --dump on prod

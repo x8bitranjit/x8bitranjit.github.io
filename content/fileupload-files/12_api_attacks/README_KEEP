@@ -2,4 +2,4 @@ Safe PoC -> x8bitranjit
 This folder: API-layer attack batteries (GraphQL batching, JWT tamper matrix,
 LFI wrapper chain, Host-header poisoning, sqlmap-ready request).
 All .http files: paste into Burp Repeater / VS Code REST Client.
-Edit target.com + parameters; OOB placeholders use .invalid (inert as shipped).
+Edit target.example.invalid + parameters; OOB placeholders use .invalid (inert as shipped).
