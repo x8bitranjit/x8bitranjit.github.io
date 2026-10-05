@@ -6,7 +6,7 @@
 
 READER                    | PDF JavaScript (/OpenAction /AA) | Notes
 --------------------------|----------------------------------|-----------------------------
-Adobe Acrobat/Reader      | EXECUTES on open                 | your pdf_xss_poc_open_on_view.pdf target; JS in READER context (file://-like), NOT the app origin
+Adobe Acrobat/Reader      | EXECUTES on open                 | a reader-targeted PDF you build yourself (not shipped here); JS in READER context (file://-like), NOT the app origin
 Chrome/Edge (PDFium)      | NO (script engine disabled)      | renders only; sandboxed renderer process
 Firefox (PDF.js)          | NO (pdf.js does not run PDF JS)  | but pdf.js ITSELF had parser/annotation XSS advisories -> check embedded version (DOCA-006)
 macOS Preview             | NO                               | no JS engine
